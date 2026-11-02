@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Runtime secrets & browser state — NEVER commit
+auth.json
+sf_profile/
+data/
+
+# Diagnostics artifacts
+error.png
+diag.png
+popup.png
+diag*.py
+
+# Databases
+*.db
+*.sqlite3
+
+# macOS
+.DS_Store
