@@ -15,6 +15,10 @@ diag.png
 popup.png
 diag*.py
 
+# Node
+node_modules/
+frontend/dist/
+
 # Databases
 *.db
 *.sqlite3

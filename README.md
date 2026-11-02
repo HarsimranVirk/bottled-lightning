@@ -16,28 +16,31 @@ through the Salesforce UI the same way a user would, and stores results.
 
 ## Setup (Python 3.9+)
 
-    python3 -m pip install --user -r requirements.txt
-    python3 -m playwright install chromium
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install -r requirements.txt
+    playwright install chromium    # first time only
 
-One-time login (opens a browser window; saves session to `sf_profile/` +
-`auth.json`):
+One-time login (opens a browser window; saves session to `data/sf_profile` +
+`data/auth.json`):
 
-    python3 -m app.browser --login
+    python -m app.browser --login
 
 Run the webapp:
 
-    python3 -m uvicorn app.main:app --port 8765
-    # open http://127.0.0.1:8765
+    uvicorn app.main:app --port 8765
+    # frontend: see frontend/ (Vite) — `npm run dev` proxies /api to :8765
 
 ## Layout
 
-    app/main.py        FastAPI app serving API + static UI
-    app/config.py      settings (org base URL, view admin URL, data dir)
+    app/main.py        FastAPI app serving API
+    app/config.py      settings (org base URL, data dir)
     app/browser.py     Playwright session manager + login CLI
     app/extractors.py  extraction strategies (printable view, scroll scan)
+    app/jobs.py        thread-pool job runner
     app/store.py       SQLite persistence (views, jobs, rows)
     app/routes.py      REST endpoints
-    web/index.html     no-build static frontend
+    frontend/          React (Vite) SPA; /api proxied to the backend
 
 ## API
 
