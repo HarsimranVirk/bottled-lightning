@@ -1,4 +1,8 @@
-"""SQLite persistence: tracked views, job history, extracted rows."""
+"""SQLite persistence (data/app.db) — the app's general-purpose store.
+
+Tables: views, jobs, job_rows, latest_values, session_events, sessions
+(auth snapshots). Thread-local connections; WAL mode.
+"""
 import json
 import sqlite3
 import threading
@@ -52,6 +56,41 @@ CREATE TABLE IF NOT EXISTS latest_values (
     first_seen TEXT NOT NULL,
     last_seen  TEXT NOT NULL,
     PRIMARY KEY(view_id, value)
+);
+CREATE TABLE IF NOT EXISTS session_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    event      TEXT NOT NULL,            -- login_started|login_success|login_failed|login_timed_out|session_reset
+    detail     TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    org           TEXT NOT NULL,
+    storage_state TEXT NOT NULL,         -- Playwright storage_state JSON (contains live sid cookie)
+    cookie_count  INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS deviation_details (
+    value          TEXT PRIMARY KEY,     -- deviation number, e.g. Deviation-28102026-484106
+    record_id      TEXT,                 -- Salesforce record key (a2fS...)
+    record_url     TEXT,                 -- /lightning/r/.../view
+    description    TEXT,                 -- raw 'Loan Deviation Description' block
+    property_value TEXT,
+    loan_amount    TEXT,
+    tenure         TEXT,
+    emi            TEXT,
+    scraped_at     TEXT,
+    decision       TEXT NOT NULL DEFAULT 'pending',  -- pending|accept|reject
+    decided_at     TEXT
+);
+CREATE TABLE IF NOT EXISTS deviation_page_refs (
+    value      TEXT NOT NULL REFERENCES deviation_details(value),
+    seq        INTEGER NOT NULL,         -- ordering for traversal workflows
+    name       TEXT NOT NULL,            -- human label (Opportunity, SD contract, ...)
+    kind       TEXT NOT NULL,            -- record|opportunity|service|custom — extensible
+    url        TEXT NOT NULL,            -- page reference (relative lightning URL ok)
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (value, seq)
 );
 """
 
@@ -170,3 +209,142 @@ def job_rows(job_id: int) -> List[Dict[str, Any]]:
         (job_id,),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+# --- session events -----------------------------------------------------------
+def record_session_event(event: str, detail: str = "") -> Dict[str, Any]:
+    conn = _conn()
+    cur = conn.execute(
+        "INSERT INTO session_events(event, detail, created_at) VALUES (?,?,?)",
+        (event, detail, now_iso()),
+    )
+    conn.commit()
+    row = _conn().execute("SELECT * FROM session_events WHERE id=?", (cur.lastrowid,)).fetchone()
+    return dict(row)
+
+
+def last_session_event(event: str) -> Optional[Dict[str, Any]]:
+    row = _conn().execute(
+        "SELECT * FROM session_events WHERE event=? ORDER BY id DESC LIMIT 1", (event,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def list_session_events(limit: int = 10) -> List[Dict[str, Any]]:
+    rows = _conn().execute(
+        "SELECT * FROM session_events ORDER BY id DESC LIMIT ?", (limit,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# --- auth session snapshot (DB is authoritative; auth.json is legacy) ---------
+def set_auth_snapshot(storage_state: str, org: Optional[str] = None) -> int:
+    """Persist a Playwright storage_state JSON blob as the current session."""
+    try:
+        cookie_count = len(json.loads(storage_state).get("cookies", []))
+    except (ValueError, AttributeError):
+        cookie_count = 0
+    conn = _conn()
+    cur = conn.execute(
+        "INSERT INTO sessions(org, storage_state, cookie_count, created_at)"
+        " VALUES (?,?,?,?)",
+        (org or config.ORG_BASE, storage_state, cookie_count, now_iso()),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_auth_snapshot() -> Optional[Dict[str, Any]]:
+    """Latest stored session row (raw storage_state JSON included)."""
+    row = _conn().execute(
+        "SELECT id, org, storage_state, cookie_count, created_at"
+        " FROM sessions ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def clear_auth_snapshot() -> int:
+    conn = _conn()
+    cur = conn.execute("DELETE FROM sessions")
+    conn.commit()
+    return cur.rowcount
+
+
+# --- deviation details + page refs --------------------------------------------
+def upsert_deviation_detail(value: str, *, record_id: Optional[str] = None,
+                            record_url: Optional[str] = None,
+                            description: Optional[str] = None,
+                            property_value: Optional[str] = None,
+                            loan_amount: Optional[str] = None,
+                            tenure: Optional[str] = None,
+                            emi: Optional[str] = None) -> None:
+    conn = _conn()
+    conn.execute(
+        "INSERT INTO deviation_details(value) VALUES (?)"
+        " ON CONFLICT(value) DO NOTHING", (value,))
+    data: Dict[str, Any] = {"scraped_at": now_iso()}
+    for key, val in (("record_id", record_id), ("record_url", record_url),
+                     ("description", description),
+                     ("property_value", property_value),
+                     ("loan_amount", loan_amount), ("tenure", tenure),
+                     ("emi", emi)):
+        if val is not None:
+            data[key] = val
+    if len(data) > 1:
+        sets = ", ".join(f"{k}=?" for k in data)
+        conn.execute(f"UPDATE deviation_details SET {sets} WHERE value=?",
+                     (*data.values(), value))
+    conn.commit()
+
+
+def set_deviation_decision(value: str, decision: str) -> None:
+    assert decision in ("pending", "accept", "reject")
+    conn = _conn()
+    conn.execute(
+        "INSERT INTO deviation_details(value) VALUES (?)"
+        " ON CONFLICT(value) DO NOTHING", (value,))
+    decided = None if decision == "pending" else now_iso()
+    conn.execute(
+        "UPDATE deviation_details SET decision=?, decided_at=? WHERE value=?",
+        (decision, decided, value))
+    conn.commit()
+
+
+def get_deviation_details(value: str) -> Optional[Dict[str, Any]]:
+    row = _conn().execute(
+        "SELECT * FROM deviation_details WHERE value=?", (value,)).fetchone()
+    return dict(row) if row else None
+
+
+def count_pending_details(pending_only: bool = True) -> List[Dict[str, Any]]:
+    """Values with a description scraped but not yet decided (deck queue)."""
+    sql = ("SELECT d.*, l.first_seen, l.last_seen FROM deviation_details d"
+           " LEFT JOIN latest_values l ON l.value = d.value")
+    if pending_only:
+        sql += " WHERE d.decision='pending'"
+    rows = _conn().execute(sql).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_deviation_page_ref(value: str, seq: int, name: str, kind: str,
+                             url: str) -> None:
+    conn = _conn()
+    conn.execute(
+        "INSERT INTO deviation_page_refs(value, seq, name, kind, url, created_at)"
+        " VALUES (?,?,?,?,?,?)"
+        " ON CONFLICT(value, seq) DO UPDATE SET name=excluded.name,"
+        " kind=excluded.kind, url=excluded.url",
+        (value, seq, name, kind, url, now_iso()))
+    conn.commit()
+
+
+def get_deviation_page_refs(value: str) -> List[Dict[str, Any]]:
+    rows = _conn().execute(
+        "SELECT seq, name, kind, url FROM deviation_page_refs"
+        " WHERE value=? ORDER BY seq", (value,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+if __name__ == "__main__":
+    init_db()
+    print(f"sqlite initialized: {config.DB_PATH}")

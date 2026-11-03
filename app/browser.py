@@ -16,7 +16,7 @@ from typing import Optional
 
 from playwright.sync_api import sync_playwright
 
-from . import config
+from . import config, store
 
 
 def _is_logged_in(url: str) -> bool:
@@ -26,8 +26,10 @@ def _is_logged_in(url: str) -> bool:
 class SalesforceSession:
     """Owns a Playwright browser context for one job run."""
 
-    def __init__(self, headless: bool = True):
+    def __init__(self, headless: bool = True,
+                 profile_dir: Optional[Path] = None):
         self.headless = headless
+        self.profile_dir = profile_dir or config.PROFILE_DIR
         self._pw = None
         self.ctx = None
         self.page = None
@@ -38,13 +40,20 @@ class SalesforceSession:
         if not self.headless:
             args += ["--start-maximized", "--window-size=1920,1080"]
         self.ctx = self._pw.chromium.launch_persistent_context(
-            str(config.PROFILE_DIR),
+            str(self.profile_dir),
             headless=self.headless,
             no_viewport=not self.headless,
             args=args,
         )
-        if config.AUTH_FILE.exists():
+        snapshot = store.get_auth_snapshot()
+        if snapshot:
+            state = json.loads(snapshot["storage_state"])
+        elif config.AUTH_FILE.exists():
+            # legacy pre-DB snapshot file (kept for backward compatibility)
             state = json.loads(config.AUTH_FILE.read_text())
+        else:
+            state = None
+        if state:
             self.ctx.add_cookies(state.get("cookies", []))
         self.page = self.ctx.new_page()
         return self
@@ -63,11 +72,23 @@ class SalesforceSession:
                 pass
             self._pw = None
 
+    def __enter__(self):
+        # `with` implies a live browser; jobs.py/do_manual_login both call
+        # methods (ensure_logged_in / open) without ever calling start().
+        if self.page is None or self.ctx is None:
+            self.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
+
     # --- session snapshots -------------------------------------------------
     def save_snapshot(self) -> None:
+        """Store the storage_state in SQLite (authoritative session store)."""
         try:
-            config.AUTH_FILE.write_text(json.dumps(self.ctx.storage_state()))
-        except Exception as e:  # non-fatal
+            store.set_auth_snapshot(json.dumps(self.ctx.storage_state()))
+        except Exception as e:  # non-fatal: job keeps running
             print(f"! snapshot save failed: {e}", file=sys.stderr)
 
     # --- navigation --------------------------------------------------------
@@ -117,7 +138,7 @@ def do_manual_login(reset: bool = False) -> bool:
         print(f"-> log in manually in the browser window (waiting up to "
               f"{config.LOGIN_WAIT_SECONDS}s)...")
         if s.wait_logged_in(config.LOGIN_WAIT_SECONDS):
-            print(f"-> logged in; snapshot saved to {config.AUTH_FILE}")
+            print("-> logged in; session snapshot saved to sqlite (data/app.db)")
             return True
         print("!! timed out waiting for manual login")
         return False

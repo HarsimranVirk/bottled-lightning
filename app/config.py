@@ -21,3 +21,9 @@ LIST_URL_TEMPLATE = "{host}/lightning/o/{object_api}/list?filterName={filter}"
 
 REQUEST_TIMEOUT_MS = 60_000
 LOGIN_WAIT_SECONDS = 600
+
+SCRAPE_WORKERS = int(os.environ.get("SF_SCRAPE_WORKERS", "3"))
+
+# Server host/port (badly-named env prefix kept for consistency)
+HOST = os.environ.get("SF_HOST", "0.0.0.0")  # 0.0.0.0 → reachable on LAN
+PORT = int(os.environ.get("SF_PORT", "8765"))

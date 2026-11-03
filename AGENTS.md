@@ -1,4 +1,4 @@
-# AGENTS.md — Salesforce UI Automation Webapp
+# AGENTS.md — bottled-lightning
 
 Guidance for agents (and humans) working in this repository. Read this before
 touching anything.
@@ -7,8 +7,10 @@ touching anything.
 
 A local FastAPI + Playwright webapp that extracts data from Salesforce
 Lightning list views we don't have REST API access to. Backend is Python
-(threads, SQLite); the React (Vite) frontend is **paused** — workflows/backed
-automation comes first.
+(threads, SQLite). The React (Vite) frontend uses J.P. Morgan's open-source
+**Salt DS** design system (`@salt-ds/core`, `@salt-ds/theme`, `@salt-ds/icons`);
+the home page handles session auth (manual-login trigger, snapshot status,
+localStorage mirror).
 
 ## Critical Salesforce org facts (learned through many failures — trust these)
 
@@ -19,8 +21,10 @@ automation comes first.
    automation is impossible for this user. Do not retry this path.
 2. **`sid` cookies are session-only.** Salesforce drops them on every browser
    restart. The ONLY way to survive restarts is snapshotting via Playwright's
-   `storage_state()` right after a manual login, saving to `data/auth.json`,
-   and injecting those cookies (`ctx.add_cookies`) at every launch.
+   `storage_state()` right after a manual login and injecting those cookies
+   (`ctx.add_cookies`) at every launch. The snapshot is stored in the
+   **`sessions` table of `data/app.db`** (authoritative store); the old
+   file-based `data/auth.json` is still read as a legacy fallback.
 3. **Extraction must use Playwright's selector engine** (`get_by_text`,
    locators). This org runs Lightning in a mode where `document.*` JS sees
    almost nothing of the data table (locked/synthetic shadow DOM);
@@ -41,13 +45,25 @@ automation comes first.
 7. **Cross-check always:** the list header shows "N items". Report (and flag)
    a mismatch when extracted count ≠ N. This caught our worst failures.
 
+## Workflow notes (deviation deck)
+
+4. The bare "EMI-" line in the description is the **pre-calculated EMI** —
+   it must NOT be stored. The deck's EMI field is **"EMI & other fixed
+   payments incl. HFFC Loan"**, parsed from the `EMIs & other …-…` line
+   (both `EMIs & other fixed pmts inc HFFC Loan-…` and
+   `EMIs & other HFFC Loan-…` shapes occur). Amount fields display Indian
+   grouping (25,50,000); tenure is stored in months.
+
 ## Architecture
 
     app/config.py      settings (org URLs, data dir; env-overridable)
     app/browser.py     Playwright session manager + `python -m app.browser --login`
-    app/extractors.py  strategies: printable view (primary), scroll (fallback)
+    app/extractors.py  strategies: printable view (primary), Show-more +
+                       scroll drain (fallback); count cross-check vs header
     app/jobs.py        ThreadPool job runner (serial: 1 browser at a time)
-    app/store.py       SQLite (stdlib sqlite3): views, jobs, job_rows, latest_values
+    app/store.py       SQLite (data/app.db — general-purpose store): views,
+                       jobs, job_rows, latest_values, session_events,
+                       sessions (auth snapshots)
     app/routes.py      REST endpoints under /api
     app/main.py        FastAPI app
     frontend/          React (Vite) scaffold — DO NOT develop right now
@@ -56,7 +72,11 @@ automation comes first.
 ## Commands
 
     source .venv/bin/activate
-    uvicorn app.main:app --port 8765        # backend
+    python -m app.main                     # backend on 0.0.0.0:8765 (init DB, print LAN URL)
+
+Equivalent direct uvicorn form (DB auto-inits on startup either way):
+
+    uvicorn app.main:app --host 0.0.0.0 --port 8765
     python -m app.browser --login           # one manual login when session expires
     python app.browser --login --reset      # nuke saved session and re-login
 
@@ -65,9 +85,12 @@ saved session — run the manual login once; snapshots refresh automatically.
 
 ## Rules
 
-- NEVER commit `data/`, `auth.json`, `sf_profile/` (contains a live session
-  token — equivalent to the account password).
+- NEVER commit `data/` (the whole dir is gitignored): `app.db` now contains
+  the live session token (sessions table) — equivalent to the account
+  password. Same for `auth.json` leftovers and `sf_profile/`.
 - Keep Python 3.9 compatibility (`Optional[int]`, not `int | None`).
+- Frontend dev is limited to home/auth (views/jobs UI not built yet) — backend
+  workflows still come first.
 - Playwright sync API is used; jobs run in worker threads. Don't use
   asyncio APIs here without a redesign discussion.
 - Don't expand the frontend until the backend workflows are done and stable.

@@ -1,4 +1,7 @@
-# Salesforce UI Automation Webapp
+# bottled-lightning
+
+Salesforce UI Automation Webapp — captures data out of Lightning and pours it
+into SQLite.
 
 Extract data from Salesforce Lightning list views without admin access to the
 org's REST API. A Python (FastAPI) backend drives a headless Playwright browser
@@ -26,9 +29,10 @@ One-time login (opens a browser window; saves session to `data/sf_profile` +
 
     python -m app.browser --login
 
-Run the webapp:
+Run the webapp (reachable on the local network):
 
-    uvicorn app.main:app --port 8765
+    python -m app.main                      # binds 0.0.0.0:8765 and prints the LAN URL
+    # or: uvicorn app.main:app --host 0.0.0.0 --port 8765
     # frontend: see frontend/ (Vite) — `npm run dev` proxies /api to :8765
 
 ## Layout
@@ -40,7 +44,7 @@ Run the webapp:
     app/jobs.py        thread-pool job runner
     app/store.py       SQLite persistence (views, jobs, rows)
     app/routes.py      REST endpoints
-    frontend/          React (Vite) SPA; /api proxied to the backend
+    frontend/          React (Vite) + Salt DS SPA; /api proxied to the backend
 
 ## API
 
@@ -51,7 +55,9 @@ Run the webapp:
     GET    /api/jobs/{id}                 one job (+ row counts)
     GET    /api/views/{id}/results        latest extracted rows for a view
     GET    /api/views/{id}/results.csv    CSV download
-    GET    /api/session                   login session status
+    GET    /api/session                  session snapshot status + login state
+    POST   /api/session/login {?reset}   open headful manual login; 202, then poll /api/session
+    POST   /api/session/reset            delete saved snapshot + browser profile
 
 ## Session lifecycle
 
