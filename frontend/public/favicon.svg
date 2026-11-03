@@ -1,1 +1,236 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="48" height="46" fill="none" viewBox="0 0 48 46"><path fill="#863bff" d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z" style="fill:#863bff;fill:color(display-p3 .5252 .23 1);fill-opacity:1"/><mask id="a" width="48" height="46" x="0" y="0" maskUnits="userSpaceOnUse" style="mask-type:alpha"><path fill="#000" d="M25.842 44.938c-.664.844-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.183c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.498 0-3.579-1.842-3.579H1.133c-.92 0-1.456-1.04-.92-1.787L9.91.473c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.578 1.842 3.578h11.377c.943 0 1.473 1.088.89 1.832L25.843 44.94z" style="fill:#000;fill-opacity:1"/></mask><g mask="url(#a)"><g filter="url(#b)"><ellipse cx="5.508" cy="14.704" fill="#ede6ff" rx="5.508" ry="14.704" style="fill:#ede6ff;fill:color(display-p3 .9275 .9033 1);fill-opacity:1" transform="matrix(.00324 1 1 -.00324 -4.47 31.516)"/></g><g filter="url(#c)"><ellipse cx="10.399" cy="29.851" fill="#ede6ff" rx="10.399" ry="29.851" style="fill:#ede6ff;fill:color(display-p3 .9275 .9033 1);fill-opacity:1" transform="matrix(.00324 1 1 -.00324 -39.328 7.883)"/></g><g filter="url(#d)"><ellipse cx="5.508" cy="30.487" fill="#7e14ff" rx="5.508" ry="30.487" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(89.814 -25.913 -14.639)scale(1 -1)"/></g><g filter="url(#e)"><ellipse cx="5.508" cy="30.599" fill="#7e14ff" rx="5.508" ry="30.599" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(89.814 -32.644 -3.334)scale(1 -1)"/></g><g filter="url(#f)"><ellipse cx="5.508" cy="30.599" fill="#7e14ff" rx="5.508" ry="30.599" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="matrix(.00324 1 1 -.00324 -34.34 30.47)"/></g><g filter="url(#g)"><ellipse cx="14.072" cy="22.078" fill="#ede6ff" rx="14.072" ry="22.078" style="fill:#ede6ff;fill:color(display-p3 .9275 .9033 1);fill-opacity:1" transform="rotate(93.35 24.506 48.493)scale(-1 1)"/></g><g filter="url(#h)"><ellipse cx="3.47" cy="21.501" fill="#7e14ff" rx="3.47" ry="21.501" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(89.009 28.708 47.59)scale(-1 1)"/></g><g filter="url(#i)"><ellipse cx="3.47" cy="21.501" fill="#7e14ff" rx="3.47" ry="21.501" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(89.009 28.708 47.59)scale(-1 1)"/></g><g filter="url(#j)"><ellipse cx=".387" cy="8.972" fill="#7e14ff" rx="4.407" ry="29.108" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(39.51 .387 8.972)"/></g><g filter="url(#k)"><ellipse cx="47.523" cy="-6.092" fill="#7e14ff" rx="4.407" ry="29.108" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(37.892 47.523 -6.092)"/></g><g filter="url(#l)"><ellipse cx="41.412" cy="6.333" fill="#47bfff" rx="5.971" ry="9.665" style="fill:#47bfff;fill:color(display-p3 .2799 .748 1);fill-opacity:1" transform="rotate(37.892 41.412 6.333)"/></g><g filter="url(#m)"><ellipse cx="-1.879" cy="38.332" fill="#7e14ff" rx="4.407" ry="29.108" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(37.892 -1.88 38.332)"/></g><g filter="url(#n)"><ellipse cx="-1.879" cy="38.332" fill="#7e14ff" rx="4.407" ry="29.108" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(37.892 -1.88 38.332)"/></g><g filter="url(#o)"><ellipse cx="35.651" cy="29.907" fill="#7e14ff" rx="4.407" ry="29.108" style="fill:#7e14ff;fill:color(display-p3 .4922 .0767 1);fill-opacity:1" transform="rotate(37.892 35.651 29.907)"/></g><g filter="url(#p)"><ellipse cx="38.418" cy="32.4" fill="#47bfff" rx="5.971" ry="15.297" style="fill:#47bfff;fill:color(display-p3 .2799 .748 1);fill-opacity:1" transform="rotate(37.892 38.418 32.4)"/></g></g><defs><filter id="b" width="60.045" height="41.654" x="-19.77" y="16.149" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="7.659"/></filter><filter id="c" width="90.34" height="51.437" x="-54.613" y="-7.533" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="7.659"/></filter><filter id="d" width="79.355" height="29.4" x="-49.64" y="2.03" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="e" width="79.579" height="29.4" x="-45.045" y="20.029" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="f" width="79.579" height="29.4" x="-43.513" y="21.178" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="g" width="74.749" height="58.852" x="15.756" y="-17.901" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="7.659"/></filter><filter id="h" width="61.377" height="25.362" x="23.548" y="2.284" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="i" width="61.377" height="25.362" x="23.548" y="2.284" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="j" width="56.045" height="63.649" x="-27.636" y="-22.853" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="k" width="54.814" height="64.646" x="20.116" y="-38.415" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="l" width="33.541" height="35.313" x="24.641" y="-11.323" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="m" width="54.814" height="64.646" x="-29.286" y="6.009" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="n" width="54.814" height="64.646" x="-29.286" y="6.009" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="o" width="54.814" height="64.646" x="8.244" y="-2.416" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter><filter id="p" width="39.409" height="43.623" x="18.713" y="10.588" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur result="effect1_foregroundBlur_2002_17158" stdDeviation="4.596"/></filter></defs></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E0F7FF" stop-opacity=".55"/>
+      <stop offset=".2" stop-color="#38BDF8" stop-opacity=".12"/>
+      <stop offset=".55" stop-color="#0755D9" stop-opacity=".24"/>
+      <stop offset=".8" stop-color="#00BFFF" stop-opacity=".2"/>
+      <stop offset="1" stop-color="#BAF3FF" stop-opacity=".55"/>
+    </linearGradient>
+
+    <linearGradient id="liquid" x1="0" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#00E5FF"/>
+      <stop offset=".3" stop-color="#087BFF"/>
+      <stop offset=".7" stop-color="#0646DB"/>
+      <stop offset="1" stop-color="#00C8FF"/>
+    </linearGradient>
+
+    <linearGradient id="cork" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFD49A"/>
+      <stop offset=".45" stop-color="#C9813D"/>
+      <stop offset="1" stop-color="#81451F"/>
+    </linearGradient>
+
+    <linearGradient id="bolt" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset=".5" stop-color="#C8F8FF"/>
+      <stop offset="1" stop-color="#62DFFF"/>
+    </linearGradient>
+
+    <linearGradient id="shine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+
+    <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+
+    <filter id="softGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="5"/>
+    </filter>
+
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="9"/>
+    </filter>
+
+    <clipPath id="inside">
+      <path d="M197 163 H315 V207
+        C315 224 337 236 358 254
+        C382 274 393 296 393 323
+        V414 Q393 447 360 447
+        H152 Q119 447 119 414
+        V323 C119 296 130 274 154 254
+        C175 236 197 224 197 207 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- Ground glow -->
+  <ellipse cx="256" cy="468" rx="130" ry="13"
+    fill="#008CFF" opacity=".35" filter="url(#glow)"/>
+
+  <!-- Bottle outer glow -->
+  <path d="M184 104 H328 V147
+    C328 165 345 175 367 194
+    C395 219 409 250 409 287
+    V423 Q409 463 369 463
+    H143 Q103 463 103 423
+    V287 C103 250 117 219 145 194
+    C167 175 184 165 184 147 Z"
+    fill="none" stroke="#008CFF" stroke-width="12"
+    opacity=".6" filter="url(#glow)"/>
+
+  <!-- Bottle body -->
+  <path d="M184 104 H328 V147
+    C328 165 345 175 367 194
+    C395 219 409 250 409 287
+    V423 Q409 463 369 463
+    H143 Q103 463 103 423
+    V287 C103 250 117 219 145 194
+    C167 175 184 165 184 147 Z"
+    fill="url(#glass)" stroke="#64DFFF" stroke-width="5"/>
+
+  <!-- Bottle contents -->
+  <g clip-path="url(#inside)">
+    <path d="M100 285
+      C155 266 184 304 235 283
+      C291 260 319 265 365 281
+      C390 290 408 284 420 278
+      V470 H95 Z"
+      fill="url(#liquid)"/>
+
+    <path d="M100 285
+      C155 266 184 304 235 283
+      C291 260 319 265 365 281
+      C390 290 408 284 420 278"
+      fill="none" stroke="#43EDFF" stroke-width="4"
+      opacity=".9" filter="url(#softGlow)"/>
+
+    <path d="M100 285
+      C155 266 184 304 235 283
+      C291 260 319 265 365 281
+      C390 290 408 284 420 278"
+      fill="none" stroke="#A4F8FF" stroke-width="2"/>
+
+    <!-- Electric energy -->
+    <path d="M130 388 Q165 360 185 377
+      T234 350 Q270 329 296 352
+      T355 366 Q376 380 390 351"
+      fill="none" stroke="#00DFFF" stroke-width="3"
+      opacity=".8" filter="url(#softGlow)"/>
+
+    <path d="M130 388 Q165 360 185 377
+      T234 350 Q270 329 296 352
+      T355 366 Q376 380 390 351"
+      fill="none" stroke="#8FF8FF" stroke-width="1.5"/>
+
+    <!-- Lightning glow -->
+    <path d="M286 274 L198 355 H248
+      L215 429 L323 323 H270 Z"
+      fill="#00DFFF" opacity=".65"
+      filter="url(#glow)"/>
+
+    <!-- Main lightning bolt -->
+    <path d="M286 274 L198 355 H248
+      L215 429 L323 323 H270 Z"
+      fill="url(#bolt)" stroke="#D9FCFF" stroke-width="2"
+      stroke-linejoin="round"/>
+
+    <!-- Bubbles -->
+    <g fill="none" stroke="#8BF4FF" stroke-width="2">
+      <circle cx="158" cy="328" r="8"/>
+      <circle cx="180" cy="356" r="4"/>
+      <circle cx="339" cy="341" r="7"/>
+      <circle cx="365" cy="389" r="4"/>
+      <circle cx="170" cy="411" r="5"/>
+      <circle cx="325" cy="421" r="3"/>
+      <circle cx="218" cy="309" r="3"/>
+    </g>
+  </g>
+
+  <!-- Glass reflections -->
+  <path d="M124 285 V414 Q124 445 154 449"
+    fill="none" stroke="#D9F9FF" stroke-width="5"
+    stroke-linecap="round" opacity=".75"/>
+
+  <path d="M139 255 Q153 222 183 207
+    Q197 197 197 175"
+    fill="none" stroke="#FFFFFF" stroke-width="6"
+    stroke-linecap="round" opacity=".65"/>
+
+  <path d="M387 288 V416 Q387 444 362 449"
+    fill="none" stroke="#36C9FF" stroke-width="5"
+    opacity=".8"/>
+
+  <path d="M176 216 Q193 200 201 179"
+    fill="none" stroke="url(#shine)" stroke-width="9"
+    stroke-linecap="round"/>
+
+  <!-- Bottle neck -->
+  <path d="M184 104 H328 V147
+    C328 165 345 175 367 194
+    L355 205
+    C333 187 315 175 315 151
+    V120 H197 V151
+    C197 175 179 187 157 205
+    L145 194
+    C167 175 184 165 184 147 Z"
+    fill="url(#glass)" stroke="#70DCFF" stroke-width="4"/>
+
+  <!-- Neck reflections -->
+  <path d="M194 119 V153 Q194 170 180 182"
+    fill="none" stroke="#FFFFFF" stroke-width="5"
+    stroke-linecap="round" opacity=".8"/>
+
+  <path d="M319 119 V153 Q319 170 333 182"
+    fill="none" stroke="#00CFFF" stroke-width="5"
+    stroke-linecap="round"/>
+
+  <!-- Bottle lip -->
+  <rect x="165" y="91" width="182" height="35"
+    rx="15" fill="#126DDE" stroke="#9AEFFF" stroke-width="4"/>
+
+  <rect x="171" y="94" width="170" height="24"
+    rx="11" fill="url(#glass)"/>
+
+  <path d="M177 97 H330"
+    stroke="#FFFFFF" stroke-width="3"
+    stroke-linecap="round" opacity=".8"/>
+
+  <!-- Cork stopper -->
+  <path d="M190 31 Q190 22 204 22
+    H308 Q322 22 322 31
+    L316 91 Q315 101 303 101
+    H209 Q197 101 196 91 Z"
+    fill="url(#cork)" stroke="#E7A65D" stroke-width="2"/>
+
+  <ellipse cx="256" cy="31" rx="66" ry="15"
+    fill="#F7C68B" stroke="#E9A15A" stroke-width="2"/>
+
+  <!-- Cork texture -->
+  <g fill="#9B582C" opacity=".65">
+    <circle cx="215" cy="29" r="2"/>
+    <circle cx="244" cy="24" r="2"/>
+    <circle cx="279" cy="32" r="2.5"/>
+    <circle cx="299" cy="27" r="2"/>
+    <circle cx="229" cy="39" r="2"/>
+    <circle cx="264" cy="35" r="1.8"/>
+    <circle cx="288" cy="42" r="2"/>
+    <circle cx="208" cy="47" r="2"/>
+    <circle cx="245" cy="49" r="2"/>
+    <circle cx="275" cy="57" r="2"/>
+    <circle cx="300" cy="52" r="2"/>
+    <circle cx="224" cy="66" r="2"/>
+    <circle cx="260" cy="72" r="2"/>
+    <circle cx="290" cy="78" r="2"/>
+  </g>
+
+  <!-- Cork highlights -->
+  <path d="M204 35 Q215 27 230 29"
+    fill="none" stroke="#FFF0CF" stroke-width="3"
+    stroke-linecap="round" opacity=".7"/>
+
+  <!-- Final glass highlights -->
+  <path d="M112 288 V422 Q112 455 148 455"
+    fill="none" stroke="#FFFFFF" stroke-width="3"
+    opacity=".55"/>
+
+  <path d="M365 455 Q401 445 401 412"
+    fill="none" stroke="#75E7FF" stroke-width="3"
+    opacity=".8"/>
+
+  <!-- Base refraction -->
+  <path d="M135 450 Q256 475 377 450"
+    fill="none" stroke="#B7F8FF" stroke-width="4"
+    opacity=".75"/>
+</svg>

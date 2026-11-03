@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import {
   Button,
   Card,
@@ -17,8 +18,15 @@ import {
   UserSolidIcon,
 } from '@salt-ds/icons'
 import { formatAge } from '../shared'
+import type { SessionInfo } from '../types'
 
-function InfoRow({ icon, label, children }) {
+interface InfoRowProps {
+  icon?: ReactNode
+  label: string
+  children: ReactNode
+}
+
+function InfoRow({ icon, label, children }: InfoRowProps) {
   return (
     <FlexLayout gap={2} align="center">
       <Text color="secondary" styleAs="label" style={{ width: 110 }}>
@@ -32,15 +40,22 @@ function InfoRow({ icon, label, children }) {
   )
 }
 
-export default function Home({ info, busy, onStartLogin }) {
-  const running = info?.login?.status === 'running'
+interface HomeProps {
+  info: SessionInfo | null
+  busy: boolean
+  onStartLogin: (reset: boolean) => void
+}
 
-  let statusLine
+export default function Home({ info, busy, onStartLogin }: HomeProps) {
+  const running = info?.login?.status === 'running'
+  const loginDetail = info?.login?.detail
+
+  let statusLine: ReactNode
   if (running) {
     statusLine = (
       <FlexLayout gap={1} align="center">
         <Spinner size="small" />
-        <Text>{info.login.detail || 'Waiting for manual login — complete it in the browser window.'}</Text>
+        <Text>{loginDetail || 'Waiting for manual login — complete it in the browser window.'}</Text>
       </FlexLayout>
     )
   } else if (info?.auth_snapshot_exists) {
@@ -106,7 +121,7 @@ export default function Home({ info, busy, onStartLogin }) {
                   {info?.auth_snapshot_exists ? 'Re-login' : 'Log in'}
                 </Button>
                 <Button
-                  appearance="outlined"
+                  appearance="bordered"
                   disabled={busy}
                   onClick={() => onStartLogin(false)}
                 >

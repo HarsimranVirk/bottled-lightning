@@ -1,3 +1,4 @@
-fastapi>=0.110
-uvicorn>=0.29
-playwright>=1.45
+# Requires Python 3.14 (see README and .python-version).
+fastapi>=0.128
+uvicorn>=0.39
+playwright>=1.60

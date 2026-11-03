@@ -12,26 +12,37 @@ import {
   Spinner,
 } from '@salt-ds/core'
 import { SuccessIcon, DoubleChevronRightIcon } from '@salt-ds/icons'
-import { api } from '../api'
+import { api, errorMessage, errorStatus } from '../api'
+import type { DecisionPayload, DeviationRow, ResyncState } from '../types'
 
-const FIELDS = [
+type FieldKey = 'property_value' | 'loan_amount' | 'tenure' | 'emi'
+
+interface Field {
+  key: FieldKey
+  label: string
+  months?: boolean
+}
+
+const FIELDS: readonly Field[] = [
   { key: 'property_value', label: 'Property value' },
   { key: 'loan_amount', label: 'Loan amount' },
   { key: 'tenure', label: 'Tenure (months)', months: true },
   { key: 'emi', label: 'EMI & other fixed payments incl. HFFC Loan' },
 ]
 
+type Draft = Partial<Record<FieldKey, string>>
+
 // Numeric-only entry: draft holds pure digits; display adds Indian grouping
 // (25,50,000) for amounts, plain digits for months.
-const digitsOf = (raw) => String(raw ?? '').replace(/[^\d]/g, '')
+const digitsOf = (raw: unknown): string => String(raw ?? '').replace(/[^\d]/g, '')
 
-function indianFormat(digits) {
+function indianFormat(digits: string): string {
   if (!digits) return ''
   return Number(digits).toLocaleString('en-IN')
 }
 
 // convert scraper hints like "20 Years" / "20.0 Yrs" / "240 M" into months
-function tenureToMonths(raw) {
+function tenureToMonths(raw: string | null | undefined): string {
   if (raw == null) return ''
   const m = String(raw).match(/([\d.]+)\s*(years?|yrs?|months?|m)?/i)
   if (!m) return ''
@@ -44,22 +55,31 @@ function tenureToMonths(raw) {
   return String(Math.round(n))
 }
 
-function prefillDisplay(field, raw) {
+function prefillDisplay(field: Field, raw: string | null | undefined): string {
   if (field.months) return tenureToMonths(raw)
   return indianFormat(digitsOf(raw))
 }
 
-export default function Deck() {
-  const [rows, setRows] = useState(null)
-  const [tally, setTally] = useState({ accept: 0, skip: 0, pending: 0 })
-  const [animClass, setAnimClass] = useState(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState(null)
-  const [draft, setDraft] = useState({}) // current card's editable params
-  const [cardKey, setCardKey] = useState(0)
-  const [sync, setSync] = useState({ status: 'idle', detail: '', result: null })
+interface Tally {
+  accept: number
+  skip: number
+  pending: number
+}
 
-  const refresh = useCallback(async () => {
+const EMPTY_SYNC: ResyncState = { status: 'idle', detail: '', result: null }
+
+export default function Deck() {
+  const [rows, setRows] = useState<DeviationRow[] | null>(null)
+  const [tally, setTally] = useState<Tally>({ accept: 0, skip: 0, pending: 0 })
+  const [animClass, setAnimClass] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [draft, setDraft] = useState<Draft>({}) // current card's editable params
+  const [cardKey, setCardKey] = useState(0)
+  const [sync, setSync] = useState<ResyncState>(EMPTY_SYNC)
+  const [replay, setReplay] = useState(false)
+
+  const refresh = useCallback(async (): Promise<DeviationRow[]> => {
     try {
       const d = await api.deviations()
       const all = d.rows ?? []
@@ -70,40 +90,46 @@ export default function Deck() {
         skip: rejects,
         pending: all.length - accepts - rejects,
       })
-      setRows(all.filter((r) => r.decision === 'pending' || r.decision == null))
+      const visible = replay
+         ? all.filter((r) => r.decision === 'pending' || r.decision === 'reject' || r.decision == null)
+         : all.filter((r) => r.decision === 'pending' || r.decision == null)
+       setRows(visible)
       setError(null)
       return all
     } catch (e) {
-      setError(e.message)
+      setError(errorMessage(e))
       return []
     }
-  }, [])
+  }, [replay])
 
   useEffect(() => {
     void refresh() // initial load; async so state updates after await
   }, [refresh])
 
   // poll resync progress while it runs
-  const pollSync = useCallback((startedAt) => {
-    const tick = async () => {
+  const pollSync = useCallback((): void => {
+    const tick = async (): Promise<void> => {
       try {
         const s = await api.devResyncStatus()
         setSync(s)
-        if (s.status === 'running') return setTimeout(tick, 2000)
+        if (s.status === 'running') {
+          setTimeout(() => { void tick() }, 2000)
+          return
+        }
         if (s.status === 'done') void refresh()
       } catch { /* transient */ }
     }
     void tick()
-  }, [])
+  }, [refresh])
 
-  const resync = () => {
+  const resync = (): void => {
     if (busy || animClass) return
     setSync({ status: 'running', detail: 'starting…', result: null })
     api.devResync()
       .then(() => pollSync())
-      .catch((e) => {
-        setError(e.status === 409 ? 'resync already running' : e.message)
-        setSync({ status: 'idle', detail: '', result: null })
+      .catch((e: unknown) => {
+        setError(errorStatus(e) === 409 ? 'resync already running' : errorMessage(e))
+        setSync(EMPTY_SYNC)
       })
   }
 
@@ -111,24 +137,29 @@ export default function Deck() {
   const next = rows?.[1]
   const done = rows && rows.length === 0
 
-  const advance = (to) => {
+  const advance = (to: 'accept' | 'reject'): void => {
     setDraft({})
     setCardKey((k) => k + 1)
     setAnimClass(null)
     setBusy(false)
-    setTally((t) => ({ ...t, [to]: t[to] + 1, pending: Math.max(0, t.pending - 1) }))
+    const tallyKey = to === 'accept' ? 'accept' : 'skip'
+    setTally((t) => ({
+      ...t,
+      [tallyKey]: t[tallyKey] + 1,
+      pending: Math.max(0, t.pending - 1),
+    }))
     setRows((prev) => prev?.filter((r) => r.value !== current?.value) ?? prev)
   }
 
-  const decide = (row, decision) => {
+  const decide = (row: DeviationRow, decision: 'accept' | 'reject'): void => {
     if (animClass || busy) return
     setAnimClass(decision === 'accept' ? 'deck-out-right' : 'deck-out-left')
-    const param = (key, keyDigits) => {
+    const param = (key: FieldKey, keyDigits: boolean): string | null => {
       const d = digitsOf(draft[key])
       if (!d) return null
       return keyDigits ? indianFormat(d) : d
     }
-    const payload = {
+    const payload: DecisionPayload = {
       decision,
       ...(decision === 'accept' ? {
         property_value: param('property_value', true),
@@ -141,8 +172,14 @@ export default function Deck() {
     api.decide(row.value, payload)
       .then(() => setTimeout(
         () => { advance(decision); setTimeout(refresh, 1500) }, 420))
-      .catch((e) => { setError(e.message); setAnimClass(null); setBusy(false) })
+      .catch((e: unknown) => {
+        setError(errorMessage(e))
+        setAnimClass(null)
+        setBusy(false)
+      })
   }
+
+  const syncResult = sync.result
 
   return (
     <StackLayout gap={4}>
@@ -162,9 +199,11 @@ export default function Deck() {
           </FlexLayout>
         </FlexLayout>
         <FlexLayout gap={2} align="center">
-          <Link href="#/runs" color="secondary">extraction status</Link>
-          <Button appearance="outlined" disabled={busy || sync.status === 'running'} onClick={resync}>
+          <Button appearance="bordered" disabled={busy || sync.status === 'running'} onClick={resync}>
             Resync queue
+          </Button>
+          <Button appearance="bordered" disabled={busy} onClick={() => { void refresh() }}>
+            Refresh
           </Button>
         </FlexLayout>
       </FlexLayout>
@@ -175,25 +214,25 @@ export default function Deck() {
           <Text color="secondary">{sync.detail || 'comparing queue with Salesforce…'}</Text>
         </FlexLayout>
       )}
-      {sync.status === 'done' && sync.result && (
+      {sync.status === 'done' && syncResult && (
         <FlexLayout gap={1} align="center">
-          <StatusIndicator status={sync.result.new_in_sf.length || sync.result.missing_in_sf.length || sync.result.count_mismatch ? 'warning' : 'success'} />
+          <StatusIndicator status={syncResult.new_in_sf.length || syncResult.missing_in_sf.length || syncResult.count_mismatch ? 'warning' : 'success'} />
           <Text>
-            {sync.detail || `queue matches Salesforce (${sync.result.sf_count} deviations)`}
+            {sync.detail || `queue matches Salesforce (${syncResult.sf_count} deviations)`}
           </Text>
         </FlexLayout>
       )}
       {sync.status === 'failed' && (
         <FlexLayout gap={1} align="center">
           <StatusIndicator status="error" />
-          <Text status="error">resync failed: {sync.detail}</Text>
+          <Text color="error">resync failed: {sync.detail}</Text>
         </FlexLayout>
       )}
 
       {error && (
         <FlexLayout gap={1} align="center">
           <StatusIndicator status="error" />
-          <Text status="error">{error}</Text>
+          <Text color="error">{error}</Text>
         </FlexLayout>
       )}
 
@@ -201,12 +240,36 @@ export default function Deck() {
         <Card elevation="raised" accent="top">
           <CardContent>
             <StackLayout gap={1} style={{ textAlign: 'center', padding: 24 }}>
-              <Text styleAs="h3">Deck complete 🎉</Text>
+              <Text styleAs="h3">{replay ? 'Replay complete 🎉' : 'Deck complete 🎉'}</Text>
               <Text color="secondary">
                 {tally.accept} accepted · {tally.skip} skipped. Decisions and
                 accepted parameters are stored in data/app.db — run the update
                 workflow when it ships.
               </Text>
+              <FlexLayout gap={2} justify="center" style={{ marginTop: 12 }}>
+                {!replay && tally.skip > 0 && (
+                  <Button appearance="bordered" onClick={async () => {
+                    // move skipped (rejected) cards back to review (pending)
+                    try {
+                      const d = await api.deviations()
+                      const skipped = (d.rows ?? []).filter((r) => r.decision === 'reject')
+                      await Promise.all(skipped.map((r) => api.decide(r.value, { decision: 'pending' })))
+                    } catch { /* ignore */ }
+                    setReplay(true)
+                    void refresh()
+                  }}>
+                    Replay skipped ({tally.skip})
+                  </Button>
+                )}
+                {replay && (
+                  <Button appearance="bordered" onClick={() => { setReplay(false); void refresh() }}>
+                    Exit replay
+                  </Button>
+                )}
+                <Button appearance="bordered" onClick={() => void refresh()}>
+                  Refresh
+                </Button>
+              </FlexLayout>
             </StackLayout>
           </CardContent>
         </Card>
@@ -224,19 +287,40 @@ export default function Deck() {
           <CardContent>
             <StackLayout gap={2} className={`deck-card ${animClass ?? ''}`}>
               <FlexLayout justify="space-between" align="center">
-                <Link href={current.record_url} target="_blank"
+                <Link href={current.record_url ?? undefined} target="_blank"
                   className="deck-title-link">
                   {current.value}
                 </Link>
                 <StatusIndicator status="info" />
               </FlexLayout>
+              {current.approval_date && (
+                <Text color="secondary" styleAs="label">
+                  SF approval date: {current.approval_date}
+                </Text>
+              )}
 
-              {current.opportunity_url && (
+              {((current.page_refs && current.page_refs.length > 0) ||
+                current.opportunity_url || current.cl_contract_url) && (
                 <StackLayout gap={0.5}>
                   <Text color="secondary" styleAs="label">Pages to update</Text>
-                  <Link href={current.opportunity_url} target="_blank">
-                    🏢 Opportunity (linked record)
-                  </Link>
+                  {(current.page_refs ?? [])
+                    .filter((ref) => ['opportunity', 'cl_contract', 'collateral',
+                      'lms2_collateral', 'lms2_cl_contract'].includes(ref.kind))
+                    .map((ref) => (
+                    <FlexLayout key={ref.seq} gap={1} align="center">
+                      <Text styleAs="label" color="secondary" style={{ minWidth: 110, fontSize: 11 }}>
+                        {ref.kind === 'opportunity' ? 'Opportunity' :
+                         ref.kind === 'cl_contract' ? 'CL Contract' :
+                         ref.kind === 'collateral' ? 'Collateral' :
+                         ref.kind === 'lms2_collateral' ? 'LMS2 Collateral' :
+                         ref.kind === 'lms2_cl_contract' ? 'LMS2 CL Contract' :
+                         ref.kind}
+                      </Text>
+                      <Link href={ref.url} target="_blank">
+                        {ref.name}
+                      </Link>
+                    </FlexLayout>
+                  ))}
                 </StackLayout>
               )}
 
@@ -254,6 +338,28 @@ export default function Deck() {
               </div>
 
               <Text color="secondary" styleAs="label">
+                Housing Loan Deviation Details
+              </Text>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <StackLayout gap={0}>
+                  <Text color="secondary" styleAs="label">Requested ROI</Text>
+                  <Text>{current.requested_roi ?? '—'}</Text>
+                </StackLayout>
+                <StackLayout gap={0}>
+                  <Text color="secondary" styleAs="label">Ideal ROI</Text>
+                  <Text>{current.ideal_roi ?? '—'}</Text>
+                </StackLayout>
+                <StackLayout gap={0}>
+                  <Text color="secondary" styleAs="label">Updated ROI (in LMS)</Text>
+                  <Text>{current.updated_roi ?? '—'}</Text>
+                </StackLayout>
+                <StackLayout gap={0}>
+                  <Text color="secondary" styleAs="label">Requested Variance</Text>
+                  <Text>{current.requested_variance ?? '—'}</Text>
+                </StackLayout>
+              </div>
+
+              <Text color="secondary" styleAs="label">
                 New loan parameters to populate — prefilled where the parser
                 could read the description; correct anything it got wrong:
               </Text>
@@ -266,11 +372,11 @@ export default function Deck() {
                     <Input
                       inputMode="numeric"
                       value={draft[f.key] != null
-                        ? (f.months ? draft[f.key] : indianFormat(draft[f.key]))
+                        ? (f.months ? draft[f.key] : indianFormat(draft[f.key] ?? ''))
                         : prefillDisplay(f, current[f.key])}
                       onChange={(e) => setDraft({
                         ...draft,
-                        [f.key]: digitsOf(e.target.value),
+                        [f.key]: digitsOf((e.target as HTMLInputElement).value),
                       })}
                       placeholder={f.months ? 'months' : '—'}
                     />

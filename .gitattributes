@@ -1,0 +1,4 @@
+# Windows launchers must have CRLF for cmd.exe label handling.
+*.bat text eol=crlf
+# macOS double-click launchers must keep their LF + executable bit.
+*.command text eol=lf

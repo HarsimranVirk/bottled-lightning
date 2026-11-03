@@ -15,9 +15,12 @@ import '@salt-ds/theme/index.css'
 import '@salt-ds/theme/css/theme-next.css'
 
 import './index.css'
-import App from './App.jsx'
+import App from './App'
 
-createRoot(document.getElementById('root')).render(
+const root = document.getElementById('root')
+if (!root) throw new Error('missing #root element')
+
+createRoot(root).render(
   <StrictMode>
     <App />
   </StrictMode>,

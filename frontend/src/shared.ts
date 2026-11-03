@@ -1,15 +1,19 @@
 // Shared helpers across pages.
+import type { SessionInfo, StoredSessionInfo } from './types'
+
 const LS_KEY = 'bl.session-info'
 
-export function loadStored() {
+export function loadStored(): StoredSessionInfo | null {
   try {
-    return JSON.parse(localStorage.getItem(LS_KEY)) ?? null
+    const parsed: unknown = JSON.parse(localStorage.getItem(LS_KEY) ?? 'null')
+    if (!parsed || typeof parsed !== 'object') return null
+    return parsed as StoredSessionInfo
   } catch {
     return null
   }
 }
 
-export function saveStored(info) {
+export function saveStored(info: SessionInfo): void {
   try {
     localStorage.setItem(LS_KEY, JSON.stringify({
       ...info,
@@ -18,7 +22,7 @@ export function saveStored(info) {
   } catch { /* storage unavailable — non-fatal */ }
 }
 
-export function formatAge(seconds) {
+export function formatAge(seconds: number | null | undefined): string | null {
   if (seconds == null) return null
   if (seconds < 90) return 'just now'
   if (seconds < 5400) return `${Math.round(seconds / 60)} min ago`

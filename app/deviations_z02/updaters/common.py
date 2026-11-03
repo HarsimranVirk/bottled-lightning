@@ -1,0 +1,1 @@
+"""Shared updater helpers (stub)."""

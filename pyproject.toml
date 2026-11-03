@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bottled-lightning"
+description = "Salesforce Lightning automation"
+readme = "README.md"
+requires-python = ">=3.14"
+dynamic = ["version"]
+dependencies = [
+    "fastapi>=0.128",
+    "uvicorn>=0.39",
+    "playwright>=1.60",
+]
+
+[project.scripts]
+bottled-lightning = "app.main:main"
+
+[tool.hatch.version]
+path = "app/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+# The Vite build is copied into the package so an installed wheel can serve
+# the SPA without the frontend/ sources (build it first: npm --prefix frontend run build).
+[tool.hatch.build.targets.wheel.force-include]
+"frontend/dist" = "app/web"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/app",
+    "/frontend/src",
+    "/frontend/index.html",
+    "/frontend/package.json",
+    "/frontend/vite.config.js",
+    "/launchers",
+    "/README.md",
+    "/pyproject.toml",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
