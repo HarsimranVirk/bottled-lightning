@@ -553,7 +553,9 @@ def get_sync() -> ResyncState:
 # --- updates (stub) ---
 @router.get("/updates")
 def update_status() -> dict[str, str]:
-    return {"status": "ok"}
+    from . import __version__
+
+    return {"status": "ok", "app_version": __version__}
 
 
 @router.get("/updates/checks")
