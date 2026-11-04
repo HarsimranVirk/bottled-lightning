@@ -40,6 +40,12 @@ TERMINAL_STATUSES: frozenset[WorkItemStatus] = frozenset(
     {WorkItemStatus.COMPLETED, WorkItemStatus.CLOSED, WorkItemStatus.SKIPPED}
 )
 
+#: Terminal statuses that a running job must never write over another job's work.
+#: ``SKIPPED`` is excluded: the extraction pipeline writes it from inside its own lease.
+CLOSURE_STATUSES: frozenset[WorkItemStatus] = frozenset(
+    {WorkItemStatus.COMPLETED, WorkItemStatus.CLOSED}
+)
+
 
 class JobKind(StrEnum):
     """

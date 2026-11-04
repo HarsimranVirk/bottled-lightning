@@ -7,11 +7,11 @@
 | **Date** | 2026-11-04 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/data-model-deviations.md` |
-| **Implemented by** | refactor Phase 7 (`app/api/*`); not built yet |
+| **Implemented by** | `app/api/*` (refactor Phase 7) — live |
 
 This document is the source of truth for the HTTP surface and the matching
-TypeScript types. Until Phase 7 the FastAPI app still serves the pre-refactor routes
-(`app/routes.py`); this is the contract it will be replaced with.
+TypeScript types. The routes below are implemented in `app/api/` and mounted by
+`app.main`; the pre-refactor `app/routes.py` is no longer wired.
 
 ---
 

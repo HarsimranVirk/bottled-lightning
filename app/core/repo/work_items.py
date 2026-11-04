@@ -9,7 +9,7 @@ from app.core.errors import InvalidTransition, LeaseHeld
 from app.core.list_view import ListRow
 from app.core.models import WorkItem, from_iso, to_iso, utcnow
 from app.core.status import (
-    TERMINAL_STATUSES,
+    CLOSURE_STATUSES,
     ClosureSource,
     WorkItemStatus,
     can_transition,
@@ -169,14 +169,15 @@ class WorkItemRepository:
         extracted_at: datetime | None = None,
     ) -> WorkItem:
         """
-        Apply a state-machine move, refusing terminal status under a lease.
+        Apply a state-machine move, refusing closure statuses under a lease.
 
         Three guards make this the single safe writer of item status:
 
         1. the move must be allowed by ``can_transition`` (else ``InvalidTransition``)
-        2. a terminal status is refused while a running job holds a live lease
-           (``LeaseHeld``), which is how FR-6.11 prevents closing a row mid-write
-        3. only ``SubmitPipeline`` is expected to pass terminal statuses
+        2. ``COMPLETED``/``CLOSED`` are refused while a running job holds a live lease
+           (``LeaseHeld``), which is how FR-6.11 prevents closing a row mid-write.
+           ``SKIPPED`` is allowed: the extraction job writes it from inside its own lease
+        3. only ``SubmitPipeline`` is expected to pass closure statuses
 
         Example:
             items.transition(workflow, key, WorkItemStatus.READY, extracted_at=now)
@@ -186,7 +187,7 @@ class WorkItemRepository:
         current = self.require(workflow, key)
         if current.status is not to and not can_transition(current.status, to):
             raise InvalidTransition(f"{workflow}/{key}: {current.status} -> {to}")
-        if to in TERMINAL_STATUSES and self._has_active_lease(workflow, key):
+        if to in CLOSURE_STATUSES and self._has_active_lease(workflow, key):
             raise LeaseHeld(f"{workflow}/{key}: cannot close while a job lease is held")
 
         sets = ["status = ?"]

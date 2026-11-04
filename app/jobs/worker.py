@@ -17,7 +17,13 @@ from app.core.registry import WorkflowRegistry
 from app.core.repo.events import EventRepository
 from app.core.repo.jobs import JobRepository
 from app.core.repo.work_items import WorkItemRepository
-from app.core.status import ExtractOutcome, JobKind, Phase, SubmitOutcome
+from app.core.status import (
+    ExtractOutcome,
+    JobKind,
+    Phase,
+    SubmitOutcome,
+    WorkItemStatus,
+)
 from app.pipeline.closure import ClosureResolver
 from app.salesforce.tabs import TabSessions
 
@@ -162,6 +168,32 @@ class Worker:
         # automatically would re-write against a state we no longer trust.
         self._jobs.fail(job.id, f"submission {outcome.value}", retryable=False)
         log(f"submission {outcome.value}")
+
+    def _park_submission(self, job: Job) -> None:
+        """After a failed submission, make sure the item is not stuck mid-phase.
+
+        Any submission that dies between apply and execute would otherwise leave the
+        item in ``SUBMITTING``/``APPLYING``/… forever; moving it to ``NEEDS_REVIEW``
+        keeps it visible and retryable (FR-6.9).
+        """
+        if job.kind is not JobKind.SUBMIT:
+            return
+        item = self._items.get(job.workflow, job.item)
+        if item is None:
+            return
+        if item.status in {
+            WorkItemStatus.SUBMITTING,
+            WorkItemStatus.APPLYING,
+            WorkItemStatus.VALIDATING,
+            WorkItemStatus.EXECUTING,
+        }:
+            with suppress(Exception):
+                self._items.transition(
+                    job.workflow,
+                    job.item,
+                    WorkItemStatus.NEEDS_REVIEW,
+                    reason="submission job failed; review and retry",
+                )
 
     async def _heartbeat(self, job_id: int) -> None:
         """Keep renewing the lease while the job runs."""

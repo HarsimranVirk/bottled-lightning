@@ -37,6 +37,34 @@ class EditRepository:
                 [workflow, key, field_key, old_value, new_value, job_id, to_iso(at)],
             )
 
+    def for_item(
+        self, workflow: str, key: str, limit: int = 50
+    ) -> list[tuple[str, str | None, str | None, str]]:
+        """Recent edits for one item as ``(field, old, new, created_at_iso)``.
+
+        Newest first; used by the item detail endpoint so the operator can see what was
+        proposed and when.
+        """
+        rows = (
+            self._db.connect()
+            .execute(
+                "SELECT field_key, old_value, new_value, created_at "
+                "FROM work_item_edits WHERE workflow = ? AND item_key = ? "
+                "ORDER BY id DESC LIMIT ?",
+                [workflow, key, limit],
+            )
+            .fetchall()
+        )
+        return [
+            (
+                str(row["field_key"]),
+                None if row["old_value"] is None else str(row["old_value"]),
+                None if row["new_value"] is None else str(row["new_value"]),
+                str(row["created_at"]),
+            )
+            for row in rows
+        ]
+
     def count(self, workflow: str, key: str) -> int:
         """How many edits are recorded for an item."""
         row = (

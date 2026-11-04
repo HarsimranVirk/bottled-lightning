@@ -67,11 +67,13 @@ Rules for the whole effort:
 Rough sizing assumes one focused developer: **~22–27 working days**, of which Phases 3 and
 6 (adapters, submit) are the long poles because they are UI-selector work.
 
-**Progress:** Phases 0–5 are done on branch `refactor/deviations` (core domain,
+**Progress:** Phases 0–5 and 7 are done on branch `refactor/deviations` (core domain,
 the workflow schema, repositories, workflow seam, Z02 catalog + description parser, async browser
 runtime, session snapshot/expiry, `ListPage`, login CLI, six Z02 adapters, the
 `DeviationsZ02Extraction` pipeline, the job dispatcher/worker/auth gate, and the
-`ListWatcher`/`Reconciler`/`ClosureResolver` refresh loop). Phases 6–9 are not started.
+`ListWatcher`/`Reconciler`/`ClosureResolver` refresh loop, and the `app/api` surface
+wired into `app.main`). Phase 6 (submission) is blocked on O-1/O-2 and Phase 8
+(frontend) is next; Phase 9's backend deletion remains.
 
 Live verification so far: list sample valid (7/7), full extraction of one deviation with
 all five refs, one `EXTRACT` job drained through the real dispatcher

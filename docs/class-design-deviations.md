@@ -7,7 +7,7 @@
 | **Date** | 2026-11-04 |
 | **Companions** | `docs/FR-deviations.md` (v3), `docs/data-model-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
 | **Change** | Introduced the workflow abstraction; earlier drafts were deviations-only |
-| **Implemented so far** | Phases 1–5 on `refactor/deviations`: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,adapters}`, `app/jobs/{dispatcher,worker,auth,logger}`, `app/pipeline/{watcher,reconciler,closure}`,
+| **Implemented so far** | Phases 1–5 and 7 on `refactor/deviations`: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,adapters}`, `app/jobs/{dispatcher,worker,auth,logger}`, `app/pipeline/{watcher,reconciler,closure}`,
 `app/utils/dom`, `app/workflows/deviations_z02/{catalog,description,product_map,adapters,extraction}` |
 
 This document describes the target class design. It separates the parts that are the

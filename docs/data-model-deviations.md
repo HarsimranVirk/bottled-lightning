@@ -261,4 +261,5 @@ repositories made them more friction than value); `job_logs.job_id` is the one F
 | `sync_runs` | `SyncRunRepository` |
 | `sessions`, `session_events` | `SessionRepository` |
 
-No other module contains SQL.
+No other module contains SQL. The API layer (`app/api`) talks to these repositories
+through `WorkItemService`/`AdminService` and never issues SQL itself.

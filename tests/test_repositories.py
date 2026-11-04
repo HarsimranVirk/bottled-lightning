@@ -98,6 +98,18 @@ class WorkItemTests(DbTestCase):
         )
         self.assertIs(closed.source, ClosureSource.EXTERNAL)
 
+    def test_skipped_is_allowed_under_the_jobs_own_lease(self) -> None:
+        """The extraction pipeline writes SKIPPED from inside its own lease."""
+        items = WorkItemRepository(self.db)
+        jobs = JobRepository(self.db)
+        items.create_present(WORKFLOW, row(), utcnow())
+        items.transition(WORKFLOW, KEY, WorkItemStatus.EXTRACTING)
+        jobs.enqueue(WORKFLOW, JobKind.EXTRACT, KEY)
+        jobs.claim("w0", ttl_s=300)
+
+        skipped = items.transition(WORKFLOW, KEY, WorkItemStatus.SKIPPED, reason="ambiguous")
+        self.assertIs(skipped.status, WorkItemStatus.SKIPPED)
+
     def test_absent_and_new_epoch(self) -> None:
         """Absence is recorded without closing, and reappearance starts an epoch."""
         items = WorkItemRepository(self.db)
