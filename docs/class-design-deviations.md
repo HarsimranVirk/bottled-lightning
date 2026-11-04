@@ -7,7 +7,8 @@
 | **Date** | 2026-11-04 |
 | **Companions** | `docs/FR-deviations-v2.md` (v2.1), `docs/data-model-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
 | **Change** | v2 introduces the workflow abstraction; v1 was deviations-only |
-| **Implemented so far** | Phases 1–4 on `refactor/deviations-v2`: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,adapters}`, `app/jobs/{dispatcher,worker,auth,logger}`, `app/utils/dom`, `app/workflows/deviations_z02/{catalog,description,product_map,adapters,extraction}` |
+| **Implemented so far** | Phases 1–5 on `refactor/deviations-v2`: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,adapters}`, `app/jobs/{dispatcher,worker,auth,logger}`, `app/pipeline/{watcher,reconciler,closure}`,
+`app/utils/dom`, `app/workflows/deviations_z02/{catalog,description,product_map,adapters,extraction}` |
 
 This document describes the target class design. It separates the parts that are the
 same for every Salesforce workflow (browser, tabs, queue, leases, refresh, closure) from
@@ -473,6 +474,7 @@ class WorkItemRepository:
     def get(self, workflow: str, key: str) -> WorkItem | None: ...
     def list(self, workflow: str, status: WorkItemStatus | None,
              query: str | None, limit: int, offset: int) -> tuple[list[WorkItem], int]: ...
+    def present(self, workflow: str) -> list[WorkItem]: ...   # reconciler diff input
     def create_present(self, workflow: str, row: ListRow, at: datetime) -> WorkItem: ...
     def touch(self, workflow: str, key: str, at: datetime) -> None: ...
     def transition(self, workflow: str, key: str,
@@ -694,7 +696,8 @@ for known item not in rows:     closure.close_if_absent(...)           (FR-2.6)
 ```
 
 `workflow.map_row(row)` is the only workflow-specific part: a pure function mapping list
-columns to stored attributes. For deviations today it is nearly empty (the list view gives
+columns to read-only **attributes** (`AttributeRepository.upsert`). It never touches
+editable field values, so a refresh cannot disturb a pending edit. For deviations today it is nearly empty (the list view gives
 the number, the href and the approval date; the four editable values come from the detail
 page).
 

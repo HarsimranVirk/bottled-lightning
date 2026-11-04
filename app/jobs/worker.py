@@ -18,6 +18,7 @@ from app.core.repo.events import EventRepository
 from app.core.repo.jobs import JobRepository
 from app.core.repo.work_items import WorkItemRepository
 from app.core.status import ExtractOutcome, JobKind, Phase, SubmitOutcome
+from app.pipeline.closure import ClosureResolver
 from app.salesforce.tabs import TabSessions
 
 from .auth import AuthGate
@@ -54,6 +55,7 @@ class Worker:
         events: EventRepository,
         auth: AuthGate,
         tabs: TabSessionFactory,
+        closure: ClosureResolver,
         lease_ttl_s: float = 300.0,
     ) -> None:
         """Wire dependencies; ``name`` identifies this slot in logs."""
@@ -64,6 +66,7 @@ class Worker:
         self._events = events
         self._auth = auth
         self._tabs = tabs
+        self._closure = closure
         self._lease_ttl_s = lease_ttl_s
 
     async def execute(self, job: Job) -> None:
@@ -116,6 +119,10 @@ class Worker:
             with suppress(asyncio.CancelledError):
                 await heartbeat
             await tabs.close_all()
+            # A closure observed while this job held the lease is resolved now that the
+            # job has reached a terminal state (FR-6.11).
+            with suppress(Exception):
+                self._closure.release_lease(job.workflow, job.item)
 
     def _finish_extract(
         self, job: Job, outcome: ExtractOutcome, log: RepositoryLogger

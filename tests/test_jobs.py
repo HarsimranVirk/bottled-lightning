@@ -29,6 +29,7 @@ from app.core.workflow import (
 from app.jobs.auth import AuthGate
 from app.jobs.dispatcher import Dispatcher
 from app.jobs.worker import Worker
+from app.pipeline.closure import ClosureResolver
 from app.salesforce.adapters import AdapterRegistry
 from app.salesforce.tabs import TabProvider
 from app.workflows.deviations_z02.catalog import FIELD_CATALOG
@@ -172,6 +173,7 @@ class JobTestCase(DbTestCase):
         registry = WorkflowRegistry()
         registry.register(make_workflow(extraction, submission))
         tabs = FakeTabFactory()
+        closure = ClosureResolver(deps.items, jobs, events)
         worker = Worker(
             name,
             registry,
@@ -180,6 +182,7 @@ class JobTestCase(DbTestCase):
             events,
             auth,
             tabs,
+            closure,
             lease_ttl_s=60,
         )
         return worker, jobs, auth, tabs
@@ -332,6 +335,7 @@ class WorkerTests(JobTestCase):
             events,
             auth,
             FakeTabFactory(),
+            ClosureResolver(deps.items, jobs, events),
         )
         job = jobs.enqueue("nope", JobKind.EXTRACT, "X")
         claimed = jobs.claim("w0", ttl_s=60)

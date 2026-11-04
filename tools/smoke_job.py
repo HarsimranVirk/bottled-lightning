@@ -34,6 +34,7 @@ from app.db.connection import Database
 from app.jobs.auth import AuthGate
 from app.jobs.dispatcher import Dispatcher
 from app.jobs.worker import Worker
+from app.pipeline.closure import ClosureResolver
 from app.salesforce.list_page import ListPage
 from app.salesforce.runtime import BrowserRuntime
 from app.salesforce.session import SessionProvider
@@ -91,7 +92,10 @@ def main(argv: list[str] | None = None) -> int:
     runtime = BrowserRuntime(settings, session)
     runtime.start()
     try:
-        worker = Worker("smoke", registry, deps.items, jobs, deps.events, auth, runtime)
+        closure = ClosureResolver(deps.items, jobs, deps.events)
+        worker = Worker(
+            "smoke", registry, deps.items, jobs, deps.events, auth, runtime, closure
+        )
         dispatcher = Dispatcher(jobs, worker, auth, settings, poll_s=0.2)
 
         async def work() -> tuple[int, str]:

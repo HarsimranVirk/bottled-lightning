@@ -269,6 +269,23 @@ class WorkItemRepository:
         """Record that the final action was observed to succeed."""
         self._set_time(workflow, key, "execute_confirmed_at", at)
 
+    def present(self, workflow: str) -> list[WorkItem]:
+        """Every item currently marked present, for the reconciler's diff.
+
+        The reconciler compares this set with the rows of a valid sample: whatever is
+        here but not in the sample has disappeared from Salesforce and is a closure
+        candidate (FR-2.6).
+        """
+        rows = (
+            self._db.connect()
+            .execute(
+                f"SELECT {_COLUMNS} FROM work_items WHERE workflow = ? AND present = 1",
+                [workflow],
+            )
+            .fetchall()
+        )
+        return [_to_item(row) for row in rows]
+
     def list(
         self,
         workflow: str,

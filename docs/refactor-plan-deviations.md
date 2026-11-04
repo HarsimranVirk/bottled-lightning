@@ -67,15 +67,16 @@ Rules for the whole effort:
 Rough sizing assumes one focused developer: **~22–27 working days**, of which Phases 3 and
 6 (adapters, submit) are the long poles because they are UI-selector work.
 
-**Progress:** Phases 0–4 are done on branch `refactor/deviations-v2` (core domain,
+**Progress:** Phases 0–5 are done on branch `refactor/deviations-v2` (core domain,
 schema v2, repositories, workflow seam, Z02 catalog + description parser, async browser
 runtime, session snapshot/expiry, `ListPage`, login CLI, six Z02 adapters, the
-`DeviationsZ02Extraction` pipeline, and the job dispatcher/worker/auth gate).
-Phases 5–9 are not started.
+`DeviationsZ02Extraction` pipeline, the job dispatcher/worker/auth gate, and the
+`ListWatcher`/`Reconciler`/`ClosureResolver` refresh loop). Phases 6–9 are not started.
 
 Live verification so far: list sample valid (7/7), full extraction of one deviation with
-all five refs, and one `EXTRACT` job drained through the real dispatcher
-(`tools/smoke_job.py`). The legacy `app/jobs.py` was renamed to `app/legacy_jobs.py` so
+all five refs, one `EXTRACT` job drained through the real dispatcher
+(`tools/smoke_job.py`), and one watcher cycle (`tools/smoke_watch.py`) that reconciled
+7 rows into 6 new items plus 1 update with 6 extract jobs queued. The legacy `app/jobs.py` was renamed to `app/legacy_jobs.py` so
 the new `app/jobs/` package can exist; the old modules still import.
 
 Phase 2's live gate is only half-verified: the runtime boots, injects cookies, navigates
@@ -384,3 +385,6 @@ export SF_DATA_DIR="$PWD/data-v2"
 
 Extraction only reads Salesforce. Nothing is written to SF before Phase 6, so these runs
 are safe. Both tools are dev-only and are not packaged in the wheel.
+
+`smoke_watch.py` runs one real watcher cycle (`header == rows`, added/updated/closed
+counters) without starting the dispatcher, so the sync path can be checked in isolation.
