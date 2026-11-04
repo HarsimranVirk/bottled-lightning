@@ -32,7 +32,8 @@ export function SyncBanner({ session, sync, onLogin, onRefresh, refreshing }: Pr
     return (
       <Banner status="warning">
         <BannerContent>
-          Last refresh is untrusted ({sync.warning ?? 'header/row mismatch'}). Showing the previous valid list.
+          Last refresh is untrusted ({sync.warning ?? 'header/row mismatch'}) — checked{' '}
+          {relativeTime(sync.capturedAt)}. Showing the previous valid list.
           <Button appearance="transparent" onClick={onRefresh} disabled={refreshing}>Refresh</Button>
         </BannerContent>
       </Banner>

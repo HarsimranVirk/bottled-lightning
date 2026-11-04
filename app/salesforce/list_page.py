@@ -20,6 +20,7 @@ from app.core.models import utcnow
 logger = logging.getLogger(__name__)
 
 _ITEM_TOTAL = re.compile(r"(\d[\d,]*)\s+items?\b")
+_HEADER_TEXT = re.compile(r"\d[\d,]*\s+items?\b")
 _SHOW_MORE = re.compile(r"^\s*Show more\s*$", re.IGNORECASE)
 _APPROVAL_DATE_COLUMN = 6
 _ROW_KEY_COLUMN = 1
@@ -68,19 +69,26 @@ class ListPage:
         return self._page
 
     async def open(self) -> None:
-        """Navigate to the list view and wait for rows."""
+        """Navigate to the list view and wait for rows *and* the header total.
+
+        Waiting for the header matters: Lightning paints the rows before the "N items"
+        header, so a read that only waited for rows recorded an invalid first sample at
+        every process start.
+        """
         await self._page.goto(
             self._spec.url, wait_until="domcontentloaded", timeout=self._timeout_ms
         )
         await self._page.wait_for_timeout(3000)
         await self._wait_for_rows()
+        await self._wait_for_header()
 
     async def refresh(self) -> None:
-        """Reload the list view for the next sample."""
+        """Reload the list view and wait for rows *and* the header total."""
         await self._page.reload(
             wait_until="domcontentloaded", timeout=self._timeout_ms
         )
         await self._wait_for_rows()
+        await self._wait_for_header()
 
     async def read(self) -> ListSample:
         """
@@ -118,11 +126,20 @@ class ListPage:
             await self._page.close()
 
     # -- header ------------------------------------------------------------
+    async def _wait_for_header(self, timeout_s: float = 20.0) -> None:
+        """Wait until the "N items" header renders; bounded, never raises."""
+        deadline = asyncio.get_running_loop().time() + timeout_s
+        while asyncio.get_running_loop().time() < deadline:
+            try:
+                if await self._page.get_by_text(_HEADER_TEXT).count() > 0:
+                    return
+            except Exception as exc:  # noqa: BLE001 - page may be navigating
+                logger.debug("header wait failed: %s", exc)
+            await asyncio.sleep(0.5)
+
     async def _read_total(self) -> int | None:
         """Read the header total; ``None`` when it never renders."""
-        locator = self._page.get_by_text(
-            re.compile(r"\d[\d,]*\s+items?\b")
-        ).first
+        locator = self._page.get_by_text(_HEADER_TEXT).first
         try:
             text = await locator.inner_text(timeout=5000)
         except Exception:  # noqa: BLE001 - header absent means "invalid sample"

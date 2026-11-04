@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5 |
+| **Version** | v5.1 |
 | **Date** | 2026-11-04 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -280,7 +280,10 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-9.7** Editable values are validated by the server. A `422` is shown against the
   specific field, the other drafts are preserved, and the item stays editable.
 - **FR-9.8** Background polling stops while the document is hidden and resumes when it is
-  visible; it never overwrites an in-progress edit.
+  visible; it never overwrites an in-progress edit. A failed request must not stop later
+  polls: the next interval retries, so a restarted backend recovers without a reload. An
+  untrusted-refresh warning always shows the age of the failed check, so a stale banner
+  cannot be mistaken for a live failure.
 - **FR-9.9** Submitting a declaration requires an explicit confirmation naming the item
   and the changed values; the button is disabled unless the item is submittable.
 - **FR-9.10** The full edit → save → submit path is keyboard-reachable, the detail panel
@@ -377,6 +380,11 @@ absence while a `SUBMIT` lease was held.
   submit action? (Default: explicit action; acceptance only queues.) | FR-10.6 |
 
 ## Appendix C — Change log
+
+- **v5.1** — the sync banner no longer sticks: polling retries after a failed request
+(a server restart used to freeze the last snapshot), and an untrusted refresh states how
+old it is. The list page waits for the "N items" header before its first sample, so a
+process start no longer records a spurious invalid refresh.
 
 - **v5** — review deck (FR-10): local, reversible accept/reject decisions recorded
   before submission; the deck is the default view of the unified page. Decisions do not

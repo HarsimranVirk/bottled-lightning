@@ -206,7 +206,9 @@ Server state is the only state that matters; everything else is UI.
 
 Rules:
 
-- **Polling stops** when `document.hidden` and resumes on visibility.
+- **Polling stops** when `document.hidden` and resumes on visibility. A failed request
+  does **not** stop polling: the next interval retries, so a restarted backend recovers
+  within one tick instead of freezing the last snapshot on screen.
 - **Mutations invalidate; they never patch the cache by hand**, except the field draft
   below. The server is the only writer of status.
 - **Editing** keeps a `Record<fieldKey, string>` draft in `ItemDrawer`; it is sent as one

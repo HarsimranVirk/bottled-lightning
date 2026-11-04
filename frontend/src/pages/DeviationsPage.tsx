@@ -5,10 +5,9 @@
 
 import type { JSX } from 'react'
 import { Button, FlexLayout, H1, Input, Spinner, Text } from '@salt-ds/core'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
-import { rememberWorkflows } from '../api'
 import type { DecisionKind } from '../api'
 import { DecisionDeck } from '../components/DecisionDeck'
 import { ItemDrawer } from '../components/ItemDrawer'
@@ -52,11 +51,7 @@ export function DeviationsPage(): JSX.Element {
   const [announcement, setAnnouncement] = useState('')
   const [actionError, setActionError] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (workflows.data) rememberWorkflows(workflows.data)
-  }, [workflows.data])
-
-  const sync = useSync(route)
+  const sync = useSync(workflow?.name ?? null)
   const deck = useItems(route, { statuses: DECIDABLE, decision: 'undecided' }, 200, view === 'deck')
   const list = useItems(
     route,

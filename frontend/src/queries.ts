@@ -22,9 +22,14 @@ import type {
 
 const visible = (): boolean => !document.hidden
 
-/** Poll only when the tab is visible and the last fetch succeeded. */
-function poll(ms: number): (query: { state: { status: string } }) => number | false {
-  return (query) => (visible() && query.state.status === 'success' ? ms : false)
+/**
+ * Poll while the tab is visible, including after a failed request.
+ *
+ * Freezing on error used to hide a recovered backend: one failed poll during a restart
+ * stopped all polling and left a stale sync banner on screen forever (FR-9.8).
+ */
+function poll(ms: number): () => number | false {
+  return () => (visible() ? ms : false)
 }
 
 /** Deck/list filters. `statuses` is the repeatable `?status=` filter. */
@@ -53,11 +58,11 @@ export function useSession(): ReturnType<typeof useQuery<SessionView>> {
   return useQuery({ queryKey: keys.session, queryFn: () => api.session(), refetchInterval: poll(10_000) })
 }
 
-export function useSync(route: string | null): ReturnType<typeof useQuery<SyncView | null>> {
+export function useSync(workflow: string | null): ReturnType<typeof useQuery<SyncView | null>> {
   return useQuery({
-    queryKey: keys.sync(route ?? ''),
-    queryFn: () => api.sync(route ?? ''),
-    enabled: route !== null,
+    queryKey: keys.sync(workflow ?? ''),
+    queryFn: () => api.sync(workflow ?? ''),
+    enabled: workflow !== null,
     refetchInterval: poll(10_000),
   })
 }
@@ -150,13 +155,13 @@ export function useUndoDecision(
 }
 
 export function useRequestSync(
-  route: string | null,
+  workflow: string | null,
 ): ReturnType<typeof useMutation<{ status: string; workflow: string }>> {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: () => api.requestSync(route ?? ''),
+    mutationFn: () => api.requestSync(workflow ?? ''),
     onSuccess: () => {
-      if (route !== null) void client.invalidateQueries({ queryKey: keys.sync(route) })
+      if (workflow !== null) void client.invalidateQueries({ queryKey: keys.sync(workflow) })
     },
   })
 }

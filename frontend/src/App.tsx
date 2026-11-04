@@ -3,10 +3,8 @@
 import type { JSX } from 'react'
 import { SaltProviderNext, FlexLayout, Text } from '@salt-ds/core'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { useEffect } from 'react'
 import { BrowserRouter, Link, Outlet, Route, Routes } from 'react-router-dom'
 
-import { rememberWorkflows } from './api'
 import { QueueBar } from './components/QueueBar'
 import { SyncBanner } from './components/SyncBanner'
 import { DevStates } from './pages/DevStates'
@@ -23,14 +21,10 @@ function Shell(): JSX.Element {
   const workflows = useWorkflows()
   const workflow = workflows.data?.[0]
   const session = useSession()
-  const sync = useSync(workflow?.route ?? null)
+  const sync = useSync(workflow?.name ?? null)
   const workers = useWorkers()
   const login = useLogin()
-  const refresh = useRequestSync(workflow?.route ?? null)
-
-  useEffect(() => {
-    if (workflows.data) rememberWorkflows(workflows.data)
-  }, [workflows.data])
+  const refresh = useRequestSync(workflow?.name ?? null)
 
   return (
     <div className="shell">

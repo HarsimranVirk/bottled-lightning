@@ -14,7 +14,7 @@ export function HomePage(): JSX.Element {
   const login = useLogin()
   const queue = useWorkers()
   const workflow = workflows.data?.[0]
-  const sync = useSync(workflow?.route ?? null)
+  const sync = useSync(workflow?.name ?? null)
 
   if (session.isLoading || workflows.isLoading) return <Spinner />
   if (!session.data) return <Text>Session unavailable.</Text>

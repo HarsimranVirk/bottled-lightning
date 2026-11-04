@@ -112,8 +112,8 @@ function itemsQuery(params: ItemQuery): string {
 export const api = {
   workflows: (): Promise<WorkflowView[]> => request('/api/workflows'),
   session: (): Promise<SessionView> => request('/api/sessions'),
-  sync: (route: string): Promise<SyncView | null> =>
-    request(`/api/syncs${query({ workflow: routeToWorkflow(route) })}`),
+  sync: (workflow: string): Promise<SyncView | null> =>
+    request(`/api/syncs${query({ workflow })}`),
   items: (route: string, params: ItemQuery = {}): Promise<ItemsPage> =>
     request(`/api/${route}${itemsQuery(params)}`),
   item: (route: string, key: string): Promise<ItemDetail> =>
@@ -136,21 +136,6 @@ export const api = {
   workers: (): Promise<QueueView> => request('/api/workers'),
   login: (): Promise<SessionView> => request('/api/sessions', { method: 'POST' }),
   logout: (): Promise<void> => requestVoid('/api/sessions', { method: 'DELETE' }),
-  requestSync: (route: string): Promise<{ status: string; workflow: string }> =>
-    request(`/api/syncs${query({ workflow: routeToWorkflow(route) })}`, { method: 'POST' }),
-}
-
-/**
- * The route segment is the workflow's REST noun (`deviations`), while the workflow's
- * `name` (`deviations_z02`) is what sync/jobs filters expect.
- */
-const workflowByRoute = new Map<string, string>()
-
-/** Register route → workflow name once the workflow list is loaded. */
-export function rememberWorkflows(workflows: WorkflowView[]): void {
-  for (const workflow of workflows) workflowByRoute.set(workflow.route, workflow.name)
-}
-
-function routeToWorkflow(route: string): string {
-  return workflowByRoute.get(route) ?? route
+  requestSync: (workflow: string): Promise<{ status: string; workflow: string }> =>
+    request(`/api/syncs${query({ workflow })}`, { method: 'POST' }),
 }
