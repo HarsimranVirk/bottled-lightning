@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 from fastapi.responses import Response
 
-from app import updater
+from app import __version__, updater
 from app.api.schemas import (
     ConcurrencyIn,
     JobLogsView,
@@ -14,6 +14,7 @@ from app.api.schemas import (
     SessionView,
     SyncView,
     UpdateStatusView,
+    VersionView,
 )
 from app.api.services import AdminPort
 from app.types import JsonValue
@@ -103,6 +104,11 @@ def make_router(admin: AdminPort) -> APIRouter:
     def set_workers(body: ConcurrencyIn) -> QueueView:
         """Change the worker count (1–5); shrinking lets running jobs finish."""
         return admin.set_concurrency(body.concurrency)
+
+    @router.get("/version", response_model=VersionView)
+    def get_version() -> VersionView:
+        """The running app version; the footer shows it on every screen."""
+        return VersionView(version=__version__)
 
     @router.get("/updates", response_model=UpdateStatusView)
     def update_status() -> UpdateStatusView:

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v3.3 |
+| **Version** | v3.4 |
 | **Date** | 2026-11-04 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
@@ -64,6 +64,7 @@ to a reversible decision.
 
 | Situation | Screen behaviour |
 |---|---|
+| Healthy session + valid sync | **no banner**; the footer shows version, session, sync age and rows |
 | No session | list/detail replaced by `AuthCard`; one primary action ("Log in") |
 | Login window open | `AuthCard` shows "Finish logging in in the browser window" with a spinner and a cancel hint |
 | Session expired mid-use | global `SyncBanner` (danger): dispatch paused, every mutating control disabled, "Log in" button |
@@ -150,7 +151,20 @@ values** (grouped by target object, read-only when the status forbids editing) �
 **attributes** (description, ROI, product type — read-only) → **objects** (five refs;
 missing refs render "not found" instead of being hidden) → **history** (edits + events).
 
-### 3.4 Jobs
+### 3.4 Footer (every screen)
+
+| State | Content | Actions |
+|---|---|---|
+| connecting | brand + version, "connecting…" | — |
+| healthy | brand + `v<version>`, "Session active · synced 12s ago · 7 rows" | Refresh |
+| untrusted sync | "Session active · last refresh untrusted" (banner carries the detail) | Refresh |
+| session invalid | "Session expired" / "Session not set" (banner carries the login) | Refresh |
+
+The footer is the only always-present status surface; the top banner appears only when
+something is wrong. Keeping the version here means no release can be confused with a
+stale UI.
+
+### 3.5 Jobs
 
 | State | Content |
 |---|---|
@@ -159,7 +173,7 @@ missing refs render "not found" instead of being hidden) → **history** (edits 
 | failed | error + expandable log lines |
 | succeeded / cancelled | timestamp + result |
 
-### 3.5 History
+### 3.6 History
 
 Closed/skipped items with reason, attribution and decided-at. Filter by status and date.
 
@@ -186,7 +200,8 @@ App
     │       ├── DecisionBanner   decision + reason + Undo decision
     │       ├── HistoryList      decisions + edits + events
     │       └── SubmitBar        dirty count, Save, Discard, Submit
-    └── QueueBar                 concurrency, in-flight, pause state
+    ├── QueueBar                 concurrency, in-flight, pause state
+    └── AppFooter                version, session/sync status, refresh
 ```
 
 Responsibilities are deliberately narrow: `FieldCell` never fetches, `ItemRow` never
@@ -199,6 +214,7 @@ Server state is the only state that matters; everything else is UI.
 | Query key | Endpoint | Refresh | Notes |
 |---|---|---|---|
 | `["session"]` | `GET /api/sessions` | 10 s | drives the global banner and muting |
+| `["version"]` | `GET /api/version` | on boot | footer only; never refetched |
 | `["workflows"]` | `GET /api/workflows` | on boot | catalogue + labels, never refetched during a session |
 | `["sync", workflow]` | `GET /api/syncs?workflow=` | 10 s | header/rows/valid/warning |
 | `["items", workflow, filters]` | `GET /api/deviations` | 10 s | list and deck (the deck asks for decidable statuses + `decision=undecided`) |

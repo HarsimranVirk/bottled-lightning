@@ -17,6 +17,7 @@ import type {
   QueueView,
   SessionView,
   SyncView,
+  VersionView,
   WorkflowView,
 } from './api'
 
@@ -41,6 +42,7 @@ export interface ItemFilters {
 
 export const keys = {
   workflows: ['workflows'] as const,
+  version: ['version'] as const,
   session: ['session'] as const,
   sync: (route: string) => ['sync', route] as const,
   items: (route: string, filters: ItemFilters) => ['items', route, filters] as const,
@@ -52,6 +54,10 @@ export const keys = {
 
 export function useWorkflows(): ReturnType<typeof useQuery<WorkflowView[]>> {
   return useQuery({ queryKey: keys.workflows, queryFn: () => api.workflows(), staleTime: Infinity })
+}
+
+export function useVersion(): ReturnType<typeof useQuery<VersionView>> {
+  return useQuery({ queryKey: keys.version, queryFn: () => api.version(), staleTime: Infinity })
 }
 
 export function useSession(): ReturnType<typeof useQuery<SessionView>> {

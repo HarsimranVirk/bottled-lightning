@@ -1,4 +1,4 @@
-/** Global banner: session state and refresh validity, including how old a check is. */
+/** Global banner: only problems are surfaced; the footer carries the healthy state. */
 
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
@@ -36,10 +36,9 @@ const props = {
 }
 
 describe('SyncBanner', () => {
-  it('shows the session and the last good sync', () => {
-    render(<SyncBanner session={SESSION} sync={sync()} {...props} />)
-    expect(screen.getByText(/34 cookies/)).toBeInTheDocument()
-    expect(screen.getByText(/7 rows/)).toBeInTheDocument()
+  it('stays quiet when the session and the sync are healthy', () => {
+    const { container } = render(<SyncBanner session={SESSION} sync={sync()} {...props} />)
+    expect(container).toBeEmptyDOMElement()
   })
 
   it('tells the operator how old an untrusted refresh is', () => {

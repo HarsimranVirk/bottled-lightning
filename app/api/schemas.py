@@ -161,6 +161,12 @@ class ConcurrencyIn(ApiModel):
     concurrency: int
 
 
+class VersionView(ApiModel):
+    """The running application version (footer display)."""
+
+    version: str
+
+
 class UpdateStatusView(ApiModel):
     """Update-check result (a typed projection of ``app.updater``'s payload)."""
 

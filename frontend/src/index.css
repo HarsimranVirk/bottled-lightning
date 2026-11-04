@@ -60,7 +60,48 @@
 }
 
 .footer {
-  margin-top: 12px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 16px;
+  border-top: 1px solid var(--salt-color-gray-40, #d9d9d9);
+  background: var(--salt-color-white, #fff);
+  font-size: 11px;
+  color: var(--salt-color-gray-200, #4c4c4c);
+}
+
+.footer-status {
+  text-align: right;
+}
+
+@media (max-width: 600px) {
+  .footer {
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+  }
+
+  .footer > span:first-child {
+    grid-row: 1;
+    grid-column: 1;
+  }
+
+  .footer .saltButton {
+    grid-row: 1;
+    grid-column: 2;
+  }
+
+  .footer-status {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    text-align: left;
+  }
+}
+
+.footer .saltButton {
+  min-height: 22px;
+  height: 22px;
+  padding: 0 6px;
   font-size: 11px;
 }
 

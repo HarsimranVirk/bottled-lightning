@@ -1,17 +1,26 @@
 /** App shell: providers, navigation and the global health banner. */
 
 import type { JSX } from 'react'
-import { SaltProviderNext, FlexLayout, Text } from '@salt-ds/core'
+import { SaltProviderNext, FlexLayout } from '@salt-ds/core'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Link, Outlet, Route, Routes } from 'react-router-dom'
 
+import { AppFooter } from './components/AppFooter'
 import { QueueBar } from './components/QueueBar'
 import { SyncBanner } from './components/SyncBanner'
 import { DevStates } from './pages/DevStates'
 import { HomePage } from './pages/HomePage'
 import { JobsPage } from './pages/JobsPage'
 import { DeviationsPage } from './pages/DeviationsPage'
-import { useLogin, useRequestSync, useSession, useSync, useWorkers, useWorkflows } from './queries'
+import {
+  useLogin,
+  useRequestSync,
+  useSession,
+  useSync,
+  useVersion,
+  useWorkers,
+  useWorkflows,
+} from './queries'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: true } },
@@ -22,6 +31,7 @@ function Shell(): JSX.Element {
   const workflow = workflows.data?.[0]
   const session = useSession()
   const sync = useSync(workflow?.name ?? null)
+  const version = useVersion()
   const workers = useWorkers()
   const login = useLogin()
   const refresh = useRequestSync(workflow?.name ?? null)
@@ -47,11 +57,15 @@ function Shell(): JSX.Element {
             refreshing={refresh.isPending}
           />
           <Outlet />
-          <Text color="secondary" className="footer">
-            Local tool · Salesforce UI automation
-          </Text>
         </FlexLayout>
       </main>
+      <AppFooter
+        version={version.data?.version}
+        session={session.data}
+        sync={sync.data}
+        onRefresh={() => refresh.mutate()}
+        refreshing={refresh.isPending}
+      />
     </div>
   )
 }

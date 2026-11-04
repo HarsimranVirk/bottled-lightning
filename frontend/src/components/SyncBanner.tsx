@@ -40,13 +40,6 @@ export function SyncBanner({ session, sync, onLogin, onRefresh, refreshing }: Pr
     )
   }
 
-  return (
-    <Banner status="info">
-      <BannerContent>
-        Session active ({session.cookies ?? 0} cookies). List synced {relativeTime(sync?.capturedAt)} ·{' '}
-        {sync?.rowsRead ?? 0} rows.
-        <Button appearance="transparent" onClick={onRefresh} disabled={refreshing}>Refresh</Button>
-      </BannerContent>
-    </Banner>
-  )
+  // Healthy state is quiet: the footer carries session, sync age and the version.
+  return null
 }

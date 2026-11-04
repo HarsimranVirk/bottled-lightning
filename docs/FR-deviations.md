@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.4 |
+| **Version** | v5.5 |
 | **Date** | 2026-11-04 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -268,8 +268,9 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   as a job sub-resource, jobs and job logs, worker/queue status, and update status.
 - **FR-9.3** The frontend shows: authentication state with the manual-login trigger, sync
   health including header-count mismatch, the review deck, the unified view with inline
-  editing and submission, per-deviation detail grouped by SF object, and a live
-  job/queue strip.
+  editing and submission, per-deviation detail grouped by SF object, a live job/queue
+  strip, and a footer carrying the running app version and quiet session/sync status.
+  A healthy session does not show a persistent banner; banners are reserved for problems.
 - **FR-9.4** The frontend is TypeScript strict, shared payload types live in one place,
   and `any` is not used.
 - **FR-9.5** Every screen implements an explicit state matrix: loading, empty, ready,
@@ -387,6 +388,10 @@ absence while a `SUBMIT` lease was held.
   submit action? (Default: explicit action; acceptance only queues.) | FR-10.6 |
 
 ## Appendix C — Change log
+
+- **v5.5** — the always-on healthy banner is gone: session/sync status moves to a footer
+  that also shows the running app version (`GET /api/version`). Only problems (expired
+  session, untrusted refresh) raise a banner.
 
 - **v5.4** — decision gestures are removed: Skip/Accept are the only paths and they span
   the card width. The card shows the SF approval date (dash when SF has none), the

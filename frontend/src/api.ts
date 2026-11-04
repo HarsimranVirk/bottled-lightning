@@ -22,6 +22,7 @@ export type JobLogs = components['schemas']['JobLogsView']
 export type SessionView = components['schemas']['SessionView']
 export type SyncView = components['schemas']['SyncView']
 export type QueueView = components['schemas']['QueueView']
+export type VersionView = components['schemas']['VersionView']
 
 /** A failed request, normalised from the API's `{detail: {code, message}}` body. */
 export class ApiError extends Error {
@@ -111,6 +112,7 @@ function itemsQuery(params: ItemQuery): string {
 
 export const api = {
   workflows: (): Promise<WorkflowView[]> => request('/api/workflows'),
+  version: (): Promise<VersionView> => request('/api/version'),
   session: (): Promise<SessionView> => request('/api/sessions'),
   sync: (workflow: string): Promise<SyncView | null> =>
     request(`/api/syncs${query({ workflow })}`),

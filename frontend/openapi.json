@@ -868,6 +868,20 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "VersionView": {
+        "description": "The running application version (footer display).",
+        "properties": {
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "VersionView",
+        "type": "object"
+      },
       "WorkflowFieldView": {
         "properties": {
           "key": {
@@ -1784,6 +1798,28 @@
           }
         },
         "summary": "Install Update",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/version": {
+      "get": {
+        "description": "The running app version; the footer shows it on every screen.",
+        "operationId": "get_version_api_version_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Version",
         "tags": [
           "admin"
         ]

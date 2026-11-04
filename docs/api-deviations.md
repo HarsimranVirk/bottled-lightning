@@ -292,6 +292,15 @@ Cancels a **queued** job only; running jobs are not interrupted mid-write (FR-7.
 
 `422` outside `1..5`. Shrinking lets running jobs finish.
 
+### `GET /api/version`
+
+The running app version, shown in the footer on every screen. Cheap, cached and
+independent of the update check.
+
+```json
+{ "version": "0.4.5" }
+```
+
 ## 8. Updates (unchanged)
 
 `GET /api/updates`, `POST /api/updates/checks`, `POST /api/updates/installations` keep
@@ -415,6 +424,10 @@ export interface QueueView {
   inFlight: number;
   paused: boolean;
   counts: Record<string, number>;
+}
+
+export interface VersionView {
+  version: string;
 }
 ```
 
