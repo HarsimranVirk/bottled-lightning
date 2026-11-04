@@ -54,6 +54,12 @@ localStorage mirror).
    `EMIs & other HFFC Loan-…` shapes occur). Amount fields display Indian
    grouping (25,50,000); tenure is stored in months.
 
+Queued deviations are treated as immutable in practice — nobody edits them in
+SF. Detail extraction is one-shot (`deviation_details.extracted_at`): only
+values that were never visited are auto-extracted, and missing page-ref kinds
+do NOT trigger a re-scrape. `POST /api/deviations/jobs?refresh=true` forces a
+full re-scrape when you actually need one.
+
 ## Architecture
 
     app/config.py      settings (org URLs, data dir, update policy; env-overridable)
@@ -63,7 +69,11 @@ localStorage mirror).
                        pattern) + base (WorkflowProfile, registry, product map)
     app/deviations_zNN/ thin workflow packages: PROFILE + own updaters/ (zNN-specific)
     app/cancellations/ separate workflow (own extractors + updaters)
-    app/jobs.py        ThreadPool job runner (serial: 1 browser at a time)
+    app/jobs.py        ThreadPool job runner (serial: 1 browser at a time);
+                       consumes the resync snapshot instead of re-visiting the list
+    app/sync.py        continuous queue resync loop: visits the list view every
+                       RESYNC_INTERVAL_SECONDS (30s), reconciles latest_values,
+                       keeps the ListSnapshot that extraction jobs reuse
     app/store.py       SQLite (data/app.db — general-purpose store): views,
                        jobs, job_rows, latest_values, session_events,
                        sessions (auth snapshots)
@@ -162,6 +172,6 @@ saved session — run the manual login once; snapshots refresh automatically.
 - Playwright sync API is used; jobs run in worker threads. Don't use
   asyncio APIs here without a redesign discussion.
 - Don't expand the frontend until the backend workflows are done and stable.
-- Clean up any temporary/scratch files created during work (e.g. in /tmp) before finishing; don't leave throwaway scripts behind.
+- Clean up any temporary/scratch files created during work, wherever on the system (e.g. /tmp, the OS temp dir, scratch dirs, worktrees) before finishing; don't leave throwaway scripts or artifacts behind.
 - Extraction code changes require re-verifying the header-total cross-check.
 - After every edit, run ruff (`ruff check app/ frontend/`) and resolve **all** reported issues (including import sorting I001) before considering the change complete. The project uses ruff for linting/formatting; no ruff warnings may remain.

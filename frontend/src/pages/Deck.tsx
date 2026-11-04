@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Button,
   Card,
@@ -66,7 +66,16 @@ interface Tally {
   pending: number
 }
 
-const EMPTY_SYNC: ResyncState = { status: 'idle', detail: '', result: null }
+const EMPTY_SYNC: ResyncState = {
+  status: 'idle',
+  detail: '',
+  result: null,
+  busy: false,
+  cycle: 0,
+  interval_seconds: 0,
+  last_run_at: null,
+  job_running: false,
+}
 
 export default function Deck() {
   const [rows, setRows] = useState<DeviationRow[] | null>(null)
@@ -106,30 +115,40 @@ export default function Deck() {
     void refresh() // initial load; async so state updates after await
   }, [refresh])
 
-  // poll resync progress while it runs
-  const pollSync = useCallback((): void => {
+  // the backend resyncs on a loop; poll it and refresh when the queue changed
+  const cycleRef = useRef(0)
+  const jobRunningRef = useRef(false)
+  useEffect(() => {
+    let cancelled = false
     const tick = async (): Promise<void> => {
       try {
         const s = await api.devResyncStatus()
+        if (cancelled) return
         setSync(s)
-        if (s.status === 'running') {
-          setTimeout(() => { void tick() }, 2000)
-          return
+        if (s.cycle !== cycleRef.current) {
+          cycleRef.current = s.cycle
+          const r = s.result
+          if (r && ((r.added?.length ?? 0) > 0 || (r.removed?.length ?? 0) > 0)) {
+            void refresh()
+          }
         }
-        if (s.status === 'done') void refresh()
+        // details were filled in by a finished extraction job
+        if (jobRunningRef.current && !s.job_running) void refresh()
+        jobRunningRef.current = s.job_running
       } catch { /* transient */ }
+      if (!cancelled) setTimeout(() => { void tick() }, 5000)
     }
     void tick()
+    return () => { cancelled = true }
   }, [refresh])
 
   const resync = (): void => {
     if (busy || animClass) return
-    setSync({ status: 'running', detail: 'starting…', result: null })
+    setSync((s) => ({ ...s, busy: true, detail: 'starting…' }))
     api.devResync()
-      .then(() => pollSync())
       .catch((e: unknown) => {
         setError(errorStatus(e) === 409 ? 'resync already running' : errorMessage(e))
-        setSync(EMPTY_SYNC)
+        setSync((s) => ({ ...s, busy: false }))
       })
   }
 
@@ -199,8 +218,8 @@ export default function Deck() {
           </FlexLayout>
         </FlexLayout>
         <FlexLayout gap={2} align="center">
-          <Button appearance="bordered" disabled={busy || sync.status === 'running'} onClick={resync}>
-            Resync queue
+          <Button appearance="bordered" disabled={busy || sync.busy} onClick={resync}>
+            Sync now
           </Button>
           <Button appearance="bordered" disabled={busy} onClick={() => { void refresh() }}>
             Refresh
@@ -208,21 +227,22 @@ export default function Deck() {
         </FlexLayout>
       </FlexLayout>
 
-      {sync.status === 'running' && (
+      {sync.busy && (
         <FlexLayout gap={1} align="center">
           <Spinner size="small" />
           <Text color="secondary">{sync.detail || 'comparing queue with Salesforce…'}</Text>
         </FlexLayout>
       )}
-      {sync.status === 'done' && syncResult && (
+      {!sync.busy && sync.status === 'done' && syncResult && (
         <FlexLayout gap={1} align="center">
           <StatusIndicator status={syncResult.new_in_sf.length || syncResult.missing_in_sf.length || syncResult.count_mismatch ? 'warning' : 'success'} />
           <Text>
             {sync.detail || `queue matches Salesforce (${syncResult.sf_count} deviations)`}
+            {sync.interval_seconds > 0 ? ` · auto-syncs every ${sync.interval_seconds}s` : ''}
           </Text>
         </FlexLayout>
       )}
-      {sync.status === 'failed' && (
+      {!sync.busy && sync.status === 'failed' && (
         <FlexLayout gap={1} align="center">
           <StatusIndicator status="error" />
           <Text color="error">resync failed: {sync.detail}</Text>

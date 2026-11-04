@@ -158,6 +158,11 @@ export interface ResyncState {
   status: ResyncStatus
   detail: string
   result: ResyncResult | null
+  busy: boolean
+  cycle: number
+  interval_seconds: number
+  last_run_at: string | null
+  job_running: boolean
 }
 
 export interface DecisionPayload {

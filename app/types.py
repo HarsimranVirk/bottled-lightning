@@ -158,6 +158,21 @@ class ResyncState(BaseModel):
     status: str = "idle"
     detail: str = ""
     result: ResyncResult | None = None
+    busy: bool = False
+    cycle: int = 0
+    interval_seconds: int = 0
+    last_run_at: str | None = None
+    job_running: bool = False
+
+
+class ListSnapshot(BaseModel):
+    """One list-view visit, reused by extraction jobs instead of a second visit."""
+
+    numbers: set[str] = Field(default_factory=set)
+    total: int | None = None
+    links: dict[str, str] = Field(default_factory=dict)
+    approval_dates: dict[str, str] = Field(default_factory=dict)
+    captured_at: str = ""
 
 
 class LatestRow(BaseModel):

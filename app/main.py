@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__, config, store, updater
+from . import __version__, config, store, sync, updater
 from .jobs import shutdown_pool
 from .routes import router
 
@@ -38,8 +38,15 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
     _start_pool(config.SCRAPE_WORKERS)
     print(f"* worker pool started: {config.SCRAPE_WORKERS} always-alive sessions")
+    if config.RESYNC_AUTO_START:
+        sync.start()
+        print(
+            f"* resync loop started: list view visited every "
+            f"{config.RESYNC_INTERVAL_SECONDS}s"
+        )
     updater.start_auto_update()
     yield
+    sync.stop()
     shutdown_pool()
     print("* worker pool stopped")
 
