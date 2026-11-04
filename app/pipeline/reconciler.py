@@ -67,7 +67,11 @@ class Reconciler:
 
             was_absent = not item.present
             self._items.touch(
-                self._workflow.name, row.key, sample.captured_at, href=row.href or None
+                self._workflow.name,
+                row.key,
+                sample.captured_at,
+                href=row.href or None,
+                approved_at=row.approved_at,
             )
             mapped = dict(self._workflow.map_row(row))
             if mapped:

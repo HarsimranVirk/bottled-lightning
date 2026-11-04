@@ -133,30 +133,37 @@ class WorkItemRepository:
         key: str,
         at: datetime,
         href: str | None = None,
+        approved_at: str | None = None,
     ) -> None:
         """
-        Refresh presence (and the record URL) on a valid refresh.
+        Refresh list-visible fields on a valid refresh.
 
-        Only called for rows in a *valid* sample. Passing ``href`` also updates
-        ``record_url``, which is what lets an EXTRACT job start without the snapshot.
+        Only called for rows in a *valid* sample. ``href`` updates ``record_url`` (which
+        lets an EXTRACT job start without the snapshot); ``approved_at`` updates the
+        approval date when SF provides one, but never clears it — SF adds the date
+        *after* an item first appears, which is why a create-time-only copy went stale.
         """
+        stamp = to_iso(at)
         with self._db.transaction() as conn:
             if href:
                 conn.execute(
                     """
                     UPDATE work_items
-                       SET last_seen = ?, present = 1, record_url = ?
+                       SET last_seen = ?, present = 1, record_url = ?,
+                           approved_at = COALESCE(?, approved_at)
                      WHERE workflow = ? AND item_key = ?
                     """,
-                    [to_iso(at), href, workflow, key],
+                    [stamp, href, approved_at, workflow, key],
                 )
                 return
             conn.execute(
                 """
-                UPDATE work_items SET last_seen = ?, present = 1
+                UPDATE work_items
+                   SET last_seen = ?, present = 1,
+                       approved_at = COALESCE(?, approved_at)
                  WHERE workflow = ? AND item_key = ?
                 """,
-                [to_iso(at), workflow, key],
+                [stamp, approved_at, workflow, key],
             )
 
     def transition(

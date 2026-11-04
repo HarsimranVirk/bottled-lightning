@@ -133,6 +133,27 @@ class ReconcilerTests(ReconcilerTestCase):
             self.deps().attributes.for_item(WORKFLOW, KEY)["product_type"], "Home Loan"
         )
 
+    def test_approval_date_is_refreshed_from_a_later_sync(self) -> None:
+        """SF adds the approval date after first sight; a sync must pick it up (FR-2.3).
+
+        The date must also never be cleared when a later sample omits it.
+        """
+        reconciler, _closure, _workflow = self.build()
+        reconciler.apply(sample(row(approved=None)))
+        self.assertIsNone(self.deps().items.require(WORKFLOW, KEY).approved_at)
+
+        reconciler.apply(sample(row(approved="4/11/2026 6:46 pm")))
+        self.assertEqual(
+            self.deps().items.require(WORKFLOW, KEY).approved_at,
+            "4/11/2026 6:46 pm",
+        )
+
+        reconciler.apply(sample(row(approved=None)))
+        self.assertEqual(
+            self.deps().items.require(WORKFLOW, KEY).approved_at,
+            "4/11/2026 6:46 pm",
+        )
+
     def test_refresh_never_touches_editable_values(self) -> None:
         """A refresh may update attributes, never extracted/proposed field state (I4)."""
         reconciler, _closure, _workflow = self.build({"product_type": "Home Loan"})

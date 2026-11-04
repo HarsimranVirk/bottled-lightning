@@ -64,7 +64,7 @@ change that alters the code (see AGENTS.md, plan-mode rules).
 | `first_seen` | TEXT | no | First valid refresh that contained it |
 | `last_seen` | TEXT | no | Latest valid refresh that contained it |
 | `absent_since` | TEXT | yes | When absence was first observed |
-| `approved_at` | TEXT | yes | Approval Date column from the printable view |
+| `approved_at` | TEXT | yes | Approval Date from the printable view; refreshed on every valid sync, never cleared |
 | `extracted_at` | TEXT | yes | Set when extraction completed (one-shot marker) |
 | `execute_attempted_at` | TEXT | yes | Final-action click recorded |
 | `execute_confirmed_at` | TEXT | yes | Final-action success observed |

@@ -97,7 +97,9 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   read from it.
 - **FR-2.3** Each refresh reconciles the stored data against SF: newly appearing
   deviations are added, list-visible values of known deviations are updated, and missing
-  deviations are closed (FR-2.6).
+  deviations are closed (FR-2.6). The approval date is such a value: SF fills it after a
+  deviation first appears, so a later sync must add it (and must never clear a known
+  date when a sample omits it).
 - **FR-2.4** The "N items" header total is read on every refresh and compared with the
   number of rows parsed. A mismatch makes the refresh invalid (FR-2.9); it is persisted
   and shown as a sync warning and is never silently ignored.
