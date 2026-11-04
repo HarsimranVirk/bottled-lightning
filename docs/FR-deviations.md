@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.8 |
+| **Version** | v5.9 |
 | **Date** | 2026-11-04 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -347,6 +347,11 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   so missing or unparsed values are visible and correctable before a decision. Missing
   values are not an error and carry no warning: only one or two values may need an
   update. Accept persists the card's values as proposals (FR-10.2).
+- **FR-10.11** The raw description is shown compactly: the **New** parameter block is
+  visible by default in a bounded, bordered panel; the Old block is behind an explicit
+  toggle. At 1280×800 the deck (header, card and actions) fits without page scrolling;
+  the description itself never requires scrolling while collapsed. On narrow screens
+  the card stacks vertically and the page may scroll.
 - **FR-10.11** Decisions never gate sync or extraction. An accepted or rejected item is
   still reconciled with the list view like any other.
 
@@ -407,6 +412,11 @@ absence while a `SUBMIT` lease was held.
   submit action? (Default: explicit action; acceptance only queues.) | FR-10.6 |
 
 ## Appendix C — Change log
+
+- **v5.9** — the deck is two columns on large screens (description + fields | refs +
+  ROI), the description shows only the New block by default with the Old block behind a
+  toggle, and the whole deck fits 1280×800 without page scroll. Mobile stacks cleanly
+  with no horizontal scroll.
 
 - **v5.8** — description parsing prefers the New parameter block and never falls back
   to the Old block for a missing field; the card no longer warns about missing values

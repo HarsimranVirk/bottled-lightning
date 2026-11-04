@@ -6,6 +6,7 @@
  */
 
 import type { JSX } from 'react'
+import { useState } from 'react'
 import {
   Card,
   CardContent,
@@ -14,6 +15,7 @@ import {
   FormFieldLabel,
   GridLayout,
   Input,
+  Button,
   Link,
   StackLayout,
   Text,
@@ -40,6 +42,12 @@ const ROI_FIELDS: { key: string; label: string }[] = [
   { key: 'requested_variance', label: 'Requested Variance' },
 ]
 
+function splitParameters(text: string): { visible: string; hasOld: boolean } {
+  const match = text.match(/(^|\n)(\s*New\s+Param[\s\S]*)$/i)
+  if (match === null) return { visible: text, hasOld: false }
+  return { visible: match[2].trim(), hasOld: text.slice(0, match.index).trim().length > 0 }
+}
+
 interface Props {
   row: ItemRow
   fields: WorkflowFieldView[]
@@ -61,7 +69,9 @@ export function DecisionCard({
   onField,
 }: Props): JSX.Element {
   const ordered = orderedFields(fields)
+  const [showFullDescription, setShowFullDescription] = useState(false)
   const description = detail?.attributes.description ?? null
+  const descriptionParts = description === null ? null : splitParameters(description)
   const recordHref = row.recordUrl ? absoluteUrl(row.recordUrl, listUrl) : null
   const refRank = (kind: string): number => {
     const index = REF_ORDER.indexOf(kind)
@@ -116,60 +126,80 @@ export function DecisionCard({
             </StackLayout>
           ) : null}
 
-          <Text color="secondary" styleAs="label">
-            Loan Deviation Description — read it, raw is truth
-          </Text>
-          <Card variant="secondary" elevation="flat" className="deck-description">
-            {detail === null ? (
-              <Text color="secondary">loading description…</Text>
-            ) : description ? (
-              <Text styleAs="code" className="deck-description-text">
-                {description}
-              </Text>
-            ) : (
-              <Text color="secondary">no description picked yet — run an extraction first</Text>
-            )}
-          </Card>
-
-          <Text color="secondary" styleAs="label">
-            Housing Loan Deviation Details
-          </Text>
-          <GridLayout columns={{ xs: 1, sm: 2 }} gap={1}>
-            {ROI_FIELDS.map((field) => (
-              <StackLayout gap={0} key={field.key}>
+          <GridLayout columns={{ xs: 1, lg: 2 }} gap={2}>
+            <StackLayout gap={1}>
+              <FlexLayout justify="space-between" align="center" gap={1} wrap>
                 <Text color="secondary" styleAs="label">
-                  {field.label}
+                  Loan Deviation Description — read it, raw is truth
                 </Text>
-                <Text>{detail?.attributes[field.key] ?? '—'}</Text>
-              </StackLayout>
-            ))}
-          </GridLayout>
+                {descriptionParts?.hasOld ? (
+                  <Button
+                    appearance="transparent"
+                    onClick={() => setShowFullDescription((current) => !current)}
+                  >
+                    {showFullDescription ? 'Show new only' : 'Show old parameters'}
+                  </Button>
+                ) : null}
+              </FlexLayout>
+              <Card
+                variant="secondary"
+                elevation="flat"
+                className={`deck-description${showFullDescription ? ' deck-description-full' : ''}`}
+              >
+                {detail === null ? (
+                  <Text color="secondary">loading description…</Text>
+                ) : description && descriptionParts ? (
+                  <Text styleAs="code" className="deck-description-text">
+                    {showFullDescription ? description : descriptionParts.visible}
+                  </Text>
+                ) : (
+                  <Text color="secondary">no description picked yet — run an extraction first</Text>
+                )}
+              </Card>
 
-          <Text color="secondary" styleAs="label">
-            New loan parameters to populate — prefilled where the parser could read the
-            description; correct anything it got wrong:
-          </Text>
-          <StackLayout gap={1}>
-            {ordered.map((field) => (
-              <FormField key={field.key} labelPlacement="left">
-                <FormFieldLabel>{field.label}</FormFieldLabel>
-                <Input
-                  value={draftDisplay(field, values[field.key] ?? '')}
-                  inputProps={{
-                    inputMode: field.valueType === 'text' ? undefined : 'numeric',
-                    'aria-label': field.label,
-                    onChange: (event) => {
-                      const raw = event.target.value
-                      onField(
-                        field.key,
-                        field.valueType === 'text' ? raw : raw.replace(/[^\d]/g, ''),
-                      )
-                    },
-                  }}
-                />
-              </FormField>
-            ))}
-          </StackLayout>
+              <Text color="secondary" styleAs="label">
+                New loan parameters to populate — prefilled where the parser could read the
+                description; correct anything it got wrong:
+              </Text>
+              <StackLayout gap={1}>
+                {ordered.map((field) => (
+                  <FormField key={field.key} labelPlacement="left">
+                    <FormFieldLabel>{field.label}</FormFieldLabel>
+                    <Input
+                      value={draftDisplay(field, values[field.key] ?? '')}
+                      inputProps={{
+                        inputMode: field.valueType === 'text' ? undefined : 'numeric',
+                        'aria-label': field.label,
+                        onChange: (event) => {
+                          const raw = event.target.value
+                          onField(
+                            field.key,
+                            field.valueType === 'text' ? raw : raw.replace(/[^\d]/g, ''),
+                          )
+                        },
+                      }}
+                    />
+                  </FormField>
+                ))}
+              </StackLayout>
+            </StackLayout>
+
+            <StackLayout gap={1}>
+              <Text color="secondary" styleAs="label">
+                Housing Loan Deviation Details
+              </Text>
+              <GridLayout columns={{ xs: 1, sm: 2 }} gap={1}>
+                {ROI_FIELDS.map((field) => (
+                  <StackLayout gap={0} key={field.key}>
+                    <Text color="secondary" styleAs="label">
+                      {field.label}
+                    </Text>
+                    <Text>{detail?.attributes[field.key] ?? '—'}</Text>
+                  </StackLayout>
+                ))}
+              </GridLayout>
+            </StackLayout>
+          </GridLayout>
         </StackLayout>
       </CardContent>
     </Card>

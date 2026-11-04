@@ -105,6 +105,7 @@ accepted/skipped/to-review tallies, then Skip and Accept. The header keeps the
 | ready | record link + status, approval date, *Pages to update* (Opportunity, CL, collateral, LMS2), raw description panel, ROI grid, four prefilled editable values | Skip, Accept |
 | needs_review | same card + the failure reason above the description | Skip, Accept |
 | partial values | inputs not present in the New block are empty; no warning | Accept allowed (FR-10.10) |
+| description | New parameter block only in a bordered, capped panel; **Show old parameters** reveals the raw text | decide |
 | editing a value | input shows Indian grouping (amounts) or months; the draft is local until Accept | Skip discards the draft |
 | decision in flight | Skip/Accept disabled until the PATCH + decision finish | — |
 | decision failed | card stays, the server message appears above it | Retry |
@@ -294,14 +295,16 @@ Rules:
   CSS is limited to layout, responsive column hiding and motion.
 - **High density.** Page padding 10/16 px, headings 20/17/14 px, data text 11–12 px,
   layout gaps 8–16 px (not 24–32), table cells 4–5 px, card padding 10–12 px, the deck
-  description block in a bordered Salt Card. The description is shown in full (no
-  internal scroll); the deck grows instead, because copying the New block matters more
-  than a fixed card height.
+  description block in a bordered Salt Card, capped at 180 px. Only the New parameter
+  block is shown by default; **Show old parameters** reveals the raw text (and the page
+  may scroll). The collapsed block never scrolls.
 - **No horizontal page scrolling at 390/768/1280 px.** The shell is border-box; filters
   wrap; the list drops to Status + Deviation at 600 px instead of scrolling sideways.
   Long values wrap (`overflow-wrap: anywhere`), never widen the page.
-- Deck card: Salt `Card elevation="raised"`, max-width 640 px, centred (the legacy
-  width). One card at a time; the next item is named below it, not stacked behind it.
+- Deck card: Salt `Card elevation="raised"`, **max-width 960 px** on large screens
+  (two content columns), full width below `lg`. One card at a time; the next item is
+  named below it, not stacked behind it. At 1280×800 the header, card and actions fit
+  without page scrolling; below `lg` the card stacks and the page scrolls vertically.
   Skip and Accept are full-width halves of the card (40 px tall) so they are the obvious
   action and cannot be confused with a gesture.
 - The exit animation is transform-only (slide left/right + ≤14° rotate) and disabled
