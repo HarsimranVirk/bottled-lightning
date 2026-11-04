@@ -43,9 +43,10 @@ Rules for the whole effort:
 Rough sizing assumes one focused developer: **~22–27 working days**, of which Phases 3 and
 6 (adapters, submit) are the long poles because they are UI-selector work.
 
-**Progress:** Phases 0–2 are done on branch `refactor/deviations-v2` (core domain,
+**Progress:** Phases 0–3 are done on branch `refactor/deviations-v2` (core domain,
 schema v2, repositories, workflow seam, Z02 catalog + description parser, async browser
-runtime, session snapshot/expiry, `ListPage`, login CLI). Phases 3–9 are not started.
+runtime, session snapshot/expiry, `ListPage`, login CLI, six Z02 adapters and the
+`DeviationsZ02Extraction` pipeline). Phases 4–9 are not started.
 
 Phase 2's live gate is only half-verified: the runtime boots, injects cookies, navigates
 and correctly reports an expired session, and `ListPage` was verified end-to-end against a
@@ -162,6 +163,11 @@ no `sync_playwright` anywhere in the new tree; `ruff`/`mypy` clean.
 
 **Gate:** a single deviation extracts end-to-end into the v2 tables through the registry;
 skip reasons match today's strings; header cross-check still reported.
+
+Status: implemented, verified with fake adapters (ordering, persistence, skips,
+idempotency, force, `SessionExpired` propagation). The six adapters are faithful async
+ports of the working sync extractors, but have not been run against the live org yet —
+that needs a valid session and is the first thing to check once login is refreshed.
 
 ### Phase 4 — Queue, dispatcher, worker (2–3 days)
 

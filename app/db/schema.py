@@ -12,6 +12,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS work_items (
     workflow TEXT NOT NULL,
     item_key TEXT NOT NULL,
+    record_url TEXT,
     status TEXT NOT NULL,
     source TEXT,
     reason TEXT,

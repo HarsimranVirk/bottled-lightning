@@ -19,9 +19,9 @@ from app.db.connection import Database
 from ._util import opt_bool, opt_str, opt_time
 
 _COLUMNS = (
-    "workflow, item_key, status, source, reason, present, epoch, first_seen, last_seen, "
-    "absent_since, approved_at, extracted_at, execute_attempted_at, "
-    "execute_confirmed_at, closed_at"
+    "workflow, item_key, record_url, status, source, reason, present, epoch, "
+    "first_seen, last_seen, absent_since, approved_at, extracted_at, "
+    "execute_attempted_at, execute_confirmed_at, closed_at"
 )
 
 
@@ -29,6 +29,7 @@ def _to_item(row: sqlite3.Row) -> WorkItem:
     return WorkItem(
         workflow=str(row["workflow"]),
         key=str(row["item_key"]),
+        record_url=opt_str(row["record_url"]),
         status=WorkItemStatus(str(row["status"])),
         source=ClosureSource(str(row["source"])) if row["source"] is not None else None,
         reason=opt_str(row["reason"]),
@@ -79,13 +80,14 @@ class WorkItemRepository:
             conn.execute(
                 """
                 INSERT OR IGNORE INTO work_items
-                    (workflow, item_key, status, present, epoch, first_seen, last_seen,
-                     approved_at)
-                VALUES (?, ?, ?, 1, 1, ?, ?, ?)
+                    (workflow, item_key, record_url, status, present, epoch, first_seen,
+                     last_seen, approved_at)
+                VALUES (?, ?, ?, ?, 1, 1, ?, ?, ?)
                 """,
                 [
                     workflow,
                     row.key,
+                    row.href or None,
                     WorkItemStatus.PRESENT.value,
                     stamp,
                     stamp,
@@ -94,8 +96,24 @@ class WorkItemRepository:
             )
         return self.require(workflow, row.key)
 
-    def touch(self, workflow: str, key: str, at: datetime) -> None:
+    def touch(
+        self,
+        workflow: str,
+        key: str,
+        at: datetime,
+        href: str | None = None,
+    ) -> None:
         with self._db.transaction() as conn:
+            if href:
+                conn.execute(
+                    """
+                    UPDATE work_items
+                       SET last_seen = ?, present = 1, record_url = ?
+                     WHERE workflow = ? AND item_key = ?
+                    """,
+                    [to_iso(at), href, workflow, key],
+                )
+                return
             conn.execute(
                 """
                 UPDATE work_items SET last_seen = ?, present = 1

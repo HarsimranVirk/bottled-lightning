@@ -13,16 +13,22 @@ from app.core.field import EditableField, FieldTarget, ValueType
 from app.core.list_view import ListRow, ListViewSpec
 from app.core.models import WorkItem
 from app.core.registry import WorkflowRegistry
+from app.core.repo.attributes import AttributeRepository
+from app.core.repo.events import EventRepository
+from app.core.repo.fields import FieldValueRepository
+from app.core.repo.refs import PageRefRepository
+from app.core.repo.work_items import WorkItemRepository
 from app.core.status import ExtractOutcome, SubmitOutcome, WorkItemStatus
-from app.core.workflow import JobLogger, Workflow
+from app.core.workflow import JobLogger, Workflow, WorkflowDeps
+from app.db.connection import Database
 from app.salesforce.adapters import AdapterRegistry
-from app.salesforce.tabs import TabGroup
+from app.salesforce.tabs import TabProvider
 from app.workflows.deviations_z02 import WORKFLOW_NAME, build_workflow
 
 
 class FakeExtraction:
     async def run(
-        self, item: WorkItem, tabs: TabGroup, log: JobLogger
+        self, item: WorkItem, tabs: TabProvider, log: JobLogger
     ) -> ExtractOutcome:
         log(f"fake extraction {item.key}")
         return ExtractOutcome.EXTRACTED
@@ -30,7 +36,7 @@ class FakeExtraction:
 
 class FakeSubmission:
     async def run(
-        self, item: WorkItem, tabs: TabGroup, log: JobLogger
+        self, item: WorkItem, tabs: TabProvider, log: JobLogger
     ) -> SubmitOutcome:
         log(f"fake submission {item.key}")
         return SubmitOutcome.COMPLETED
@@ -99,7 +105,17 @@ class RegistryTests(unittest.TestCase):
 
     def test_deviations_workflow_is_registrable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            workflow = build_workflow(settings_for(Path(tmp)), AdapterRegistry([]))
+            database = Database(Path(tmp) / "app.db")
+            database.migrate()
+            deps = WorkflowDeps(
+                items=WorkItemRepository(database),
+                fields=FieldValueRepository(database),
+                attributes=AttributeRepository(database),
+                refs=PageRefRepository(database),
+                events=EventRepository(database),
+            )
+            workflow = build_workflow(settings_for(Path(tmp)), deps, AdapterRegistry([]))
+            database.close()
         self.assertEqual(workflow.name, WORKFLOW_NAME)
         self.assertEqual(workflow.list_view.pattern, r"Deviation-\d+-\d+")
         self.assertEqual(

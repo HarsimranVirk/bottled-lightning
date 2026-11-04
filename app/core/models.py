@@ -35,6 +35,7 @@ class WorkItem:
 
     workflow: str
     key: str
+    record_url: str | None
     status: WorkItemStatus
     source: ClosureSource | None
     reason: str | None

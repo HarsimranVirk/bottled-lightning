@@ -332,6 +332,7 @@ class SettingsTests(unittest.TestCase):
             database = Database(Path(tmp) / "nested" / "app.db")
             database.migrate()
             self.assertTrue(database.path.exists())
+            database.close()
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 """The Z02 loan-deviation workflow: registration seam.
 
-``build_workflow`` is the single wiring point. Pipelines are placeholders until Phases 3
-and 6 of the refactor plan; the catalog, list view and labels are already final.
+``build_workflow`` is the single wiring point. Extraction is implemented; submission is a
+placeholder until refactor Phase 6.
 """
 
 from __future__ import annotations
@@ -11,26 +11,20 @@ from collections.abc import Mapping
 from app.config import Settings
 from app.core.list_view import ListRow, ListViewSpec
 from app.core.models import WorkItem
-from app.core.status import ExtractOutcome, SubmitOutcome, WorkItemStatus
-from app.core.workflow import JobLogger, Workflow
+from app.core.status import SubmitOutcome, WorkItemStatus
+from app.core.workflow import JobLogger, Workflow, WorkflowDeps
 from app.salesforce.adapters import AdapterRegistry
-from app.salesforce.tabs import TabGroup
+from app.salesforce.tabs import TabProvider
 
 from .catalog import FIELD_CATALOG
+from .extraction import DeviationsZ02Extraction
 
 WORKFLOW_NAME = "deviations_z02"
 
 
-class _PendingExtraction:
-    async def run(
-        self, item: WorkItem, tabs: TabGroup, log: JobLogger
-    ) -> ExtractOutcome:
-        raise NotImplementedError("DeviationsZ02Extraction lands in refactor Phase 3")
-
-
 class _PendingSubmission:
     async def run(
-        self, item: WorkItem, tabs: TabGroup, log: JobLogger
+        self, item: WorkItem, tabs: TabProvider, log: JobLogger
     ) -> SubmitOutcome:
         raise NotImplementedError("DeviationsZ02Submission lands in refactor Phase 6")
 
@@ -41,7 +35,18 @@ def map_row(row: ListRow) -> Mapping[str, str]:
     return {}
 
 
-def build_workflow(settings: Settings, adapters: AdapterRegistry) -> Workflow:
+def build_workflow(
+    settings: Settings, deps: WorkflowDeps, adapters: AdapterRegistry
+) -> Workflow:
+    extraction = DeviationsZ02Extraction(
+        WORKFLOW_NAME,
+        deps.items,
+        deps.fields,
+        deps.attributes,
+        deps.refs,
+        deps.events,
+        adapters,
+    )
     return Workflow(
         name=WORKFLOW_NAME,
         route="deviations",
@@ -51,7 +56,7 @@ def build_workflow(settings: Settings, adapters: AdapterRegistry) -> Workflow:
         ),
         catalog=FIELD_CATALOG,
         adapters=adapters,
-        extraction=_PendingExtraction(),
+        extraction=extraction,
         submission=_PendingSubmission(),
         map_row=map_row,
         terminal_labels={WorkItemStatus.COMPLETED: "Implemented"},

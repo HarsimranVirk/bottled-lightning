@@ -7,7 +7,7 @@
 | **Date** | 2026-11-04 |
 | **Companion** | `docs/FR-deviations-v2.md` (v2.1), `docs/refactor-plan-deviations.md` |
 | **Change** | v2 introduces the workflow abstraction; v1 was deviations-only |
-| **Implemented so far** | Phases 1–2 on `refactor/deviations-v2`: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,adapters}`, `app/workflows/deviations_z02/{catalog,description}` |
+| **Implemented so far** | Phases 1–3 on `refactor/deviations-v2`: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,adapters}`, `app/workflows/deviations_z02/{catalog,description,product_map,adapters,extraction}` |
 
 This document describes the target class design. It separates the parts that are the
 same for every Salesforce workflow (browser, tabs, queue, leases, refresh, closure) from
@@ -107,12 +107,15 @@ app/
       jobs.py  sessions.py  syncs.py  workers.py  updates.py
   workflows/
     deviations_z02/
-      __init__.py                 WORKFLOW = Workflow(...)  (module-level registration)
-      catalog.py                  DEVIATION_OBJECTS, FIELD_CATALOG
+      __init__.py                 build_workflow(settings, deps, adapters)
+      catalog.py                  DeviationObject, FIELD_CATALOG
       description.py              parse_description_fields() (pure)
+      product_map.py              CL_CONTRACT_PRODUCT_MAP (reference data)
       adapters/
+        __init__.py               build_adapters(org_base, timeout_ms)
+        dom.py                    async DOM helpers (safe text, show more, URLs)
         deviation_record.py  opportunity.py  cl_contract.py
-        collateral.py  lms2_cl_contract.py  lms2_collateral.py
+        collateral.py  lms2.py    (LMS2 CL contract + collateral)
       extraction.py               DeviationsZ02Extraction
       submission.py               DeviationsZ02Submission
     cancellations/                same shape, later
@@ -321,6 +324,7 @@ Frozen dataclasses; no behaviour beyond small predicates.
 class WorkItem:
     workflow: str
     key: str                      # Deviation-28102026-484106
+    record_url: str | None        # from the list row; extraction needs it
     status: WorkItemStatus
     source: ClosureSource | None
     reason: str | None
@@ -684,9 +688,30 @@ def is_valid_sample(header_total: int | None, rows: Sequence[ListRow]) -> bool:
 ### 7.5 `ObjectAdapter`
 
 ```python
+@dataclass(frozen=True, slots=True)
+class DiscoveryContext:
+    item_key: str
+    record_url: str
+    opportunity_url: str | None = None
+    product_type: str | None = None
+
+@dataclass(frozen=True, slots=True)
+class DiscoveredRef:
+    kind: str
+    name: str
+    url: str
+
+@dataclass(frozen=True, slots=True)
+class Discovery:
+    refs: tuple[DiscoveredRef, ...] = ()
+    attributes: Mapping[str, str | None] = field(default_factory=dict)
+    fields: Mapping[str, str | None] = field(default_factory=dict)
+    skip_reason: str | None = None
+
 class ObjectAdapter(Protocol):
     kind: str
-    async def open(self, tabs: TabGroup, ref: PageRef) -> Page: ...
+    async def discover(self, tabs: TabProvider, context: DiscoveryContext) -> Discovery: ...
+    async def open(self, tabs: TabProvider, ref: PageRef) -> Page: ...
     async def read(self, page: Page, fields: Sequence[EditableField]) -> dict[str, str | None]: ...
     async def write(self, page: Page, values: Mapping[str, str]) -> dict[str, WriteOutcome]: ...
 
@@ -695,9 +720,14 @@ class AdapterRegistry:
     def get(self, kind: str) -> ObjectAdapter: ...
 ```
 
+`discover()` runs during extraction and returns only what that object contributes: its
+link, its read-only attributes, any catalogue values it is the source of, or a skip
+reason (FR-3.7). It never persists and never decides item status.
+
 `write()` = open the record → click Edit → fill the catalogue fields → Save → return
-per-field outcomes. `read()` is used for extraction *and* for post-save verification
-(FR-6.4), which is why it is on the same interface.
+per-field outcomes; `read()` is used for post-save verification (FR-6.4). Both land in
+Phase 6. Adapters depend on `TabProvider` (two async methods), not on the concrete
+`TabGroup`, so pipelines can be tested without a browser.
 
 ---
 
@@ -816,21 +846,25 @@ mapping is confirmed.
 
 ```python
 class DeviationsZ02Extraction:
-    def __init__(self, workflow: Workflow, items: WorkItemRepository,
+    def __init__(self, workflow: str, items: WorkItemRepository,
                  fields: FieldValueRepository, attrs: AttributeRepository,
-                 refs: PageRefRepository, events: EventRepository) -> None: ...
-    async def run(self, item: WorkItem, tabs: TabGroup, log: JobLogger) -> ExtractOutcome: ...
+                 refs: PageRefRepository, events: EventRepository,
+                 adapters: AdapterRegistry, *, force: bool = False) -> None: ...
+    async def run(self, item: WorkItem, tabs: TabProvider, log: JobLogger) -> ExtractOutcome: ...
 ```
 
 Order (dependencies only):
 
 1. `deviation_record` adapter → description, ROI fields, record id/url, opportunity ref.
-2. In parallel on the same `TabGroup`: `opportunity` (product type + LMS 2.0 panels),
-   `cl_contract` related list, `collateral` related list.
-3. Persist: description-parsed values → `set_extracted`; ROI/product type/description →
+   A skip here ends the item immediately.
+2. `opportunity` adapter → product type (the CL-contract match needs it).
+3. In parallel on the same `TabGroup`: `cl_contract`, `collateral`, `lms2_cl_contract`,
+   `lms2_collateral` related lists / panels.
+4. Persist: description-parsed values → `set_extracted`; ROI/product type/description →
    `attributes`; refs → `replace()`.
-4. `EXTRACTED`, or `SKIPPED` with reason on ambiguity (FR-3.7).
-5. Early exit when `extracted_at` is set (FR-3.8), unless the job was queued with force.
+5. `EXTRACTED`, or `SKIPPED` with the first skip reason (FR-3.7). An adapter exception is
+   logged and becomes a skip for that object, never a crash; `SessionExpired` propagates.
+6. Early exit when `extracted_at` is set (FR-3.8), unless constructed with `force=True`.
 
 ### 9.3 `DeviationsZ02Submission`
 

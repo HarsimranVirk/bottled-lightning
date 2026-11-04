@@ -1,15 +1,25 @@
 """Per-job tab ownership: the parallel-tabs primitive (FR-3.6).
 
 All pages belong to the one warm browser context; a ``TabGroup`` guarantees they are
-closed when the job ends, even on failure.
+closed when the job ends, even on failure. Pipelines and adapters depend on the narrow
+``TabProvider`` protocol so they can be tested without a browser.
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
+from typing import Protocol
 
 from playwright.async_api import BrowserContext, Page
+
+
+class TabProvider(Protocol):
+    """What a pipeline needs from a tab group."""
+
+    async def new_page(self, url: str) -> Page: ...
+
+    async def close_page(self, page: Page) -> None: ...
 
 
 class TabGroup:
@@ -22,21 +32,32 @@ class TabGroup:
     def open_count(self) -> int:
         return len(self._pages)
 
-    @asynccontextmanager
-    async def open(self, url: str) -> AsyncIterator[Page]:
+    async def new_page(self, url: str) -> Page:
         page = await self._context.new_page()
         self._pages.append(page)
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=self._timeout_ms)
+            await page.goto(
+                url, wait_until="domcontentloaded", timeout=self._timeout_ms
+            )
+        except BaseException:
+            await self.close_page(page)
+            raise
+        return page
+
+    async def close_page(self, page: Page) -> None:
+        if page in self._pages:
+            self._pages.remove(page)
+        with suppress(Exception):
+            await page.close()
+
+    @asynccontextmanager
+    async def open(self, url: str) -> AsyncIterator[Page]:
+        page = await self.new_page(url)
+        try:
             yield page
         finally:
-            if page in self._pages:
-                self._pages.remove(page)
-            with suppress(Exception):
-                await page.close()
+            await self.close_page(page)
 
     async def close_all(self) -> None:
         for page in list(self._pages):
-            with suppress(Exception):
-                await page.close()
-        self._pages.clear()
+            await self.close_page(page)

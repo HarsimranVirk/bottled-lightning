@@ -11,11 +11,16 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from app.salesforce.adapters import AdapterRegistry
-from app.salesforce.tabs import TabGroup
+from app.salesforce.tabs import TabProvider
 
 from .field import EditableField
 from .list_view import ListRow, ListViewSpec
 from .models import WorkItem
+from .repo.attributes import AttributeRepository
+from .repo.events import EventRepository
+from .repo.fields import FieldValueRepository
+from .repo.refs import PageRefRepository
+from .repo.work_items import WorkItemRepository
 from .status import ExtractOutcome, SubmitOutcome, WorkItemStatus
 
 
@@ -25,14 +30,25 @@ class JobLogger(Protocol):
 
 class ExtractionPipeline(Protocol):
     async def run(
-        self, item: WorkItem, tabs: TabGroup, log: JobLogger
+        self, item: WorkItem, tabs: TabProvider, log: JobLogger
     ) -> ExtractOutcome: ...
 
 
 class SubmissionPipeline(Protocol):
     async def run(
-        self, item: WorkItem, tabs: TabGroup, log: JobLogger
+        self, item: WorkItem, tabs: TabProvider, log: JobLogger
     ) -> SubmitOutcome: ...
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowDeps:
+    """Repositories a workflow implementation is allowed to use."""
+
+    items: WorkItemRepository
+    fields: FieldValueRepository
+    attributes: AttributeRepository
+    refs: PageRefRepository
+    events: EventRepository
 
 
 @dataclass(frozen=True, slots=True)
