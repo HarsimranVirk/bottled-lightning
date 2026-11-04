@@ -68,6 +68,7 @@ app/
   core/                           shared mechanism — knows no workflow
     models.py                     WorkItem, FieldValue, Attribute, PageRef, Job, SyncRun
     status.py                     WorkItemStatus, JobKind, JobStatus, Phase, ClosureSource
+    logging.py                    SF_LOG_LEVEL (default INFO; DEBUG for per-row noise)
     field.py                      EditableField, FieldTarget, ValueType, normalise()
     errors.py                     Error taxonomy
     registry.py                   WorkflowRegistry

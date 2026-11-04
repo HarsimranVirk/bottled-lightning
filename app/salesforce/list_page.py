@@ -8,6 +8,7 @@ and record links come from the live list page (virtualised, needs Show more / sc
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from contextlib import suppress
 
@@ -15,6 +16,8 @@ from playwright.async_api import BrowserContext, Page
 
 from app.core.list_view import ListRow, ListSample, ListViewSpec
 from app.core.models import utcnow
+
+logger = logging.getLogger(__name__)
 
 _ITEM_TOTAL = re.compile(r"(\d[\d,]*)\s+items?\b")
 _SHOW_MORE = re.compile(r"^\s*Show more\s*$", re.IGNORECASE)
@@ -107,8 +110,8 @@ class ListPage:
             try:
                 if await self._page.get_by_text(self._pattern).count() > 0:
                     return
-            except Exception:  # noqa: BLE001, S112 - page may be mid-navigation
-                continue
+            except Exception as exc:  # noqa: BLE001 - page may be mid-navigation
+                logger.debug("list view not ready yet: %s", exc)
 
     async def _printable_rows(self) -> dict[str, ListRow]:
         button = self._page.get_by_role("button", name="Printable View")
@@ -170,7 +173,8 @@ class ListPage:
             locator = links.nth(index)
             try:
                 text = await locator.inner_text(timeout=1000) or ""
-            except Exception:  # noqa: BLE001, S112 - virtualised rows detach
+            except Exception as exc:  # noqa: BLE001 - virtualised rows detach
+                logger.debug("skipping detached list link %d: %s", index, exc)
                 continue
             match = self._pattern.search(text)
             if match is None:
@@ -204,7 +208,8 @@ async def _parse_table(page: Page, pattern: re.Pattern[str]) -> dict[str, ListRo
             if await cells.count() <= _APPROVAL_DATE_COLUMN:
                 continue
             key_text = (await cells.nth(_ROW_KEY_COLUMN).inner_text(timeout=500)).strip()
-        except Exception:  # noqa: BLE001, S112 - row may not be a data row
+        except Exception as exc:  # noqa: BLE001 - row may not be a data row
+            logger.debug("skipping non-data table row %d: %s", index, exc)
             continue
         match = pattern.search(key_text)
         if match is None:
@@ -214,7 +219,8 @@ async def _parse_table(page: Page, pattern: re.Pattern[str]) -> dict[str, ListRo
             approved = (
                 await cells.nth(_APPROVAL_DATE_COLUMN).inner_text(timeout=500)
             ).strip()
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - date column is optional
+            logger.debug("no approval date for %s: %s", key, exc)
             approved = ""
         rows.setdefault(
             key,

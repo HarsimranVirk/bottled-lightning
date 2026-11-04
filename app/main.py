@@ -81,6 +81,9 @@ def _lan_ip() -> str | None:
 
 
 def main() -> None:
+    from .core.logging import configure_logging
+
+    configure_logging()
     parser = argparse.ArgumentParser(
         prog="bottled-lightning", description="Salesforce Lightning extraction webapp"
     )

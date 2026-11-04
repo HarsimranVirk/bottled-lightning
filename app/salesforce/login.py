@@ -83,6 +83,9 @@ async def run_login(
 
 
 def main(argv: list[str] | None = None) -> int:
+    from app.core.logging import configure_logging
+
+    configure_logging()
     parser = argparse.ArgumentParser(prog="python -m app.salesforce.login")
     parser.add_argument(
         "--reset", action="store_true", help="discard the saved session first"
