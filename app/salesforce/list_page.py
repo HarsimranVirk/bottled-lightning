@@ -69,8 +69,10 @@ class ListPage:
     async def read(self) -> ListSample:
         """Sample the page. Validity is decided by ``ListSample.valid`` (FR-2.9)."""
         header_total = await self._read_total()
-        links = await self._collect_links(target=header_total)
+        # Printable view first: it needs a clean, freshly rendered list page. The record
+        # links are collected afterwards because that pass scrolls the page.
         printable = await self._printable_rows()
+        links = await self._collect_links(target=header_total)
         keys = set(printable) | set(links)
         rows = tuple(
             ListRow(
@@ -115,15 +117,21 @@ class ListPage:
 
     async def _printable_rows(self) -> dict[str, ListRow]:
         button = self._page.get_by_role("button", name="Printable View")
+        waited = 0
+        while waited < self._timeout_ms:
+            if await button.count() > 0:
+                break
+            await self._page.wait_for_timeout(500)
+            waited += 500
         if await button.count() == 0:
+            logger.debug("printable view button not found")
             return {}
         try:
-            async with self._context.expect_page(
-                timeout=25_000
-            ) as popup_info:
+            async with self._context.expect_page(timeout=25_000) as popup_info:
                 await button.first.click(timeout=self._timeout_ms)
             popup = await popup_info.value
-        except Exception:  # noqa: BLE001 - fall back to scrolling only
+        except Exception as exc:  # noqa: BLE001 - fall back to scrolling only
+            logger.debug("printable view unavailable: %s", exc)
             return {}
 
         rows: dict[str, ListRow] = {}
@@ -203,7 +211,9 @@ async def _parse_table(page: Page, pattern: re.Pattern[str]) -> dict[str, ListRo
     trs = tables.first.locator("tr")
     count = await trs.count()
     for index in range(1, count):
-        cells = trs.nth(index).locator("td")
+        # Header/row-header cells can be ``th``; include both so column indexes match
+        # the visible table layout.
+        cells = trs.nth(index).locator("td, th")
         try:
             if await cells.count() <= _APPROVAL_DATE_COLUMN:
                 continue

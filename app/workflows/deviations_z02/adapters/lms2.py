@@ -44,8 +44,8 @@ class _Lms2Adapter(AdapterBase):
             absolute_url(context.opportunity_url, self._org_base)
         )
         try:
-            await _open_lms_tab(page)
-            rows = await _scrape_lms_rows(page, self.host_tag)
+            await _open_lms_tab(page, self._timeout_ms)
+            rows = await _await_lms_rows(page, self.host_tag, self._timeout_ms)
         finally:
             await tabs.close_page(page)
 
@@ -91,8 +91,14 @@ class Lms2CollateralAdapter(_Lms2Adapter):
     uuid_param = "collateralId"
 
 
-async def _open_lms_tab(page: Page) -> None:
+async def _open_lms_tab(page: Page, timeout_ms: int) -> None:
     tab = page.locator(_LMS_TAB)
+    waited = 0
+    while waited < timeout_ms:
+        if await tab.count() > 0:
+            break
+        await page.wait_for_timeout(500)
+        waited += 500
     try:
         if await tab.count() > 0 and await tab.first.get_attribute("aria-selected") != "true":
             await tab.first.click(timeout=5000)
@@ -137,6 +143,21 @@ _LMS_ROWS_JS = """
     return result;
 }
 """
+
+
+async def _await_lms_rows(
+    page: Page, host_tag: str, timeout_ms: int
+) -> list[dict[str, str]]:
+    """The component renders after the tab click; poll until it produces rows."""
+    waited = 0
+    rows: list[dict[str, str]] = []
+    while waited < timeout_ms:
+        rows = await _scrape_lms_rows(page, host_tag)
+        if rows:
+            return rows
+        await page.wait_for_timeout(1000)
+        waited += 1000
+    return rows
 
 
 async def _scrape_lms_rows(page: Page, host_tag: str) -> list[dict[str, str]]:

@@ -14,7 +14,7 @@ from app.salesforce.tabs import TabProvider
 from app.workflows.deviations_z02.catalog import DeviationObject
 from app.workflows.deviations_z02.product_map import CL_CONTRACT_PRODUCT_MAP
 
-from .dom import absolute_url, related_list_url, safe_inner_text
+from .dom import absolute_url, related_list_url, safe_inner_text, wait_for_rows
 
 _RELATED_LIST = "CL_Contracts__r"
 _CONTRACT_PREFIX = "LAI-"
@@ -35,6 +35,7 @@ class ClContractAdapter(AdapterBase):
         )
         page = await tabs.new_page(url)
         try:
+            await wait_for_rows(page.locator("tr.slds-hint-parent"), page, self._timeout_ms)
             contracts = await _contracts(page)
         finally:
             await tabs.close_page(page)

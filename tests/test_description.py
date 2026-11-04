@@ -68,6 +68,30 @@ class DescriptionTests(unittest.TestCase):
         self.assertEqual(parsed["emi"], "23,100")
         self.assertEqual(parsed["loan_amount"], "25,50,000")
 
+    def test_compact_parameter_block(self) -> None:
+        text = (
+            "Old Paramaters\n"
+            "LA-13,00,000\n"
+            "PP-22,50,000\n"
+            "LTV-57.78%\n"
+            "EMI-16,663\n"
+            "EMIs & other fixed pmts inc HFFC Loan-16,256\n"
+        )
+        parsed = parse_description_fields(text)
+        self.assertEqual(parsed["loan_amount"], "13,00,000")
+        self.assertEqual(parsed["property_value"], "22,50,000")
+        self.assertEqual(parsed["emi_incl_hffc"], "16,256")
+
+    def test_compact_emi_line_is_not_the_precalculated_emi(self) -> None:
+        text = "EMI-16,663\nEMIs & other fixed pmts inc HFFC Loan-16,256\n"
+        self.assertEqual(
+            parse_description_fields(text)["emi_incl_hffc"], "16,256"
+        )
+
+    def test_percentage_values_are_not_amounts(self) -> None:
+        parsed = parse_description_fields("New PP - 50%\n")
+        self.assertIsNone(parsed["property_value"])
+
     def test_clean_description_drops_chrome(self) -> None:
         raw = (
             "Help Loan Deviation Description\n"

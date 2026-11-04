@@ -58,7 +58,7 @@ class DeviationRecordAdapter(AdapterBase):
             opportunity = await _opportunity_ref(page, self._org_base)
             attributes: dict[str, str | None] = {
                 "description": description,
-                "record_id": url.rstrip("/").split("/")[-1],
+                "record_id": _record_id(url),
                 "record_url": url,
                 **values,
             }
@@ -148,3 +148,13 @@ async def _housing_value(page: Page, selection_name: str) -> str | None:
         if text and not text.lower().startswith("edit "):
             return text
     return None
+
+
+def _record_id(url: str) -> str | None:
+    """``…/lightning/r/a2f…/view`` → ``a2f…`` (the last segment is the view mode)."""
+    parts = [part for part in url.split("?")[0].rstrip("/").split("/") if part]
+    if not parts:
+        return None
+    if parts[-1] in {"view", "edit", "detail"} and len(parts) > 1:
+        return parts[-2]
+    return parts[-1]

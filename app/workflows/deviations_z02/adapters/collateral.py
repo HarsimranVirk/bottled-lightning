@@ -13,7 +13,7 @@ from app.salesforce.adapters import (
 from app.salesforce.tabs import TabProvider
 from app.workflows.deviations_z02.catalog import DeviationObject
 
-from .dom import absolute_url, related_list_url, safe_inner_text
+from .dom import absolute_url, related_list_url, safe_inner_text, wait_for_rows
 
 _RELATED_LIST = "Collateral__r"
 
@@ -34,7 +34,7 @@ class CollateralAdapter(AdapterBase):
         page = await tabs.new_page(url)
         try:
             rows = page.locator("tr.slds-hint-parent")
-            count = await rows.count()
+            count = await wait_for_rows(rows, page, self._timeout_ms)
             if count > 1:
                 return Discovery(
                     skip_reason=(

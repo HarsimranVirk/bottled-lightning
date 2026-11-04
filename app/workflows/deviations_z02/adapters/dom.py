@@ -72,3 +72,29 @@ def absolute_url(href: str, org_base: str) -> str:
 def related_list_url(record_url: str, related_name: str) -> str:
     """``…/r/Opportunity/ID/view`` → ``…/r/Opportunity/ID/related/<rel>/view``."""
     return record_url.replace("/view", f"/related/{related_name}/view")
+
+
+async def wait_for_rows(
+    locator: Locator, page: Page, timeout_ms: int, minimum: int = 1
+) -> int:
+    """Wait until a related list renders at least ``minimum`` rows."""
+    waited = 0
+    while waited < timeout_ms:
+        count = await locator.count()
+        if count >= minimum:
+            return count
+        await page.wait_for_timeout(500)
+        waited += 500
+    return await locator.count()
+
+
+async def wait_for_text(page: Page, text: str, timeout_ms: int) -> bool:
+    """Wait until the page body contains ``text`` (case-insensitive)."""
+    waited = 0
+    while waited < timeout_ms:
+        body = await safe_body_text(page, 3000) or ""
+        if text.lower() in body.lower():
+            return True
+        await page.wait_for_timeout(500)
+        waited += 500
+    return False

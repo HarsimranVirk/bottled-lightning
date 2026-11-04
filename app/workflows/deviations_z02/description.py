@@ -11,7 +11,7 @@ import re
 # Plain phrases only: add an alias by appending the label text, no regex needed. Labels
 # are tried in order and the first matching line wins.
 _FIELD_LABELS: dict[str, tuple[str, ...]] = {
-    "property_value": ("Property Value", "New PP"),
+    "property_value": ("Property Value", "New PP", "PP"),
     "loan_amount": ("Loan Amount","LA"),
     "tenure": ("Tenure",),
     "emi_incl_hffc": ("EMIs &", "EMI &"),

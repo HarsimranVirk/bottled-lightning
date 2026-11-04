@@ -6,7 +6,7 @@ from app.salesforce.adapters import AdapterBase, Discovery, DiscoveryContext
 from app.salesforce.tabs import TabProvider
 from app.workflows.deviations_z02.catalog import DeviationObject
 
-from .dom import absolute_url, safe_body_text
+from .dom import absolute_url, safe_body_text, wait_for_text
 
 
 def product_type_from(body: str) -> str | None:
@@ -34,6 +34,7 @@ class OpportunityAdapter(AdapterBase):
             return Discovery()
         page = await tabs.new_page(absolute_url(context.opportunity_url, self._org_base))
         try:
+            await wait_for_text(page, "Product Type", self._timeout_ms)
             body = await safe_body_text(page)
             return Discovery(
                 attributes={"product_type": product_type_from(body or "")}
