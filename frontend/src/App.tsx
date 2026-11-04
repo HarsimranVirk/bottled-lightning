@@ -38,7 +38,7 @@ function Shell(): JSX.Element {
         <QueueBar queue={workers.data} />
       </header>
       <main className="content">
-        <FlexLayout direction="column" gap={3}>
+        <FlexLayout direction="column" gap={2}>
           <SyncBanner
             session={session.data}
             sync={sync.data}

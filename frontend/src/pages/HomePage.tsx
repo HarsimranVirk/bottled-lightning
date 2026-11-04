@@ -20,12 +20,12 @@ export function HomePage(): JSX.Element {
   if (!session.data) return <Text>Session unavailable.</Text>
 
   return (
-    <FlexLayout direction="column" gap={4}>
+    <FlexLayout direction="column" gap={1}>
       {session.data.state !== 'valid' ? (
         <AuthCard session={session.data} onLogin={() => login.mutate()} loggingIn={login.isPending} />
       ) : (
         <Card>
-          <FlexLayout direction="column" gap={2}>
+          <FlexLayout direction="column" gap={1}>
             <H2>{workflow?.label ?? 'Workflow'}</H2>
             <Text>
               Session active ({session.data.cookies ?? 0} cookies). List synced {relativeTime(sync.data?.capturedAt)}.

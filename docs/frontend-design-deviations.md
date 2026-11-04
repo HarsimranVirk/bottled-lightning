@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v3.1 |
+| **Version** | v3.2 |
 | **Date** | 2026-11-04 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
@@ -264,6 +264,10 @@ Rules:
   danger/neutral); the tone never carries meaning alone.
 - One deck, one table, one drawer. Desktop-first (operator laptop, ≥1280 px); the drawer
   becomes a full page below 900 px; card, table and drawer are usable at 390 px.
+- **High density.** Page padding 10/16 px, headings 20/17/14 px, data text 11–12 px,
+  layout gaps 8–16 px (not 24–32), table cells 4–5 px, card padding 10–12 px, the deck
+  description panel 150 px tall. The 1280×800 laptop shows the whole deck card, its
+  tallies and its actions without scrolling.
 - **No horizontal page scrolling at 390/768/1280 px.** The shell is border-box; filters
   wrap; the list drops to Status + Deviation at 600 px instead of scrolling sideways.
   Long values wrap (`overflow-wrap: anywhere`), never widen the page.

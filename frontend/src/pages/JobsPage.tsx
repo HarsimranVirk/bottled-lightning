@@ -14,7 +14,7 @@ export function JobsPage(): JSX.Element {
 
   if (jobs.isLoading) return <Spinner />
   return (
-    <FlexLayout direction="column" gap={3}>
+    <FlexLayout direction="column" gap={2}>
       <H1>Jobs</H1>
       <JobsPanel
         jobs={jobs.data ?? []}

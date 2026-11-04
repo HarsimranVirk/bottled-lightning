@@ -154,30 +154,31 @@ export function DeviationsPage(): JSX.Element {
   if (!workflow) return <Text>The Deviations Z02 workflow is not registered.</Text>
 
   return (
-    <FlexLayout direction="column" gap={4}>
-      <FlexLayout justify="space-between" align="center">
+    <FlexLayout direction="column" gap={2}>
+      <FlexLayout justify="space-between" align="center" gap={2} wrap>
         <H1>{workflow.label}</H1>
-        <Text color="secondary">
-          {sync.data ? `${sync.data.rowsRead} rows in the last refresh` : 'no refresh yet'}
-        </Text>
+        <FlexLayout gap={2} align="center" wrap>
+          <Text color="secondary">
+            {sync.data ? `${sync.data.rowsRead} rows in the last refresh` : 'no refresh yet'}
+          </Text>
+          <div className="view-toggle" role="group" aria-label="View">
+            <Button
+              appearance={view === 'deck' ? 'solid' : 'bordered'}
+              aria-pressed={view === 'deck'}
+              onClick={() => setView('deck')}
+            >
+              Deck
+            </Button>
+            <Button
+              appearance={view === 'list' ? 'solid' : 'bordered'}
+              aria-pressed={view === 'list'}
+              onClick={() => setView('list')}
+            >
+              List
+            </Button>
+          </div>
+        </FlexLayout>
       </FlexLayout>
-
-      <div className="view-toggle" role="group" aria-label="View">
-        <Button
-          appearance={view === 'deck' ? 'solid' : 'bordered'}
-          aria-pressed={view === 'deck'}
-          onClick={() => setView('deck')}
-        >
-          Deck
-        </Button>
-        <Button
-          appearance={view === 'list' ? 'solid' : 'bordered'}
-          aria-pressed={view === 'list'}
-          onClick={() => setView('list')}
-        >
-          List
-        </Button>
-      </div>
 
       {view === 'deck' ? (
         <DecisionDeck
@@ -198,7 +199,7 @@ export function DeviationsPage(): JSX.Element {
         />
       ) : (
         <>
-          <FlexLayout gap={2} align="end" className="filters">
+          <FlexLayout gap={1} align="end" className="filters">
             <label>
               <Text>Status</Text>
               <select

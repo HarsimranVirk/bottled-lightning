@@ -67,7 +67,7 @@ export function DecisionCard({
   return (
     <Card elevation="raised" className={`deck-stack deck-card ${leavingClass ?? ''}`}>
       <CardContent>
-        <StackLayout gap={2}>
+        <StackLayout gap={1}>
           <FlexLayout justify="space-between" align="center">
             <FlexLayout gap={2} align="center">
               {row.recordUrl ? (
@@ -97,20 +97,22 @@ export function DecisionCard({
           ) : null}
 
           {refs.length > 0 ? (
-            <StackLayout gap={0.5} className="deck-refs" data-no-swipe>
+            <StackLayout gap={0.5}>
               <Text color="secondary" styleAs="label">
                 Pages to update
               </Text>
-              {refs.map((ref) => (
-                <FlexLayout key={ref.kind} gap={1} align="center">
-                  <Text styleAs="label" color="secondary" className="deck-ref-label">
-                    {REF_LABELS[ref.kind] ?? ref.kind}
-                  </Text>
-                  <Link href={ref.url} target="_blank">
-                    {ref.name}
-                  </Link>
-                </FlexLayout>
-              ))}
+              <StackLayout gap={0.5} className="deck-refs" data-no-swipe>
+                {refs.map((ref) => (
+                  <FlexLayout key={ref.kind} gap={1} align="center">
+                    <Text styleAs="label" color="secondary" className="deck-ref-label">
+                      {REF_LABELS[ref.kind] ?? ref.kind}
+                    </Text>
+                    <Link href={ref.url} target="_blank">
+                      {ref.name}
+                    </Link>
+                  </FlexLayout>
+                ))}
+              </StackLayout>
             </StackLayout>
           ) : null}
 
@@ -147,7 +149,7 @@ export function DecisionCard({
             New loan parameters to populate — prefilled where the parser could read the
             description; correct anything it got wrong:
           </Text>
-          <StackLayout gap={2}>
+          <StackLayout gap={1}>
             {ordered.map((field) => (
               <FlexLayout key={field.key} gap={2} align="center" className="deck-field">
                 <Text styleAs="label" color="secondary" className="deck-field-label">

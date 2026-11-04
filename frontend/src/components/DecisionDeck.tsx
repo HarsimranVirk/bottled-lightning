@@ -172,9 +172,9 @@ export function DecisionDeck({
       : { transform: `translateX(${drag.dx}px) rotate(${drag.dx / 24}deg)` }
 
   return (
-    <StackLayout gap={3}>
-      <FlexLayout justify="space-between" align="center" gap={2} wrap>
-        <FlexLayout gap={3} align="center" wrap>
+    <StackLayout gap={1}>
+      <FlexLayout justify="space-between" align="center" gap={2} wrap className="deck-bar">
+        <FlexLayout gap={2} align="center" wrap>
           <FlexLayout gap={1} align="center">
             <StatusIndicator status="success" />
             <Text>{tally.accept} accepted</Text>
