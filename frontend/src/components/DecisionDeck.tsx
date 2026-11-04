@@ -17,7 +17,7 @@ import {
   StatusIndicator,
   Text,
 } from '@salt-ds/core'
-import { DoubleChevronRightIcon, SuccessIcon } from '@salt-ds/icons'
+import { DoubleChevronLeftIcon, SuccessIcon } from '@salt-ds/icons'
 import { useState } from 'react'
 
 import type { DecisionKind, ItemDetail, ItemRow, WorkflowFieldView } from '../api'
@@ -176,7 +176,7 @@ export function DecisionDeck({
               onClick={() => void decide('reject')}
               style={{ width: '100%', minHeight: 40 }}
             >
-              <DoubleChevronRightIcon aria-hidden /> Skip
+              <DoubleChevronLeftIcon aria-hidden /> Skip
             </Button>
             <Button
               sentiment="accented"
