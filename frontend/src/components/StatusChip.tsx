@@ -1,6 +1,6 @@
-/**
- * Status pill. The label is always rendered; tone is only a visual hint (FR-9.10).
- */
+/** Salt status indicator + word. The label always carries the meaning, never colour alone. */
+
+import { FlexLayout, StatusIndicator, Text } from '@salt-ds/core'
 
 import type { DecisionKind } from '../api'
 import { statusLabel, statusTone } from '../format'
@@ -10,19 +10,37 @@ interface Props {
   labels?: Record<string, string>
 }
 
+const TONE_STATUS = {
+  info: 'info',
+  success: 'success',
+  warning: 'warning',
+  danger: 'error',
+} as const
+
 export function StatusChip({ status, labels }: Props): React.JSX.Element {
+  const label = statusLabel(status, labels)
+  const tone = statusTone(status)
+  if (tone === 'neutral') {
+    return (
+      <Text color="secondary" styleAs="label">
+        {label}
+      </Text>
+    )
+  }
   return (
-    <span className="chip" data-tone={statusTone(status)}>
-      {statusLabel(status, labels)}
-    </span>
+    <FlexLayout gap={0.5} align="center">
+      <StatusIndicator status={TONE_STATUS[tone]} aria-hidden />
+      <Text styleAs="label">{label}</Text>
+    </FlexLayout>
   )
 }
 
-/** Review decision pill; the word carries the meaning, tone is decoration. */
+/** Review decision; Salt indicator plus the word. */
 export function DecisionChip({ decision }: { decision: DecisionKind }): React.JSX.Element {
   return (
-    <span className="chip" data-tone={decision === 'accept' ? 'success' : 'danger'}>
-      {decision === 'accept' ? 'Accepted' : 'Rejected'}
-    </span>
+    <FlexLayout gap={0.5} align="center">
+      <StatusIndicator status={decision === 'accept' ? 'success' : 'error'} aria-hidden />
+      <Text styleAs="label">{decision === 'accept' ? 'Accepted' : 'Rejected'}</Text>
+    </FlexLayout>
   )
 }

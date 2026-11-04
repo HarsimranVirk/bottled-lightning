@@ -116,6 +116,12 @@ export function draftFor(field: WorkflowFieldView, row: ItemRow): string {
   return raw
 }
 
+/** Read-only display for an editable value: amounts grouped, months plain. */
+export function displayValue(field: WorkflowFieldView, raw: string): string {
+  if (raw === '—') return raw
+  return field.valueType === 'amount' ? indianFormat(digitsOf(raw)) : raw
+}
+
 /** What the input shows: amounts are grouped, tenure stays plain digits. */
 export function draftDisplay(field: WorkflowFieldView, value: string): string {
   return field.valueType === 'amount' ? indianFormat(value) : value
@@ -151,4 +157,31 @@ export function orderedFields(fields: WorkflowFieldView[]): WorkflowFieldView[] 
     return index === -1 ? order.length : index
   }
   return [...fields].sort((left, right) => rank(left.key) - rank(right.key))
+}
+
+
+/** Human duration from milliseconds: "340ms", "4.2s", "1m 5s", "2h 3m". */
+export function formatDuration(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined) return '—'
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  const seconds = ms / 1000
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`
+  const minutes = Math.floor(seconds / 60)
+  const rest = Math.round(seconds % 60)
+  if (minutes < 60) return `${minutes}m ${rest}s`
+  const hours = Math.floor(minutes / 60)
+  return `${hours}h ${minutes % 60}m`
+}
+
+/** Date + local time, e.g. "04 Nov, 9:40 pm". */
+export function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return '—'
+  return date.toLocaleString([], {
+    day: '2-digit',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
 }

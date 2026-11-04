@@ -11,6 +11,7 @@ import {
   Card,
   CardContent,
   FlexLayout,
+  GridLayout,
   Spinner,
   StackLayout,
   StatusIndicator,
@@ -45,6 +46,7 @@ interface Props {
   ) => Promise<boolean>
   onReplay: () => void
   replaying: boolean
+  onHistory: () => void
   onRefresh: () => void
   refreshing: boolean
 }
@@ -61,6 +63,7 @@ export function DecisionDeck({
   onDecide,
   onReplay,
   replaying,
+  onHistory,
   onRefresh,
   refreshing,
 }: Props): JSX.Element {
@@ -112,9 +115,9 @@ export function DecisionDeck({
         </Button>
       </FlexLayout>
 
-      <p className="deck-announcement" aria-live="polite">
+      <Text aria-live="polite" color="secondary" styleAs="label" className="deck-bar">
         {announcement}
-      </p>
+      </Text>
 
       {error ? (
         <FlexLayout gap={1} align="center">
@@ -140,6 +143,9 @@ export function DecisionDeck({
                     Replay skipped ({tally.skip})
                   </Button>
                 ) : null}
+                <Button appearance="bordered" onClick={onHistory}>
+                  View history
+                </Button>
                 <Button appearance="bordered" onClick={onRefresh} disabled={refreshing}>
                   Refresh
                 </Button>
@@ -163,11 +169,12 @@ export function DecisionDeck({
             />
           </div>
 
-          <div className="deck-actions">
+          <GridLayout columns={2} gap={1} className="deck-bar">
             <Button
               appearance="solid"
               disabled={!canAct}
               onClick={() => void decide('reject')}
+              style={{ width: '100%', minHeight: 40 }}
             >
               <DoubleChevronRightIcon aria-hidden /> Skip
             </Button>
@@ -176,13 +183,14 @@ export function DecisionDeck({
               appearance="solid"
               disabled={!canAct}
               onClick={() => void decide('accept')}
+              style={{ width: '100%', minHeight: 40 }}
             >
               <SuccessIcon aria-hidden /> Accept
             </Button>
-          </div>
+          </GridLayout>
 
           {rows[1] ? (
-            <Text color="secondary" styleAs="label" className="deck-next">
+            <Text color="secondary" styleAs="label">
               next up: {rows[1].key}
             </Text>
           ) : null}

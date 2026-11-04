@@ -1,13 +1,25 @@
 /**
  * Item detail panel: values grouped by target object, read-only attributes, the five
- * object links, the review decision, and history.
+ * object links, the review decision, and history. Built from Salt surfaces only.
  */
 
 import type { JSX } from 'react'
-import { Button, Divider, H2, H3, Link, Text } from '@salt-ds/core'
+import {
+  Banner,
+  BannerContent,
+  Button,
+  Divider,
+  FlexLayout,
+  GridLayout,
+  H2,
+  Link,
+  Panel,
+  StackLayout,
+  Text,
+} from '@salt-ds/core'
 
 import type { ItemDetail, PageRefView, WorkflowFieldView } from '../api'
-import { fieldValue, formatTime } from '../format'
+import { displayValue, fieldValue, formatTime } from '../format'
 import { DecisionChip, StatusChip } from './StatusChip'
 
 interface Props {
@@ -47,24 +59,35 @@ export function ItemDrawer({
 }: Props): JSX.Element {
   const grouped = groups(fields)
   return (
-    <aside className="drawer" aria-label={`Item ${detail.key}`}>
-      <div className="drawer-head">
-        <div>
+    <Panel className="drawer" aria-label={`Item ${detail.key}`}>
+      <FlexLayout justify="space-between" align="start" gap={2}>
+        <StackLayout gap={0.5}>
           <H2>{detail.key}</H2>
-          <div className="drawer-meta">
+          <FlexLayout gap={1} align="center" wrap>
             <StatusChip status={detail.status} labels={terminalLabels} />
-            {detail.approvedAt ? <Text>Approved {detail.approvedAt}</Text> : null}
-            {detail.recordUrl ? <Link href={detail.recordUrl} target="_blank">Open in Salesforce</Link> : null}
-          </div>
-        </div>
-        <Button appearance="transparent" onClick={onClose}>Close</Button>
-      </div>
+            {detail.approvedAt ? (
+              <Text color="secondary" styleAs="label">
+                Approved {detail.approvedAt}
+              </Text>
+            ) : null}
+            {detail.recordUrl ? (
+              <Link href={detail.recordUrl} target="_blank">
+                Open in Salesforce
+              </Link>
+            ) : null}
+          </FlexLayout>
+        </StackLayout>
+        <Button appearance="transparent" onClick={onClose}>
+          Close
+        </Button>
+      </FlexLayout>
 
       {detail.decision ? (
-        <div className="decision-banner">
+        <FlexLayout gap={1} align="center" wrap>
           <DecisionChip decision={detail.decision.decision} />
-          <Text>
-            {detail.decision.decision === 'accept' ? 'Accepted' : 'Rejected'} {formatTime(detail.decision.at)}
+          <Text styleAs="label">
+            {detail.decision.decision === 'accept' ? 'Accepted' : 'Rejected'}{' '}
+            {formatTime(detail.decision.at)}
             {detail.decision.reason ? ` — ${detail.decision.reason}` : ''}
           </Text>
           {onUndoDecision ? (
@@ -72,82 +95,94 @@ export function ItemDrawer({
               Undo decision
             </Button>
           ) : null}
-        </div>
+        </FlexLayout>
       ) : null}
 
-      {detail.reason ? <Text className="reason">{detail.reason}</Text> : null}
+      {detail.reason ? (
+        <Banner status="error">
+          <BannerContent>{detail.reason}</BannerContent>
+        </Banner>
+      ) : null}
 
       {[...grouped.entries()].map(([kind, group]) => (
-        <section key={kind}>
-          <H3>{kind.replace(/_/g, ' ')}</H3>
-          <dl className="fields">
+        <StackLayout gap={1} key={kind}>
+          <Text styleAs="h3">{kind.replace(/_/g, ' ')}</Text>
+          <GridLayout columns={2} gap={1}>
             {group.map((field) => (
-              <div key={field.key} className="field">
-                <dt>{field.label}</dt>
-                <dd className="mono">{fieldValue(detail.fields, field.key)}</dd>
-              </div>
+              <StackLayout gap={0} key={field.key}>
+                <Text color="secondary" styleAs="label">
+                  {field.label}
+                </Text>
+                <Text>{displayValue(field, fieldValue(detail.fields, field.key))}</Text>
+              </StackLayout>
             ))}
-          </dl>
-        </section>
+          </GridLayout>
+        </StackLayout>
       ))}
 
       <Divider />
-      <section>
-        <H3>Extracted attributes</H3>
-        <dl className="fields">
+      <StackLayout gap={1}>
+        <Text styleAs="h3">Extracted attributes</Text>
+        <GridLayout columns={2} gap={1}>
           {Object.entries(detail.attributes).map(([name, value]) => (
-            <div key={name} className="field">
-              <dt>{name.replace(/_/g, ' ')}</dt>
-              <dd className={name === 'description' ? 'description' : 'mono'}>{value ?? '—'}</dd>
-            </div>
+            <StackLayout gap={0} key={name}>
+              <Text color="secondary" styleAs="label">
+                {name.replace(/_/g, ' ')}
+              </Text>
+              <Text style={name === 'description' ? { whiteSpace: 'pre-wrap' } : undefined}>
+                {value ?? '—'}
+              </Text>
+            </StackLayout>
           ))}
-        </dl>
-      </section>
+        </GridLayout>
+      </StackLayout>
 
       <Divider />
-      <section>
-        <H3>Objects</H3>
-        <ul className="refs">
+      <StackLayout gap={1}>
+        <Text styleAs="h3">Objects</Text>
+        <StackLayout gap={0.5}>
           {refKinds.map((kind) => {
             const ref = refFor(detail, kind)
             return (
-              <li key={kind}>
-                <span className="mono">{kind}</span>
+              <FlexLayout key={kind} gap={2} align="baseline">
+                <Text color="secondary" styleAs="label">
+                  {kind.replace(/_/g, ' ')}
+                </Text>
                 {ref ? (
-                  <Link href={ref.url} target="_blank">{ref.name}</Link>
+                  <Link href={ref.url} target="_blank">
+                    {ref.name}
+                  </Link>
                 ) : (
-                  <span className="missing">not found</span>
+                  <Text color="secondary">not found</Text>
                 )}
-              </li>
+              </FlexLayout>
             )
           })}
-        </ul>
-      </section>
+        </StackLayout>
+      </StackLayout>
 
       <Divider />
-      <section>
-        <H3>History</H3>
+      <StackLayout gap={1}>
+        <Text styleAs="h3">History</Text>
         {detail.decisions.length === 0 && detail.edits.length === 0 ? (
           <Text color="secondary">No edits or decisions recorded.</Text>
         ) : (
-          <ul className="history">
+          <StackLayout gap={0.5}>
             {detail.decisions.map((decision, index) => (
-              <li key={`decision-${index}`}>
-                <span className="mono">decision</span>{' '}
+              <Text key={`decision-${index}`} styleAs="label">
                 {decision.decision === 'accept' ? 'accepted' : 'rejected'}
-                {decision.reason ? ` — ${decision.reason}` : ''}{' '}
-                <span className="muted">{formatTime(decision.at)}</span>
-              </li>
+                {decision.reason ? ` — ${decision.reason}` : ''} · {formatTime(decision.at)}
+              </Text>
             ))}
             {detail.edits.map((edit, index) => (
-              <li key={`${edit.field}-${index}`}>
-                <span className="mono">{edit.field}</span> {edit.oldValue ?? '—'} → {edit.newValue ?? '—'}{' '}
-                <span className="muted">{formatTime(edit.at)}</span>
-              </li>
+              <Text key={`${edit.field}-${index}`} styleAs="label">
+                {edit.field}: {edit.oldValue ?? '—'} → {edit.newValue ?? '—'} ·{' '}
+                {formatTime(edit.at)}
+              </Text>
             ))}
-          </ul>
+          </StackLayout>
         )}
-      </section>
-    </aside>
+      </StackLayout>
+    </Panel>
   )
 }

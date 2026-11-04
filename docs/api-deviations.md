@@ -119,7 +119,7 @@ Requests an immediate refresh instead of waiting for the 30 s cycle.
 
 ## 5. Items (the unified view)
 
-### `GET /api/deviations?status=&status=&decision=&q=&limit=50&offset=0`
+### `GET /api/deviations?status=&status=&decision=&sort=&order=&q=&limit=50&offset=0`
 
 ```json
 {
@@ -153,6 +153,8 @@ Requests an immediate refresh instead of waiting for the 30 s cycle.
 - `decision` filters by review decision: `accept`, `reject`, or `undecided` (no decision,
   or the latest decision was undone). Omitted means any.
 - `q` matches the key or the reason.
+- `sort` is `last_seen` (default) or `decision`; `order` is `asc`/`desc`. History calls
+  `?decision=accept&sort=decision&order=desc` to show the newest approvals first.
 - `recordUrl` is an absolute Salesforce URL. Rows stored before the sync fix may still
   hold a root-relative path; the UI resolves it against the workflow's `listUrl`.
 
@@ -246,24 +248,50 @@ Enqueues one `SUBMIT` job (FR-5.4).
 
 ## 6. Jobs
 
-### `GET /api/jobs?workflow=&kind=&status=&limit=100`
+### `GET /api/jobs`
+
+A paginated, filterable, sortable page of jobs. Every filter composes; `total` is the
+count of the filtered set, not the page.
+
+Query parameters:
+
+| Parameter | Meaning |
+|---|---|
+| `workflow`, `kind`, `status`, `phase` | exact match |
+| `id` | job id contains the text |
+| `item` | deviation number contains the text |
+| `error` | error text contains the text |
+| `started_after`, `started_before` | UTC date (`YYYY-MM-DD`), inclusive |
+| `duration_min_ms`, `duration_max_ms` | duration range in milliseconds |
+| `sort` | `id` (default) · `status` · `kind` · `phase` · `item` · `created` · `started` · `finished` · `duration` · `attempts` · `error` |
+| `order` | `asc` / `desc` (default `desc`) |
+| `limit`, `offset` | page size (default 25, max 200) and offset |
 
 ```json
-[
-  {
-    "id": 42,
-    "workflow": "deviations_z02",
-    "item": "Deviation-03112026-486382",
-    "kind": "submit",
-    "status": "running",
-    "phase": "apply",
-    "attempts": 1,
-    "leaseOwner": "81324:w0",
-    "createdAt": "…", "startedAt": "…", "finishedAt": null,
-    "error": null
-  }
-]
+{
+  "count": 1,
+  "total": 137,
+  "rows": [
+    {
+      "id": 42,
+      "workflow": "deviations_z02",
+      "item": "Deviation-03112026-486382",
+      "kind": "submit",
+      "status": "running",
+      "phase": "apply",
+      "attempts": 1,
+      "leaseOwner": "81324:w0",
+      "createdAt": "…", "startedAt": "…", "finishedAt": null,
+      "durationMs": 4200,
+      "error": null
+    }
+  ]
+}
 ```
+
+`durationMs` is `finished_at - started_at` for a terminal job and the live elapsed
+time for a running one; `null` when the job never started (queued/cancelled).
+Unknown enum values, sort keys or orders are `422`.
 
 ### `GET /api/jobs/{id}` / `GET /api/jobs/{id}/logs`
 
@@ -360,7 +388,14 @@ export interface JobView {
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
+  durationMs: number | null;
   error: string | null;
+}
+
+export interface JobsPage {
+  count: number;
+  total: number;
+  rows: JobView[];
 }
 
 export type DecisionKind = "accept" | "reject";

@@ -19,7 +19,7 @@ from app.core.models import SyncRun
 from app.core.repo.attributes import AttributeRepository
 from app.core.repo.events import EventRepository
 from app.core.repo.fields import FieldValueRepository
-from app.core.repo.jobs import JobRepository
+from app.core.repo.jobs import JobQuery, JobRepository
 from app.core.repo.refs import PageRefRepository
 from app.core.repo.sessions import SessionRepository
 from app.core.repo.sync_runs import SyncRunRepository
@@ -89,8 +89,8 @@ def main() -> int:
         print(f"  present items: {len(items)}")
         for item in items[:5]:
             print(f"    {item.key} status={item.status} approved={item.approved_at}")
-        queued = jobs.query(workflow.name, status=JobStatus.QUEUED)
-        print(f"  queued jobs: {len(queued)}")
+        queued = jobs.query(JobQuery(workflow=workflow.name, status=JobStatus.QUEUED))
+        print(f"  queued jobs: {len(queued.jobs)}")
         return 0
     except SessionExpired as exc:
         print(f"!! session expired: {exc}", file=sys.stderr)

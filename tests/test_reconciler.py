@@ -8,7 +8,7 @@ from collections.abc import Callable, Mapping
 
 from app.core.list_view import ListRow, ListSample, ListViewSpec
 from app.core.models import WorkItem, utcnow
-from app.core.repo.jobs import JobRepository
+from app.core.repo.jobs import JobQuery, JobRepository
 from app.core.repo.sync_runs import SyncRunRepository
 from app.core.status import (
     ClosureSource,
@@ -117,7 +117,7 @@ class ReconcilerTests(ReconcilerTestCase):
         self.assertEqual(item.record_url, f"/lightning/r/a2f/{KEY}/view")
         self.assertEqual(item.approved_at, "4/11/2026 6:46 pm")
         jobs = self.job_repo()
-        self.assertEqual(len([j for j in jobs.query(WORKFLOW) if j.kind is JobKind.EXTRACT]), 2)
+        self.assertEqual(len([j for j in jobs.query(JobQuery(workflow=WORKFLOW)).jobs if j.kind is JobKind.EXTRACT]), 2)
 
     def test_known_row_is_touched_and_attributes_are_mapped(self) -> None:
         reconciler, _closure, _workflow = self.build({"product_type": "Home Loan"})

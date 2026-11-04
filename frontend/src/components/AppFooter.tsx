@@ -1,7 +1,7 @@
 /** App-wide footer: version, quiet session/sync status, manual refresh. */
 
 import type { JSX } from 'react'
-import { Button } from '@salt-ds/core'
+import { Button, Divider, FlexLayout, Text } from '@salt-ds/core'
 
 import type { SessionView, SyncView } from '../api'
 import { relativeTime } from '../format'
@@ -29,12 +29,19 @@ export function AppFooter({
   refreshing,
 }: Props): JSX.Element {
   return (
-    <footer className="footer">
-      <span>{version ? `bottled-lightning v${version}` : 'bottled-lightning'}</span>
-      <span className="footer-status">{statusText(session, sync)}</span>
-      <Button appearance="transparent" onClick={onRefresh} disabled={refreshing}>
-        Refresh
-      </Button>
+    <footer className="app-footer">
+      <Divider />
+      <FlexLayout justify="space-between" align="center" gap={2} wrap className="app-footer-content">
+        <Text styleAs="label">{version ? `bottled-lightning v${version}` : 'bottled-lightning'}</Text>
+        <FlexLayout gap={2} align="center" wrap>
+          <Text styleAs="label" color="secondary">
+            {statusText(session, sync)}
+          </Text>
+          <Button appearance="transparent" onClick={onRefresh} disabled={refreshing}>
+            Refresh
+          </Button>
+        </FlexLayout>
+      </FlexLayout>
     </footer>
   )
 }

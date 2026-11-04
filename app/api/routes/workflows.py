@@ -24,6 +24,8 @@ def make_router(workflow: Workflow, service: WorkItemService) -> APIRouter:
         status: list[str] | None = None,
         decision: str | None = None,
         q: str | None = None,
+        sort: str = "last_seen",
+        order: str = "desc",
         limit: int = Query(default=50, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
     ) -> ItemsPageView:
@@ -33,7 +35,7 @@ def make_router(workflow: Workflow, service: WorkItemService) -> APIRouter:
         is ``accept``, ``reject`` or ``undecided``.
         """
         return service.list_items(
-            workflow.name, status, q, limit, offset, decision
+            workflow.name, status, q, limit, offset, decision, sort, order
         )
 
     @router.get("/{key}", response_model=ItemDetailView)

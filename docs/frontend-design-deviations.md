@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v3.4 |
+| **Version** | v3.6 |
 | **Date** | 2026-11-04 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
@@ -24,7 +24,7 @@ second workflow later means adding a second tab deliberately, not genericising t
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| UI kit | Salt DS (`@salt-ds/core`, `@salt-ds/theme`, `@salt-ds/icons`) | already chosen; accessible primitives, no bespoke CSS system |
+| UI kit | Salt DS (`@salt-ds/core`, `@salt-ds/theme`, `@salt-ds/icons`) | **every** control and surface: Tabs, ToggleButtonGroup, Table, Dropdown, FormField, Input, Card, Panel, Banner, StatusIndicator, Button; CSS is layout only |
 | Server state | **TanStack Query** | list/detail/jobs/sync are server state; caching, polling and invalidation are the whole game |
 | Routing | **react-router** (`/`, `/deviations-z02`, `/deviations-z02/:key`, `/jobs`) | concrete tabs, deep-linkable item detail |
 | Forms | controlled inputs + server-side validation | the API returns `422 {code, field, message}`; duplicating rules client-side guarantees drift |
@@ -69,7 +69,7 @@ to a reversible decision.
 | Login window open | `AuthCard` shows "Finish logging in in the browser window" with a spinner and a cancel hint |
 | Session expired mid-use | global `SyncBanner` (danger): dispatch paused, every mutating control disabled, "Log in" button |
 | Sync invalid (header ≠ rows) | `SyncBanner` (warning): "last refresh untrusted (header 12 ≠ rows 11)"; rows shown from the last valid sync with their age |
-| Empty list | `EmptyState`: "No deviations in the list view" + last sync time |
+| Empty deck | "Deck complete" card + last sync age |
 | Item skipped | terminal chip + reason (e.g. "multiple LMS2 CL contracts") |
 | Item closed externally | terminal chip "Closed" + "left Salesforce without us implementing it" |
 | Submission failed | `needs_review` banner, job link with logs, "resubmit" disabled until values are reviewed |
@@ -97,7 +97,7 @@ screen is built against the API.
 
 The tab opens on the deck, in the shape of the legacy `Deck.tsx`: one card at a time,
 accepted/skipped/to-review tallies, then Skip and Accept. The header keeps the
-**Deck / List** toggle; the List view is section 3.2b.
+**Deck / History** toggle; history is section 3.2b.
 
 | State | Card content | Actions |
 |---|---|---|
@@ -117,19 +117,23 @@ the card behind the top one. **Accept** PATCHes the card's cleaned values as pro
 (amounts are grouped on screen, digits on the wire) and then records the decision;
 **Skip** records only the decision. Neither writes to Salesforce (FR-10.2).
 
-### 3.2b Deviations Z02 — list view (toggle)
+### 3.2b Deviations Z02 — accepted history (toggle)
+
+The history is the record of what the deck approved: one row per **accepted** deviation,
+newest decision first. It is not a working list and has no deck actions.
 
 | State | Content | Actions |
 |---|---|---|
-| loading | 5 skeleton rows | — |
-| empty | `EmptyState` + last sync | Refresh |
-| ready | table: status, key, four values, decision chip, approved at | Open, filter, search |
-| invalid sync | warning banner + last valid sample age | Refresh |
-| paused | danger banner replaces the filter bar's primary action | Log in |
-| filter miss | "No items match" + clear filters | Clear |
+| loading | Salt table skeleton | — |
+| ready | Salt Table: Deviation (SF link), Decided (chip + time), Status, SF approval, four values | Open detail, search |
+| empty | "No deviations have been accepted yet." | — |
+| search miss | "No approved deviations match this search." | Clear search |
+| page overflow | `1–25 of N`, page buttons, rows-per-page | Page |
 
-The decision filter is a select: *Any*, *Undecided*, *Accepted*, *Rejected*. It shares
-its state with the deck's empty-state links, so switching views keeps the filter.
+The search field is a Salt `FormField`; pagination is server-side ordered by the newest
+decision (`sort=decision&order=desc`). Clicking a row opens the Salt detail panel; the
+deviation number is an absolute Salesforce link. Undo decision in the detail returns the
+item to the deck and removes it from history on the next refetch.
 
 ### 3.3 Item detail (drawer or full page on narrow screens)
 
@@ -166,16 +170,28 @@ stale UI.
 
 ### 3.5 Jobs
 
+A standard data table: sortable headers, **column filters in a second header row**
+(directly under each column label), server-side pagination, and a log panel for the
+selected job. Filter controls are Salt `Input`/`Dropdown`; the row is part of the table
+head, not a separate form above it.
+
+Columns: **ID · Status · Kind · Phase · Item · Started · Duration · Error**. The row is
+selectable; the log panel below shows the selected job and its full error.
+
 | State | Content |
 |---|---|
-| empty | "nothing has run yet" |
-| running | phase chip + elapsed + lease owner |
-| failed | error + expandable log lines |
-| succeeded / cancelled | timestamp + result |
+| loading | table skeleton; previous rows keep their place |
+| empty (no jobs) | "nothing has run yet" |
+| empty (filtered) | "no jobs match" + Clear filters |
+| running | live duration from the server's `durationMs`; phase column shows the step |
+| failed | error column truncated + full error in the log panel |
+| succeeded / cancelled | finished time and final duration |
+| page overflow | pagination bar: `1–25 of 137`, page size, Prev/Next |
+| selected | row highlighted; log panel open below |
 
-### 3.6 History
-
-Closed/skipped items with reason, attribution and decided-at. Filter by status and date.
+Filters: id (contains), status / kind / phase (selects), item (contains), started
+from/to (UTC dates), duration min/max (seconds), error (contains). Changing any filter
+or sort resets to page 1. Sortable headers toggle asc/desc and expose `aria-sort`.
 
 ## 4. Component tree
 
@@ -185,23 +201,18 @@ App
     ├── SyncBanner               session + sync health (one place, always visible)
     ├── AuthCard                 replaces content when session is none/expired
     ├── DeviationsPage          route "/deviations-z02" (the Z02 tab)
-    │   ├── ViewToggle          Deck (default) / List
+    │   ├── ViewToggle          Salt ToggleButtonGroup: Deck (default) / History
     │   ├── DecisionDeck         one card, tallies, replay, exit animation
-    │   └── DecisionCard         legacy card: refs, description, ROI grid, editable values
-    │   ├── FilterBar            status + decision selects, search, refresh (List)
-    │   ├── ItemsGrid            table; owns row rendering only (List)
-    │   │   └── ItemRow          cells + StatusChip + DecisionChip
-    │   │       ├── StatusChip   text + colour, never colour alone
-    │   │       └── FieldCell    read-only or editable cell
-    │   └── ItemDrawer           route "/deviations-z02/:key"
-    │       ├── FieldGroup       editable values for one target object
+    │   │   └── DecisionCard     Salt card: refs, description, ROI grid, FormField values
+    │   ├── HistoryTable         Salt Table of accepted deviations + search + pagination
+    │   └── ItemDrawer           route "/deviations-z02/:key" (Salt Panel)
+    │       ├── FieldGroup       values grouped by target object
     │       ├── AttributeList    read-only extracted values
     │       ├── PageRefList      five object links, missing ones marked
-    │       ├── DecisionBanner   decision + reason + Undo decision
-    │       ├── HistoryList      decisions + edits + events
-    │       └── SubmitBar        dirty count, Save, Discard, Submit
+    │       └── HistoryList      decisions + edits
     ├── QueueBar                 concurrency, in-flight, pause state
-    └── AppFooter                version, session/sync status, refresh
+    ├── AppFooter                version, session/sync status, refresh
+    └── JobsPage                 filters + table + pagination + logs
 ```
 
 Responsibilities are deliberately narrow: `FieldCell` never fetches, `ItemRow` never
@@ -217,9 +228,9 @@ Server state is the only state that matters; everything else is UI.
 | `["version"]` | `GET /api/version` | on boot | footer only; never refetched |
 | `["workflows"]` | `GET /api/workflows` | on boot | catalogue + labels, never refetched during a session |
 | `["sync", workflow]` | `GET /api/syncs?workflow=` | 10 s | header/rows/valid/warning |
-| `["items", workflow, filters]` | `GET /api/deviations` | 10 s | list and deck (the deck asks for decidable statuses + `decision=undecided`) |
+| `["items", workflow, filters, offset]` | `GET /api/deviations` | 10 s | deck (all rows for the tallies) and history (`decision=accept&sort=decision`) |
 | `["item", workflow, key]` | `GET /api/deviations/{key}` | 10 s, paused while editing | detail |
-| `["jobs", filters]` | `GET /api/jobs` | 2 s while the panel is open | queue |
+| `["jobs", filters, page, size, sort, order]` | `GET /api/jobs` | 2 s while visible | paginated queue |
 | `["job", id]` | `GET /api/jobs/{id}/logs` | 2 s while visible | expanded job |
 | `["items", …]` mutation | `POST` / `DELETE …/decisions` | on action | invalidates the list and item keys |
 | `["items", …]` mutation | `PATCH …/field-values` | on accept with edits | stores the card's proposals, then the decision |
@@ -278,6 +289,9 @@ Rules:
   danger/neutral); the tone never carries meaning alone.
 - One deck, one table, one drawer. Desktop-first (operator laptop, ≥1280 px); the drawer
   becomes a full page below 900 px; card, table and drawer are usable at 390 px.
+- **Salt only.** No custom control styles: Tabs, ToggleButtonGroup, Table, Dropdown,
+  FormField, Input, Card, Panel, Banner, StatusIndicator and Button cover every surface.
+  CSS is limited to layout, responsive column hiding and motion.
 - **High density.** Page padding 10/16 px, headings 20/17/14 px, data text 11–12 px,
   layout gaps 8–16 px (not 24–32), table cells 4–5 px, card padding 10–12 px, the deck
   description panel 150 px tall. The 1280×800 laptop shows the whole deck card, its
@@ -327,7 +341,7 @@ Rules:
 |---|---|---|
 | Pure helpers | Vitest | `StatusChip` mapping, `formatAmount` (identity), error unwrapping, dirty diff |
 | Components | RTL + MSW | disabled rules per status, field error rendering, submit confirmation, paused banner |
-| Deck | RTL + MSW | accept/reject buttons, keyboard, undo, failed decision keeps the card, undone card returns |
+| Tables | RTL + MSW | header filters, sorting, pagination, empty/error states |
 | States | `/dev/states` route + Playwright screenshots | every row of the matrix, at 390/768/1280 |
 | Responsive | `tools/audit_layout.py` | fails when any route needs horizontal scrolling at 390/768/1280 |
 | Contract | generated types + MSW handlers | a field rename on the backend breaks typecheck |
@@ -355,9 +369,18 @@ saving a valid value updates the row without a manual refresh.
 `submitting → … → completed` and the item leaves the working list; a paused session shows
 `login_required` and disables submission. *Blocked on O-1/O-2.*
 
+**Slice E — jobs table** (done). Duration column, filters **in the column headers**,
+sortable headers, server-side pagination and the log panel. Acceptance: filter/sort/page
+combinations hit the server, the total reflects the filters, and a running job's
+duration ticks.
+
+**Slice F — history** (done). The general list view is replaced by the accepted-deviations
+history table (Salt Table, newest decision first, search + server pagination). The deck
+completion card links to it.
+
 **Slice D — review deck** (done). Default deck view in the legacy card shape, accept/reject
 decisions, editable prefilled values saved as proposals on accept, full-width Skip/Accept
-buttons only, tallies, replay skipped, decision chips/filters in the list, decision history
+buttons only, tallies, replay skipped, decision chips in history, decision history
 in the detail. The card carries everything: no separate *Details* button, the SF approval
 date is always shown (dash when empty), and the deviation number is an absolute Salesforce
 record link.

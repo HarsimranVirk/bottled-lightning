@@ -283,8 +283,12 @@ Then reviewed slices, each shipping screenshots:
 - **C — submission** (blocked on O-1/O-2): confirmation dialog, `POST …/{key}/jobs`,
   phase polling, `needs_review` recovery, terminal states.
 - **D — review deck** (done): deck as the default view, accept/reject decisions
-  (`POST`/`DELETE …/decisions`), pointer swipe + buttons + `←`/`→`, undo, decision
-  filters and history. Reversible and local — no SF write (FR-10).
+  (`POST`/`DELETE …/decisions`), buttons only, undo, decision filters and history.
+  Reversible and local — no SF write (FR-10).
+- **E — jobs table** (done): duration, per-column filters **in the column headers**,
+  sortable headers and server-side pagination over `GET /api/jobs` (FR-7.9, FR-7.10).
+- **F — history** (done): the general List view is replaced by the accepted-deviations
+  history table, ordered by decision time (Salt Table, search + pagination).
 
 Supporting work:
 

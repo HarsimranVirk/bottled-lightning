@@ -1,10 +1,20 @@
 /**
- * The Deviations Z02 tab. Opens on the review deck; the list view keeps the table,
- * filters and detail panel. Owns every query and mutation for this screen.
+ * The Deviations Z02 tab: the review deck and the accepted-deviations history.
+ * The list/search view was removed — the deck is the working surface, history is the
+ * record of what the deck approved.
  */
 
 import type { JSX } from 'react'
-import { Button, FlexLayout, H1, Input, Spinner, Text } from '@salt-ds/core'
+import {
+  Banner,
+  BannerContent,
+  FlexLayout,
+  H1,
+  Spinner,
+  Text,
+  ToggleButton,
+  ToggleButtonGroup,
+} from '@salt-ds/core'
 import { useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -12,8 +22,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import type { DecisionKind, ItemRow } from '../api'
 import { DecisionDeck } from '../components/DecisionDeck'
+import { HistoryTable } from '../components/HistoryTable'
 import { ItemDrawer } from '../components/ItemDrawer'
-import { ItemsGrid } from '../components/ItemsGrid'
 import {
   useDecideDecision,
   useItem,
@@ -27,16 +37,6 @@ import {
 const Z02_WORKFLOW = 'deviations_z02'
 /** Statuses the operator may decide on (FR-10.5). */
 const DECIDABLE = ['ready', 'editing', 'needs_review']
-const STATUSES = [
-  'present',
-  'ready',
-  'editing',
-  'submitting',
-  'needs_review',
-  'completed',
-  'closed',
-  'skipped',
-]
 
 export function DeviationsPage(): JSX.Element {
   const { key } = useParams()
@@ -47,10 +47,10 @@ export function DeviationsPage(): JSX.Element {
   const workflow = workflows.data?.find((item) => item.name === Z02_WORKFLOW) ?? workflows.data?.[0]
   const route = workflow?.route ?? null
 
-  const [view, setView] = useState<'deck' | 'list'>('deck')
-  const [status, setStatus] = useState('')
-  const [decisionFilter, setDecisionFilter] = useState('')
-  const [query, setQuery] = useState('')
+  const [view, setView] = useState<'deck' | 'history'>('deck')
+  const [historyQuery, setHistoryQuery] = useState('')
+  const [historyPage, setHistoryPage] = useState(1)
+  const [historySize, setHistorySize] = useState(25)
   const [announcement, setAnnouncement] = useState('')
   const [actionError, setActionError] = useState<string | null>(null)
   const [replaying, setReplaying] = useState(false)
@@ -58,15 +58,13 @@ export function DeviationsPage(): JSX.Element {
   const sync = useSync(workflow?.name ?? null)
   // One unfiltered page powers the deck and the tallies, like the legacy deck.
   const deck = useItems(route, {}, 500, view === 'deck')
-  const list = useItems(
+  // History is the accepted set, newest decision first, paginated by the server.
+  const history = useItems(
     route,
-    {
-      statuses: status ? [status] : undefined,
-      decision: decisionFilter || undefined,
-      q: query || undefined,
-    },
-    200,
-    view === 'list',
+    { decision: 'accept', q: historyQuery || undefined, sort: 'decision', order: 'desc' },
+    historySize,
+    view === 'history',
+    (historyPage - 1) * historySize,
   )
   const detail = useItem(route, key ?? null)
 
@@ -161,22 +159,17 @@ export function DeviationsPage(): JSX.Element {
           <Text color="secondary">
             {sync.data ? `${sync.data.rowsRead} rows in the last refresh` : 'no refresh yet'}
           </Text>
-          <div className="view-toggle" role="group" aria-label="View">
-            <Button
-              appearance={view === 'deck' ? 'solid' : 'bordered'}
-              aria-pressed={view === 'deck'}
-              onClick={() => setView('deck')}
-            >
-              Deck
-            </Button>
-            <Button
-              appearance={view === 'list' ? 'solid' : 'bordered'}
-              aria-pressed={view === 'list'}
-              onClick={() => setView('list')}
-            >
-              List
-            </Button>
-          </div>
+          <ToggleButtonGroup
+            aria-label="View"
+            value={view}
+            onChange={(event) => {
+              const next = event.currentTarget.value
+              if (next === 'deck' || next === 'history') setView(next)
+            }}
+          >
+            <ToggleButton value="deck">Deck</ToggleButton>
+            <ToggleButton value="history">History</ToggleButton>
+          </ToggleButtonGroup>
         </FlexLayout>
       </FlexLayout>
 
@@ -193,73 +186,32 @@ export function DeviationsPage(): JSX.Element {
           onDecide={handleDecide}
           onReplay={() => void replaySkipped()}
           replaying={replaying}
+          onHistory={() => setView('history')}
           onRefresh={() => void deck.refetch()}
           refreshing={deck.isFetching}
         />
       ) : (
-        <>
-          <FlexLayout gap={1} align="end" className="filters">
-            <label>
-              <Text>Status</Text>
-              <select
-                value={status}
-                onChange={(event) => setStatus(event.target.value)}
-                aria-label="Filter by status"
-              >
-                <option value="">All</option>
-                {STATUSES.map((option) => (
-                  <option key={option} value={option}>
-                    {option.replace(/_/g, ' ')}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <Text>Decision</Text>
-              <select
-                value={decisionFilter}
-                onChange={(event) => setDecisionFilter(event.target.value)}
-                aria-label="Filter by decision"
-              >
-                <option value="">Any</option>
-                <option value="undecided">Undecided</option>
-                <option value="accept">Accepted</option>
-                <option value="reject">Rejected</option>
-              </select>
-            </label>
-            <label>
-              <Text>Search</Text>
-              <Input
-                value={query}
-                inputProps={{
-                  onChange: (event) => setQuery(event.target.value),
-                  placeholder: 'Deviation number',
-                }}
-              />
-            </label>
-            <Button
-              appearance="bordered"
-              onClick={() => void list.refetch()}
-              disabled={list.isFetching}
-            >
-              Reload
-            </Button>
-          </FlexLayout>
-
-          {list.isLoading ? <Spinner /> : null}
-          {list.error ? <Text className="reason">{list.error.message}</Text> : null}
-          {list.data && list.data.rows.length === 0 ? (
-            <Text color="secondary">No items match. Clear the filters or refresh the list.</Text>
-          ) : null}
-          {list.data && list.data.rows.length > 0 ? (
-            <ItemsGrid
-              rows={list.data.rows}
-              fields={workflow.fields}
-              terminalLabels={workflow.terminalLabels}
-              onOpen={(itemKey) => navigate(`/deviations-z02/${encodeURIComponent(itemKey)}`)}
-            />
-          ) : null}
-        </>
+        <HistoryTable
+          rows={history.data?.rows ?? []}
+          fields={workflow.fields}
+          terminalLabels={workflow.terminalLabels}
+          listUrl={workflow.listUrl}
+          query={historyQuery}
+          onQuery={(next) => {
+            setHistoryQuery(next)
+            setHistoryPage(1)
+          }}
+          page={historyPage}
+          size={historySize}
+          total={history.data?.total ?? 0}
+          onPage={setHistoryPage}
+          onSize={(next) => {
+            setHistorySize(next)
+            setHistoryPage(1)
+          }}
+          loading={history.isLoading}
+          onOpen={(itemKey) => navigate(`/deviations-z02/${encodeURIComponent(itemKey)}`)}
+        />
       )}
 
       {key ? (
@@ -274,7 +226,9 @@ export function DeviationsPage(): JSX.Element {
             undoing={undo.isPending}
           />
         ) : detail.error ? (
-          <Text className="reason">{detail.error.message}</Text>
+          <Banner status="error">
+            <BannerContent>{detail.error.message}</BannerContent>
+          </Banner>
         ) : (
           <Spinner />
         )

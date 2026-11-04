@@ -76,7 +76,16 @@ class JobView(ApiModel):
     created_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    duration_ms: int | None = None
     error: str | None = None
+
+
+class JobsPageView(ApiModel):
+    """One page of the jobs table plus the filtered total."""
+
+    count: int
+    total: int
+    rows: list[JobView]
 
 
 class ItemRowView(ApiModel):

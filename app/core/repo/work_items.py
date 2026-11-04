@@ -21,6 +21,14 @@ from app.db.connection import Database
 
 from ._util import opt_bool, opt_str, opt_time
 
+#: Latest decision timestamp for ordering the history table.
+_LATEST_DECISION_AT = (
+    "(SELECT d.created_at FROM item_decisions d "
+    "WHERE d.workflow = work_items.workflow "
+    "AND d.item_key = work_items.item_key "
+    "ORDER BY d.id DESC LIMIT 1)"
+)
+
 _COLUMNS = (
     "workflow, item_key, record_url, status, source, reason, present, epoch, "
     "first_seen, last_seen, absent_since, approved_at, extracted_at, "
@@ -312,6 +320,8 @@ class WorkItemRepository:
         offset: int = 0,
         *,
         decision: DecisionFilter | None = None,
+        sort: str = "last_seen",
+        order: str = "desc",
     ) -> tuple[list[WorkItem], int]:
         """
         Page the items, newest-seen first.
@@ -321,7 +331,8 @@ class WorkItemRepository:
         ``UNDECIDED`` also matches a latest ``PENDING`` row, which is how undo works.
 
         ``query`` matches the key or the reason, which is enough for the UI's search
-        box. Returns the page and the total count for pagination.
+        box. ``sort="decision"`` orders by the newest decision (the history table);
+        ``last_seen`` is the working-list order. Returns the page and the total count.
         """
         where = ["workflow = ?"]
         params: list[str | int] = [workflow]
@@ -352,9 +363,14 @@ class WorkItemRepository:
             f"SELECT COUNT(*) FROM work_items{clause}", params
         ).fetchone()
         total = 0 if total_row is None else int(str(total_row[0]))
+        order_expression = "last_seen" if sort == "last_seen" else _LATEST_DECISION_AT
+        direction = order.upper()
+        if direction not in {"ASC", "DESC"}:
+            raise ValueError(f"unknown order: {order}")
         rows = conn.execute(
             f"SELECT {_COLUMNS} FROM work_items{clause} "
-            "ORDER BY last_seen DESC, item_key LIMIT ? OFFSET ?",
+            f"ORDER BY ({order_expression} IS NULL) ASC, "
+            f"{order_expression} {direction}, item_key LIMIT ? OFFSET ?",
             [*params, limit, offset],
         ).fetchall()
         return [_to_item(row) for row in rows], total

@@ -12,14 +12,14 @@ from typing import Protocol
 
 from app.config import Settings
 from app.core.field import normalise
-from app.core.models import Decision, Job, WorkItem, utcnow
+from app.core.models import Decision, Job, WorkItem, job_duration_ms, utcnow
 from app.core.registry import WorkflowRegistry
 from app.core.repo.attributes import AttributeRepository
 from app.core.repo.decisions import DecisionRepository
 from app.core.repo.edits import EditRepository
 from app.core.repo.events import EventRepository
 from app.core.repo.fields import FieldValueRepository
-from app.core.repo.jobs import JobRepository
+from app.core.repo.jobs import JOB_SORT_COLUMNS, JobPage, JobQuery, JobRepository
 from app.core.repo.refs import PageRefRepository
 from app.core.repo.sessions import SessionRepository
 from app.core.repo.sync_runs import SyncRunRepository
@@ -29,6 +29,7 @@ from app.core.status import (
     DecisionKind,
     JobKind,
     JobStatus,
+    Phase,
     WorkItemStatus,
 )
 from app.core.workflow import Workflow
@@ -48,6 +49,7 @@ from .schemas import (
     ItemRowView,
     ItemsPageView,
     JobLogsView,
+    JobsPageView,
     JobView,
     PageRefView,
     QueueView,
@@ -103,6 +105,7 @@ def job_view(job: Job) -> JobView:
         created_at=job.created_at,
         started_at=job.started_at,
         finished_at=job.finished_at,
+        duration_ms=job_duration_ms(job, utcnow()),
         error=job.error,
     )
 
@@ -160,6 +163,8 @@ class WorkItemService:
         limit: int = 50,
         offset: int = 0,
         decision: str | None = None,
+        sort: str = "last_seen",
+        order: str = "desc",
     ) -> ItemsPageView:
         """The unified view: one row per item, newest-seen first.
 
@@ -172,6 +177,11 @@ class WorkItemService:
             [self._parse_status(status) for status in statuses] if statuses else None
         )
         parsed_decision = self._parse_decision(decision)
+        if sort not in {"last_seen", "decision"}:
+            raise ApiError(422, f"unknown sort: {sort}", "invalid_sort")
+        direction = order.lower()
+        if direction not in {"asc", "desc"}:
+            raise ApiError(422, f"unknown order: {order}", "invalid_order")
         items, total = self._items.list(
             workflow.name,
             parsed,
@@ -179,6 +189,8 @@ class WorkItemService:
             limit,
             offset,
             decision=parsed_decision,
+            sort=sort,
+            order=direction,
         )
         decisions = self._decisions.latest_for(
             workflow.name, [item.key for item in items]
@@ -453,11 +465,22 @@ class AdminPort(Protocol):
 
     def jobs(
         self,
-        workflow: str | None,
-        kind: str | None,
-        status: str | None,
-        limit: int,
-    ) -> list[JobView]: ...
+        workflow: str | None = None,
+        kind: str | None = None,
+        status: str | None = None,
+        phase: str | None = None,
+        item: str | None = None,
+        job_id: str | None = None,
+        error: str | None = None,
+        started_after: str | None = None,
+        started_before: str | None = None,
+        duration_min_ms: int | None = None,
+        duration_max_ms: int | None = None,
+        sort: str = 'id',
+        order: str = 'desc',
+        limit: int = 25,
+        offset: int = 0,
+    ) -> JobsPageView: ...
 
     def job_logs(self, job_id: int) -> JobLogsView: ...
 
@@ -579,20 +602,47 @@ class AdminService:
 
     def jobs(
         self,
-        workflow: str | None,
-        kind: str | None,
-        status: str | None,
-        limit: int,
-    ) -> list[JobView]:
-        return [
-            job_view(job)
-            for job in self._jobs.query(
-                workflow,
-                self._kind(kind),
-                self._job_status(status),
-                limit,
+        workflow: str | None = None,
+        kind: str | None = None,
+        status: str | None = None,
+        phase: str | None = None,
+        item: str | None = None,
+        job_id: str | None = None,
+        error: str | None = None,
+        started_after: str | None = None,
+        started_before: str | None = None,
+        duration_min_ms: int | None = None,
+        duration_max_ms: int | None = None,
+        sort: str = 'id',
+        order: str = 'desc',
+        limit: int = 25,
+        offset: int = 0,
+    ) -> JobsPageView:
+        """One filtered, sorted page of the jobs table (FR-7.10)."""
+        page: JobPage = self._jobs.query(
+            JobQuery(
+                workflow=workflow,
+                kind=self._kind(kind),
+                status=self._job_status(status),
+                phase=self._phase(phase),
+                item=self._text(item),
+                job_id=self._text(job_id),
+                error=self._text(error),
+                started_after=self._text(started_after),
+                started_before=self._text(started_before),
+                duration_min_ms=duration_min_ms,
+                duration_max_ms=duration_max_ms,
+                sort=self._sort(sort),
+                order=self._order(order),
+                limit=limit,
+                offset=offset,
             )
-        ]
+        )
+        return JobsPageView(
+            count=len(page.jobs),
+            total=page.total,
+            rows=[job_view(job) for job in page.jobs],
+        )
 
     def job_logs(self, job_id: int) -> JobLogsView:
         job = self._jobs.get(job_id)
@@ -603,6 +653,29 @@ class AdminService:
     def cancel_job(self, job_id: int) -> None:
         if not self._jobs.cancel(job_id):
             raise ApiError(409, f"job {job_id} is not queued", "job_not_queued")
+
+    def _text(self, value: str | None) -> str | None:
+        """Trim an optional query string; blank means no filter."""
+        return value.strip() or None if value is not None else None
+
+    def _phase(self, phase: str | None) -> Phase | None:
+        if not phase:
+            return None
+        try:
+            return Phase(phase)
+        except ValueError as exc:
+            raise ApiError(422, f"unknown phase: {phase}", "invalid_value") from exc
+
+    def _sort(self, sort: str) -> str:
+        if sort not in JOB_SORT_COLUMNS:
+            raise ApiError(422, f"unknown sort: {sort}", "invalid_value")
+        return sort
+
+    def _order(self, order: str) -> str:
+        normalised = order.lower()
+        if normalised not in {"asc", "desc"}:
+            raise ApiError(422, f"unknown order: {order}", "invalid_value")
+        return normalised
 
     def _workflow_name(self, workflow: str) -> str:
         try:

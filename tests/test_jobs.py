@@ -14,7 +14,7 @@ from app.core.list_view import ListRow, ListViewSpec
 from app.core.models import Job, WorkItem, utcnow
 from app.core.registry import WorkflowRegistry
 from app.core.repo.events import EventRepository
-from app.core.repo.jobs import JobRepository
+from app.core.repo.jobs import JobQuery, JobRepository
 from app.core.status import (
     ExtractOutcome,
     JobKind,
@@ -366,7 +366,7 @@ class DispatcherTests(JobTestCase):
             await _wait_until(
                 lambda: all(
                     job.status is JobStatus.SUCCEEDED
-                    for job in jobs.query(WORKFLOW)
+                    for job in jobs.query(JobQuery(workflow=WORKFLOW)).jobs
                 ),
                 timeout=5.0,
             )
@@ -374,8 +374,8 @@ class DispatcherTests(JobTestCase):
             await task
 
         asyncio.run(scenario())
-        self.assertEqual(len(jobs.query(WORKFLOW)), 4)
-        self.assertTrue(all(job.status is JobStatus.SUCCEEDED for job in jobs.query(WORKFLOW)))
+        self.assertEqual(len(jobs.query(JobQuery(workflow=WORKFLOW)).jobs), 4)
+        self.assertTrue(all(job.status is JobStatus.SUCCEEDED for job in jobs.query(JobQuery(workflow=WORKFLOW)).jobs))
         self.assertEqual(len(tabs.groups), 4)
 
     def test_paused_gate_blocks_claiming(self) -> None:
@@ -395,16 +395,139 @@ class DispatcherTests(JobTestCase):
             )
             task = asyncio.create_task(dispatcher.run_forever())
             await asyncio.sleep(0.3)
-            self.assertIs(jobs.query(WORKFLOW)[0].status, JobStatus.QUEUED)
+            self.assertIs(jobs.query(JobQuery(workflow=WORKFLOW)).jobs[0].status, JobStatus.QUEUED)
             auth.resume()
             await _wait_until(
-                lambda: jobs.query(WORKFLOW)[0].status is JobStatus.SUCCEEDED,
+                lambda: jobs.query(JobQuery(workflow=WORKFLOW)).jobs[0].status is JobStatus.SUCCEEDED,
                 timeout=5.0,
             )
             dispatcher.stop()
             await task
 
         asyncio.run(scenario())
+
+
+class JobQueryTests(DbTestCase):
+    """Filtering, sorting and pagination for the jobs table (FR-7.10)."""
+
+    def seed(self) -> dict[str, Job]:
+        """Three jobs with controlled timestamps, phases and errors."""
+        jobs = JobRepository(self.db)
+        rows = [
+            ("Deviation-1-1", JobKind.EXTRACT, "2026-11-04T10:00:00+00:00",
+             "2026-11-04T10:00:10+00:00", Phase.EXTRACT, None, JobStatus.SUCCEEDED),
+            ("Deviation-2-2", JobKind.EXTRACT, "2026-11-04T10:01:00+00:00",
+             "2026-11-04T10:01:30+00:00", Phase.EXTRACT, "boom", JobStatus.FAILED),
+            ("Deviation-3-3", JobKind.SUBMIT, "2026-11-04T10:02:00+00:00",
+             "2026-11-04T10:02:05+00:00", Phase.APPLY, None, JobStatus.SUCCEEDED),
+        ]
+        seeded: dict[str, Job] = {}
+        for key, kind, started, finished, phase, error, status in rows:
+            job = jobs.enqueue(WORKFLOW, kind, key)
+            with self.db.transaction() as conn:
+                conn.execute(
+                    "UPDATE jobs SET started_at = ?, finished_at = ?, phase = ?, "
+                    "error = ?, status = ? WHERE id = ?",
+                    [started, finished, phase.value, error, status.value, job.id],
+                )
+            seeded[key] = jobs.require(job.id)
+        return seeded
+
+    def test_each_filter_and_composition(self) -> None:
+        """Every column filter works, and filters compose with AND."""
+        self.seed()
+        jobs = JobRepository(self.db)
+
+        self.assertEqual(len(jobs.query(JobQuery(kind=JobKind.EXTRACT)).jobs), 2)
+        self.assertEqual(len(jobs.query(JobQuery(status=JobStatus.FAILED)).jobs), 1)
+        failed = jobs.query(JobQuery(kind=JobKind.EXTRACT, status=JobStatus.FAILED)).jobs
+        self.assertEqual([job.item for job in failed], ["Deviation-2-2"])
+
+        self.assertEqual(
+            [job.item for job in jobs.query(JobQuery(phase=Phase.APPLY)).jobs],
+            ["Deviation-3-3"],
+        )
+        self.assertEqual(
+            [job.item for job in jobs.query(JobQuery(item="2-2")).jobs],
+            ["Deviation-2-2"],
+        )
+        self.assertEqual(len(jobs.query(JobQuery(error="boo")).jobs), 1)
+        job_id = jobs.query(JobQuery(item="3-3")).jobs[0].id
+        self.assertEqual(len(jobs.query(JobQuery(job_id=str(job_id))).jobs), 1)
+
+    def test_started_date_and_duration_ranges(self) -> None:
+        """Date bounds are inclusive UTC days and duration bounds are milliseconds."""
+        self.seed()
+        jobs = JobRepository(self.db)
+        self.assertEqual(
+            len(jobs.query(JobQuery(started_after="2026-11-04", started_before="2026-11-04")).jobs),
+            3,
+        )
+        self.assertEqual(
+            len(jobs.query(JobQuery(started_after="2026-11-05")).jobs), 0
+        )
+        slow = jobs.query(JobQuery(duration_min_ms=20_000, duration_max_ms=40_000)).jobs
+        self.assertEqual([job.item for job in slow], ["Deviation-2-2"])
+
+    def test_pagination_total_and_sort(self) -> None:
+        """The total counts the filtered set; order and paging are server-side."""
+        self.seed()
+        jobs = JobRepository(self.db)
+        first = jobs.query(JobQuery(limit=2, offset=0))
+        self.assertEqual(first.total, 3)
+        self.assertEqual([job.item for job in first.jobs], ["Deviation-3-3", "Deviation-2-2"])
+
+        second = jobs.query(JobQuery(limit=2, offset=2))
+        self.assertEqual([job.item for job in second.jobs], ["Deviation-1-1"])
+
+        fastest = jobs.query(JobQuery(sort="duration", order="asc")).jobs
+        self.assertEqual([job.item for job in fastest], ["Deviation-3-3", "Deviation-1-1", "Deviation-2-2"])
+
+    def test_nulls_sort_last(self) -> None:
+        """A queued job has no duration and sorts after every started job."""
+        self.seed()
+        jobs = JobRepository(self.db)
+        jobs.enqueue(WORKFLOW, JobKind.EXTRACT, "Deviation-4-4")
+        ordered = jobs.query(JobQuery(sort="duration", order="desc")).jobs
+        self.assertEqual(ordered[-1].item, "Deviation-4-4")
+
+    def test_unknown_sort_is_a_validation_error(self) -> None:
+        """The sort key is a whitelist, not SQL passthrough."""
+        jobs = JobRepository(self.db)
+        with self.assertRaises(ValueError):
+            jobs.query(JobQuery(sort="drop table"))
+        with self.assertRaises(ValueError):
+            jobs.query(JobQuery(order="sideways"))
+
+
+class DurationTests(unittest.TestCase):
+    """Duration is derived from the stored timestamps."""
+
+    def test_duration_cases(self) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        from app.core.models import job_duration_ms
+
+        started = datetime(2026, 11, 4, 10, 0, tzinfo=UTC)
+        job = Job(
+            id=1, workflow=WORKFLOW, kind=JobKind.EXTRACT, item="Deviation-1-1",
+            status=JobStatus.RUNNING, phase=None, attempts=1, lease_owner="w0",
+            lease_expires_at=None, created_at=started, started_at=started,
+            finished_at=None, error=None,
+        )
+        self.assertEqual(job_duration_ms(job, started + timedelta(seconds=3)), 3000)
+        self.assertIsNone(
+            job_duration_ms(
+                Job(
+                    id=2, workflow=WORKFLOW, kind=JobKind.EXTRACT, item="Deviation-2-2",
+                    status=JobStatus.QUEUED, phase=None, attempts=0, lease_owner=None,
+                    lease_expires_at=None, created_at=started, started_at=None,
+                    finished_at=None, error=None,
+                ),
+                started,
+            )
+        )
+
 
 
 async def _wait_until(predicate: Callable[[], bool], timeout: float) -> None:

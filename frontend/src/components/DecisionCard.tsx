@@ -6,7 +6,21 @@
  */
 
 import type { JSX } from 'react'
-import { Card, CardContent, FlexLayout, Input, Link, StackLayout, Text } from '@salt-ds/core'
+import {
+  Banner,
+  BannerContent,
+  Card,
+  CardContent,
+  FlexLayout,
+  FormField,
+  FormFieldLabel,
+  GridLayout,
+  Input,
+  Link,
+  Panel,
+  StackLayout,
+  Text,
+} from '@salt-ds/core'
 
 import type { ItemDetail, ItemRow, WorkflowFieldView } from '../api'
 import { absoluteUrl, draftDisplay, orderedFields } from '../format'
@@ -62,16 +76,16 @@ export function DecisionCard({
   )
 
   return (
-    <Card elevation="raised" className="deck-stack deck-card">
+    <Card elevation="raised" className="deck-card">
       <CardContent>
         <StackLayout gap={1}>
           <FlexLayout gap={2} align="center">
             {recordHref ? (
-              <Link href={recordHref} target="_blank" className="deck-title-link">
+              <Link href={recordHref} target="_blank">
                 {row.key}
               </Link>
             ) : (
-              <Text className="deck-title-link">{row.key}</Text>
+              <Text>{row.key}</Text>
             )}
             <StatusChip status={row.status} labels={terminalLabels} />
           </FlexLayout>
@@ -91,10 +105,10 @@ export function DecisionCard({
               <Text color="secondary" styleAs="label">
                 Pages to update
               </Text>
-              <StackLayout gap={0.5} className="deck-refs">
+              <GridLayout columns={{ xs: 1, sm: 2 }} gap={0.5}>
                 {refs.map((ref) => (
                   <FlexLayout key={ref.kind} gap={1} align="center">
-                    <Text styleAs="label" color="secondary" className="deck-ref-label">
+                    <Text styleAs="label" color="secondary">
                       {REF_LABELS[ref.kind] ?? ref.kind}
                     </Text>
                     <Link href={ref.url} target="_blank">
@@ -102,14 +116,14 @@ export function DecisionCard({
                     </Link>
                   </FlexLayout>
                 ))}
-              </StackLayout>
+              </GridLayout>
             </StackLayout>
           ) : null}
 
           <Text color="secondary" styleAs="label">
             Loan Deviation Description — read it, raw is truth
           </Text>
-          <div className="deck-description">
+          <Panel className="deck-description">
             {detail === null ? (
               <Text color="secondary">loading description…</Text>
             ) : description ? (
@@ -119,12 +133,12 @@ export function DecisionCard({
             ) : (
               <Text color="secondary">no description picked yet — run an extraction first</Text>
             )}
-          </div>
+          </Panel>
 
           <Text color="secondary" styleAs="label">
             Housing Loan Deviation Details
           </Text>
-          <div className="deck-roi">
+          <GridLayout columns={{ xs: 1, sm: 2 }} gap={1}>
             {ROI_FIELDS.map((field) => (
               <StackLayout gap={0} key={field.key}>
                 <Text color="secondary" styleAs="label">
@@ -133,7 +147,7 @@ export function DecisionCard({
                 <Text>{detail?.attributes[field.key] ?? '—'}</Text>
               </StackLayout>
             ))}
-          </div>
+          </GridLayout>
 
           <Text color="secondary" styleAs="label">
             New loan parameters to populate — prefilled where the parser could read the
@@ -141,10 +155,8 @@ export function DecisionCard({
           </Text>
           <StackLayout gap={1}>
             {ordered.map((field) => (
-              <FlexLayout key={field.key} gap={2} align="center" className="deck-field">
-                <Text styleAs="label" color="secondary" className="deck-field-label">
-                  {field.label}
-                </Text>
+              <FormField key={field.key} labelPlacement="left">
+                <FormFieldLabel>{field.label}</FormFieldLabel>
                 <Input
                   value={draftDisplay(field, values[field.key] ?? '')}
                   inputProps={{
@@ -159,15 +171,17 @@ export function DecisionCard({
                     },
                   }}
                 />
-              </FlexLayout>
+              </FormField>
             ))}
           </StackLayout>
 
           {missing > 0 ? (
-            <Text styleAs="label" className="deck-warning">
-              {missing} {missing === 1 ? 'value is' : 'values are'} missing — check the
-              description before accepting.
-            </Text>
+            <Banner status="warning">
+              <BannerContent>
+                {missing} {missing === 1 ? 'value is' : 'values are'} missing — check the
+                description before accepting.
+              </BannerContent>
+            </Banner>
           ) : null}
         </StackLayout>
       </CardContent>

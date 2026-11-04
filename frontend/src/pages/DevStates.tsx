@@ -4,12 +4,12 @@
  */
 
 import type { JSX } from 'react'
-import { FlexLayout, H1, H2, Spinner, Text } from '@salt-ds/core'
+import { FlexLayout, H1, H2, Panel, Spinner, StackLayout, Text } from '@salt-ds/core'
 
 import type { ItemDetail, ItemRow, JobView, SessionView, SyncView, WorkflowFieldView } from '../api'
 import { DecisionDeck } from '../components/DecisionDeck'
 import { ItemDrawer } from '../components/ItemDrawer'
-import { ItemsGrid } from '../components/ItemsGrid'
+import { HistoryTable } from '../components/HistoryTable'
 import { JobsPanel } from '../components/JobsPanel'
 import { StatusChip } from '../components/StatusChip'
 import { SyncBanner } from '../components/SyncBanner'
@@ -123,6 +123,7 @@ const JOBS: JobView[] = [
     kind: 'submit',
     status: 'running',
     phase: 'apply',
+    durationMs: 4200,
     attempts: 1,
     leaseOwner: 'w0',
     createdAt: '2026-11-04T18:00:00Z',
@@ -137,6 +138,7 @@ const JOBS: JobView[] = [
     kind: 'extract',
     status: 'failed',
     phase: 'extract',
+    durationMs: 1000,
     attempts: 2,
     leaseOwner: null,
     createdAt: '2026-11-04T17:00:00Z',
@@ -148,10 +150,12 @@ const JOBS: JobView[] = [
 
 function Section({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
   return (
-    <section className="states-section">
-      <H2>{title}</H2>
-      {children}
-    </section>
+    <Panel>
+      <StackLayout gap={1}>
+        <H2>{title}</H2>
+        {children}
+      </StackLayout>
+    </Panel>
   )
 }
 
@@ -178,8 +182,31 @@ export function DevStates(): JSX.Element {
         </FlexLayout>
       </Section>
 
-      <Section title="List rows (all statuses)">
-        <ItemsGrid rows={STATUSES.map((status) => row(status))} fields={FIELDS} terminalLabels={TERMINAL_LABELS} onOpen={() => {}} />
+      <Section title="History (accepted)">
+        <HistoryTable
+          rows={[
+            {
+              ...row('ready', 'Deviation-03112026-486382'),
+              decision: { decision: 'accept', reason: null, at: '2026-11-04T18:20:00Z' },
+            },
+            {
+              ...row('completed', 'Deviation-04112026-486814'),
+              decision: { decision: 'accept', reason: null, at: '2026-11-04T17:05:00Z' },
+            },
+          ]}
+          fields={FIELDS}
+          terminalLabels={TERMINAL_LABELS}
+          listUrl="https://example.lightning.force.com/lightning/o/Deviation/list"
+          query=""
+          onQuery={() => {}}
+          page={1}
+          size={25}
+          total={2}
+          onPage={() => {}}
+          onSize={() => {}}
+          loading={false}
+          onOpen={() => {}}
+        />
       </Section>
 
       <Section title="Loading / empty">
@@ -222,6 +249,7 @@ export function DevStates(): JSX.Element {
           onDecide={async () => true}
           onReplay={() => {}}
           replaying={false}
+          onHistory={() => {}}
           onRefresh={() => {}}
           refreshing={false}
         />
@@ -240,6 +268,7 @@ export function DevStates(): JSX.Element {
           onDecide={async () => true}
           onReplay={() => {}}
           replaying={false}
+          onHistory={() => {}}
           onRefresh={() => {}}
           refreshing={false}
         />
@@ -258,13 +287,42 @@ export function DevStates(): JSX.Element {
           onDecide={async () => false}
           onReplay={() => {}}
           replaying={false}
+          onHistory={() => {}}
           onRefresh={() => {}}
           refreshing={false}
         />
       </Section>
 
       <Section title="Jobs">
-        <JobsPanel jobs={JOBS} selected={8} logs={{ job: JOBS[1], logs: ['extract start: …', 'failed: LeaseHeld'] }} loadingLogs={false} onSelect={() => {}} />
+        <JobsPanel
+          jobs={JOBS}
+          total={JOBS.length}
+          filters={{
+            id: '',
+            status: '',
+            kind: '',
+            phase: '',
+            item: '',
+            error: '',
+            startedAfter: '',
+            startedBefore: '',
+            durationMinS: '',
+            durationMaxS: '',
+          }}
+          onFilters={() => {}}
+          sort="id"
+          order="desc"
+          onSort={() => {}}
+          page={1}
+          size={25}
+          onPage={() => {}}
+          onSize={() => {}}
+          selected={8}
+          logs={{ job: JOBS[1], logs: ['extract start: …', 'failed: LeaseHeld'] }}
+          loadingLogs={false}
+          onSelect={() => {}}
+          loading={false}
+        />
       </Section>
     </FlexLayout>
   )

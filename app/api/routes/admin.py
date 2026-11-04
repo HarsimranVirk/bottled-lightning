@@ -9,7 +9,7 @@ from app import __version__, updater
 from app.api.schemas import (
     ConcurrencyIn,
     JobLogsView,
-    JobView,
+    JobsPageView,
     QueueView,
     SessionView,
     SyncView,
@@ -69,15 +69,42 @@ def make_router(admin: AdminPort) -> APIRouter:
         admin.request_sync(workflow)
         return {"status": "requested", "workflow": workflow}
 
-    @router.get("/jobs", response_model=list[JobView])
+    @router.get("/jobs", response_model=JobsPageView)
     def list_jobs(
         workflow: str | None = None,
         kind: str | None = None,
         status: str | None = None,
-        limit: int = Query(default=100, ge=1, le=500),
-    ) -> list[JobView]:
-        """Jobs newest first, optionally filtered by workflow, kind and status."""
-        return admin.jobs(workflow, kind, status, limit)
+        phase: str | None = None,
+        item: str | None = None,
+        job_id: str | None = Query(default=None, alias="id"),
+        error: str | None = None,
+        started_after: str | None = None,
+        started_before: str | None = None,
+        duration_min_ms: int | None = Query(default=None, ge=0),
+        duration_max_ms: int | None = Query(default=None, ge=0),
+        sort: str = "id",
+        order: str = "desc",
+        limit: int = Query(default=25, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+    ) -> JobsPageView:
+        """One filtered, sorted page of jobs (FR-7.10)."""
+        return admin.jobs(
+            workflow=workflow,
+            kind=kind,
+            status=status,
+            phase=phase,
+            item=item,
+            job_id=job_id,
+            error=error,
+            started_after=started_after,
+            started_before=started_before,
+            duration_min_ms=duration_min_ms,
+            duration_max_ms=duration_max_ms,
+            sort=sort,
+            order=order,
+            limit=limit,
+            offset=offset,
+        )
 
     @router.get("/jobs/{job_id}", response_model=JobLogsView)
     def get_job(job_id: int) -> JobLogsView:

@@ -19,6 +19,7 @@ export type DecisionKind = DecisionView['decision']
 export type PageRefView = components['schemas']['PageRefView']
 export type JobView = components['schemas']['JobView']
 export type JobLogs = components['schemas']['JobLogsView']
+export type JobsPage = components['schemas']['JobsPageView']
 export type SessionView = components['schemas']['SessionView']
 export type SyncView = components['schemas']['SyncView']
 export type QueueView = components['schemas']['QueueView']
@@ -90,11 +91,52 @@ async function requestVoid(path: string, init?: RequestInit): Promise<void> {
   }
 }
 
+/** Query for the jobs table; camelCase here, snake_case on the wire. */
+export interface JobQuery {
+  workflow?: string
+  kind?: string
+  status?: string
+  phase?: string
+  item?: string
+  id?: string
+  error?: string
+  startedAfter?: string
+  startedBefore?: string
+  durationMinMs?: number
+  durationMaxMs?: number
+  sort?: string
+  order?: string
+  limit?: number
+  offset?: number
+}
+
+function jobsQuery(params: JobQuery): string {
+  const search = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === '') continue
+    const wire =
+      key === 'startedAfter'
+        ? 'started_after'
+        : key === 'startedBefore'
+          ? 'started_before'
+          : key === 'durationMinMs'
+            ? 'duration_min_ms'
+            : key === 'durationMaxMs'
+              ? 'duration_max_ms'
+              : key
+    search.set(wire, String(value))
+  }
+  const text = search.toString()
+  return text ? `?${text}` : ''
+}
+
 /** Query for the item collection: `status` is repeatable, unlike the generic helper. */
 export interface ItemQuery {
   statuses?: string[]
   decision?: string
   q?: string
+  sort?: string
+  order?: string
   limit?: number
   offset?: number
 }
@@ -104,6 +146,8 @@ function itemsQuery(params: ItemQuery): string {
   for (const status of params.statuses ?? []) search.append('status', status)
   if (params.decision) search.set('decision', params.decision)
   if (params.q) search.set('q', params.q)
+  if (params.sort) search.set('sort', params.sort)
+  if (params.order) search.set('order', params.order)
   if (params.limit !== undefined) search.set('limit', String(params.limit))
   if (params.offset !== undefined) search.set('offset', String(params.offset))
   const text = search.toString()
@@ -141,8 +185,8 @@ export const api = {
     }),
   undoDecision: (route: string, key: string): Promise<ItemDetail> =>
     request(`/api/${route}/${encodeURIComponent(key)}/decisions`, { method: 'DELETE' }),
-  jobs: (params: { workflow?: string; limit?: number } = {}): Promise<JobView[]> =>
-    request(`/api/jobs${query(params)}`),
+  jobs: (params: JobQuery = {}): Promise<JobsPage> =>
+    request(`/api/jobs${jobsQuery(params)}`),
   jobLogs: (id: number): Promise<JobLogs> => request(`/api/jobs/${id}/logs`),
   workers: (): Promise<QueueView> => request('/api/workers'),
   login: (): Promise<SessionView> => request('/api/sessions', { method: 'POST' }),

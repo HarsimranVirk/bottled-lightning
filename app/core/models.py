@@ -147,6 +147,19 @@ class PageRef:
     url: str
 
 
+def job_duration_ms(job: Job, at: datetime) -> int | None:
+    """Elapsed milliseconds from ``started_at`` to ``finished_at`` (or ``at``).
+
+    ``None`` for a job that never started (queued/cancelled). A running job's duration
+    grows with ``at``, so the API reports live elapsed time without storing a second
+    source of truth (FR-7.9).
+    """
+    if job.started_at is None:
+        return None
+    end = job.finished_at if job.finished_at is not None else at
+    return max(0, int((end - job.started_at).total_seconds() * 1000))
+
+
 @dataclass(frozen=True, slots=True)
 class Job:
     """

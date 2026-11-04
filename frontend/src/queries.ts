@@ -13,7 +13,7 @@ import type {
   ItemDetail,
   ItemsPage,
   JobLogs,
-  JobView,
+  JobsPage,
   QueueView,
   SessionView,
   SyncView,
@@ -33,11 +33,27 @@ function poll(ms: number): () => number | false {
   return () => (visible() ? ms : false)
 }
 
+/** Jobs-table filters. Durations are entered in seconds, sent in ms. */
+export interface JobFilters {
+  id: string
+  status: string
+  kind: string
+  phase: string
+  item: string
+  error: string
+  startedAfter: string
+  startedBefore: string
+  durationMinS: string
+  durationMaxS: string
+}
+
 /** Deck/list filters. `statuses` is the repeatable `?status=` filter. */
 export interface ItemFilters {
   statuses?: string[]
   decision?: string
   q?: string
+  sort?: string
+  order?: string
 }
 
 export const keys = {
@@ -45,9 +61,16 @@ export const keys = {
   version: ['version'] as const,
   session: ['session'] as const,
   sync: (route: string) => ['sync', route] as const,
-  items: (route: string, filters: ItemFilters) => ['items', route, filters] as const,
+  items: (route: string, filters: ItemFilters, offset = 0) =>
+    ['items', route, filters, offset] as const,
   item: (route: string, key: string) => ['item', route, key] as const,
-  jobs: (limit: number) => ['jobs', limit] as const,
+  jobs: (
+    filters: JobFilters,
+    page: number,
+    size: number,
+    sort: string,
+    order: string,
+  ) => ['jobs', filters, page, size, sort, order] as const,
   jobLogs: (id: number) => ['job', id] as const,
   workers: ['workers'] as const,
 }
@@ -78,10 +101,11 @@ export function useItems(
   filters: ItemFilters,
   limit = 200,
   enabled = true,
+  offset = 0,
 ): ReturnType<typeof useQuery<ItemsPage>> {
   return useQuery({
-    queryKey: keys.items(route ?? '', filters),
-    queryFn: () => api.items(route ?? '', { ...filters, limit }),
+    queryKey: keys.items(route ?? '', filters, offset),
+    queryFn: () => api.items(route ?? '', { ...filters, limit, offset }),
     enabled: route !== null && enabled,
     refetchInterval: poll(10_000),
   })
@@ -96,8 +120,41 @@ export function useItem(route: string | null, key: string | null): ReturnType<ty
   })
 }
 
-export function useJobs(limit = 50): ReturnType<typeof useQuery<JobView[]>> {
-  return useQuery({ queryKey: keys.jobs(limit), queryFn: () => api.jobs({ limit }), refetchInterval: poll(2_000) })
+export function useJobs(
+  filters: JobFilters,
+  page: number,
+  size: number,
+  sort: string,
+  order: string,
+): ReturnType<typeof useQuery<JobsPage>> {
+  const seconds = (value: string): number | undefined => {
+    const parsed = Number(value)
+    return value.trim() !== '' && Number.isFinite(parsed) && parsed >= 0
+      ? Math.round(parsed * 1000)
+      : undefined
+  }
+  return useQuery({
+    queryKey: keys.jobs(filters, page, size, sort, order),
+    placeholderData: (previous) => previous,
+    queryFn: () =>
+      api.jobs({
+        id: filters.id || undefined,
+        status: filters.status || undefined,
+        kind: filters.kind || undefined,
+        phase: filters.phase || undefined,
+        item: filters.item || undefined,
+        error: filters.error || undefined,
+        startedAfter: filters.startedAfter || undefined,
+        startedBefore: filters.startedBefore || undefined,
+        durationMinMs: seconds(filters.durationMinS),
+        durationMaxMs: seconds(filters.durationMaxS),
+        sort,
+        order,
+        limit: size,
+        offset: (page - 1) * size,
+      }),
+    refetchInterval: poll(2_000),
+  })
 }
 
 export function useJobLogs(id: number | null): ReturnType<typeof useQuery<JobLogs>> {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import UTC, datetime
 
 from app.config import Settings, load_settings
 from app.core.errors import InvalidTransition, LeaseHeld
@@ -13,7 +14,7 @@ from app.core.repo.decisions import DecisionRepository
 from app.core.repo.edits import EditRepository
 from app.core.repo.events import EventRepository
 from app.core.repo.fields import FieldValueRepository
-from app.core.repo.jobs import JobRepository
+from app.core.repo.jobs import JobQuery, JobRepository
 from app.core.repo.refs import PageRefRepository
 from app.core.repo.sessions import SessionRepository
 from app.core.repo.sync_runs import SyncRunRepository
@@ -149,6 +150,35 @@ class WorkItemTests(DbTestCase):
         self.assertEqual(found[0].key, "Deviation-1-1")
 
 
+class HistoryOrderTests(DbTestCase):
+    """Accepted history is ordered by the decision time, not by the last sync."""
+
+    def test_accepted_items_sort_by_decision_time(self) -> None:
+        items = WorkItemRepository(self.db)
+        decisions = DecisionRepository(self.db)
+        items.create_present(WORKFLOW, row("Deviation-1-1"), utcnow())
+        items.create_present(WORKFLOW, row("Deviation-2-2"), utcnow())
+        decisions.record(
+            WORKFLOW, "Deviation-1-1", DecisionKind.ACCEPT, None,
+            datetime(2026, 11, 4, 10, 0, tzinfo=UTC),
+        )
+        decisions.record(
+            WORKFLOW, "Deviation-2-2", DecisionKind.ACCEPT, None,
+            datetime(2026, 11, 4, 11, 0, tzinfo=UTC),
+        )
+
+        newest, total = items.list(
+            WORKFLOW, decision=DecisionFilter.ACCEPT, sort="decision", order="desc"
+        )
+        self.assertEqual(total, 2)
+        self.assertEqual([item.key for item in newest], ["Deviation-2-2", "Deviation-1-1"])
+
+        oldest, _ = items.list(
+            WORKFLOW, decision=DecisionFilter.ACCEPT, sort="decision", order="asc"
+        )
+        self.assertEqual([item.key for item in oldest], ["Deviation-1-1", "Deviation-2-2"])
+
+
 class FieldValueTests(DbTestCase):
     """Editable value precedence rules."""
     def test_proposal_survives_a_resync(self) -> None:
@@ -196,7 +226,7 @@ class JobTests(DbTestCase):
         first = jobs.enqueue(WORKFLOW, JobKind.EXTRACT, KEY)
         second = jobs.enqueue(WORKFLOW, JobKind.EXTRACT, KEY)
         self.assertEqual(first.id, second.id)
-        self.assertEqual(len(jobs.query(WORKFLOW)), 1)
+        self.assertEqual(len(jobs.query(JobQuery(workflow=WORKFLOW)).jobs), 1)
 
     def test_claim_lease_and_complete(self) -> None:
         """A claim leases exactly one job; a second claim finds nothing."""

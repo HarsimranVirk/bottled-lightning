@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import dataclass
 from datetime import timedelta
 
 from app.core.models import Job, to_iso, utcnow
@@ -15,6 +16,61 @@ _COLUMNS = (
     "id, workflow, item_key, kind, status, phase, attempts, lease_owner, "
     "lease_expires_at, created_at, started_at, finished_at, error"
 )
+
+#: Seconds between start and finish (or now while running). Derived, never stored.
+_DURATION = (
+    "(julianday(COALESCE(finished_at, 'now')) - julianday(started_at)) * 86400.0"
+)
+
+#: Public sort keys mapped to SQL; anything else is a validation error.
+JOB_SORT_COLUMNS: dict[str, str] = {
+    "id": "id",
+    "status": "status",
+    "kind": "kind",
+    "phase": "phase",
+    "item": "item_key",
+    "created": "created_at",
+    "started": "started_at",
+    "finished": "finished_at",
+    "duration": _DURATION,
+    "attempts": "attempts",
+    "error": "error",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class JobQuery:
+    """Filters, sort and page window for the jobs table.
+
+    Every filter is optional and composes with the others (FR-7.10). ``job_id`` and
+    ``item``/``error`` are substring matches; the enums and dates are exact; the
+    duration bounds are milliseconds. The service validates ``sort``/``order`` before
+    constructing this, so the repository can map them straight to SQL.
+    """
+
+    workflow: str | None = None
+    kind: JobKind | None = None
+    status: JobStatus | None = None
+    phase: Phase | None = None
+    item: str | None = None
+    job_id: str | None = None
+    error: str | None = None
+    started_after: str | None = None
+    started_before: str | None = None
+    duration_min_ms: int | None = None
+    duration_max_ms: int | None = None
+    sort: str = "id"
+    order: str = "desc"
+    limit: int = 25
+    offset: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class JobPage:
+    """One page of jobs plus the count of the whole filtered set."""
+
+    jobs: list[Job]
+    total: int
 
 
 def _to_job(row: sqlite3.Row) -> Job:
@@ -269,35 +325,73 @@ class JobRepository:
             )
         return cursor.rowcount
 
-    def query(
-        self,
-        workflow: str | None = None,
-        kind: JobKind | None = None,
-        status: JobStatus | None = None,
-        limit: int = 100,
-    ) -> list[Job]:
-        """List jobs, newest first, with optional filters."""
+    def query(self, query: JobQuery) -> JobPage:
+        """One filtered, sorted page of jobs plus the filtered total (FR-7.10).
+
+        ``LIKE`` filters are substring matches; ``started_after``/``started_before`` are
+        UTC dates compared on the stored ISO prefix; duration bounds are converted from
+        milliseconds to the SQL expression's seconds. Null sort values always sort last.
+
+        Raises:
+            ValueError: unknown ``sort`` key or ``order`` (the service turns this into a
+                422 before it reaches SQL).
+        """
+        sort_expression = JOB_SORT_COLUMNS.get(query.sort)
+        if sort_expression is None:
+            raise ValueError(f"unknown sort: {query.sort}")
+        direction = query.order.upper()
+        if direction not in {"ASC", "DESC"}:
+            raise ValueError(f"unknown order: {query.order}")
+
         where: list[str] = []
-        params: list[str] = []
-        if workflow is not None:
+        params: list[str | int | float] = []
+        if query.workflow is not None:
             where.append("workflow = ?")
-            params.append(workflow)
-        if kind is not None:
+            params.append(query.workflow)
+        if query.kind is not None:
             where.append("kind = ?")
-            params.append(kind.value)
-        if status is not None:
+            params.append(query.kind.value)
+        if query.status is not None:
             where.append("status = ?")
-            params.append(status.value)
+            params.append(query.status.value)
+        if query.phase is not None:
+            where.append("phase = ?")
+            params.append(query.phase.value)
+        if query.item:
+            where.append("item_key LIKE ?")
+            params.append(f"%{query.item}%")
+        if query.job_id:
+            where.append("CAST(id AS TEXT) LIKE ?")
+            params.append(f"%{query.job_id}%")
+        if query.error:
+            where.append("COALESCE(error, '') LIKE ?")
+            params.append(f"%{query.error}%")
+        if query.started_after:
+            where.append("substr(started_at, 1, 10) >= ?")
+            params.append(query.started_after)
+        if query.started_before:
+            where.append("substr(started_at, 1, 10) <= ?")
+            params.append(query.started_before)
+        if query.duration_min_ms is not None:
+            where.append(f"{_DURATION} >= ?")
+            params.append(query.duration_min_ms / 1000)
+        if query.duration_max_ms is not None:
+            where.append(f"{_DURATION} <= ?")
+            params.append(query.duration_max_ms / 1000)
+
         clause = "" if not where else " WHERE " + " AND ".join(where)
-        rows = (
-            self._db.connect()
-            .execute(
-                f"SELECT {_COLUMNS} FROM jobs{clause} ORDER BY id DESC LIMIT ?",
-                [*params, limit],
-            )
-            .fetchall()
-        )
-        return [_to_job(row) for row in rows]
+        conn = self._db.connect()
+        total_row = conn.execute(
+            f"SELECT COUNT(*) FROM jobs{clause}", params
+        ).fetchone()
+        total = 0 if total_row is None else int(str(total_row[0]))
+        rows = conn.execute(
+            f"SELECT {_COLUMNS} FROM jobs{clause} "
+            f"ORDER BY ({sort_expression} IS NULL) ASC, {sort_expression} {direction}, id DESC "
+            "LIMIT ? OFFSET ?",
+            [*params, query.limit, query.offset],
+        ).fetchall()
+        return JobPage(jobs=[_to_job(row) for row in rows], total=total)
 
     def get(self, job_id: int) -> Job | None:
         """One job, or ``None``."""

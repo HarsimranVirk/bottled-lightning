@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.5 |
+| **Version** | v5.7 |
 | **Date** | 2026-11-04 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -170,7 +170,8 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-4.6** The view is filterable by status and searchable. Closed deviations leave
   the working view but remain accessible in history (see FR-8.2).
 - **FR-4.7** The unified view opens as a **review deck**: one deviation per card, for a
-  fast accept/reject decision (FR-10). A *List* toggle keeps the searchable table.
+  fast accept/reject decision (FR-10). A *History* toggle shows every deviation the deck
+  approved; the general list/search view is not part of the operator flow.
 
 ### FR-5 Editing
 
@@ -249,6 +250,15 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-7.7** Operator controls: view the queue and per-job progress, pause and resume
   dispatch, and cancel queued jobs. Running SF work is never force-killed mid-write.
 - **FR-7.8** Dispatch pauses automatically on session expiry and resumes after re-login.
+- **FR-7.9** Every job exposes the time it took: the interval from `started_at` to
+  `finished_at` for terminal jobs, and the live elapsed time for a running job. A job
+  that never started shows no duration. Duration is derived from the stored timestamps,
+  so it survives restarts without a second source of truth.
+- **FR-7.10** The jobs screen is a standard data table: server-side pagination with a
+  total count and page size, column sorting, and a filter for every displayed column
+  (id, status, kind, phase, item, started date range, duration range, error) placed
+  directly in a second header row under the column label. Filters compose, the count
+  reflects the filtered set, and changing a filter or sort returns to the first page.
 
 ### FR-8 History & audit
 
@@ -295,10 +305,15 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   change that is not regenerated fails the typecheck.
 - **FR-9.12** UI changes ship with screenshots of their state-matrix rows at narrow,
   medium and wide widths.
-- **FR-9.13** No screen requires horizontal scrolling at 390, 768 or 1280 px. The list
-  hides columns and the filters wrap instead of widening the page. All data text (the
-  deck description, ROI values, page refs and detail fields) is selectable so the
-  operator can copy values. The deck has no drag gesture (FR-10.9).
+- **FR-9.13** No screen requires horizontal scrolling at 390, 768 or 1280 px. Tables hide
+  columns and the filters sit in the column headers instead of widening the page. All
+  data text (the deck description, ROI values, page refs and detail fields) is selectable
+  so the operator can copy values. The deck has no drag gesture (FR-10.9).
+- **FR-9.14** The UI is built from Salt DS components only: Tabs for navigation,
+  ToggleButtonGroup for view switches, Table for tables, FormField/Input/Dropdown for
+  filters, Card/Panel for surfaces, Banner for messages, StatusIndicator for status, and
+  Button for actions. CSS is limited to layout (widths, padding, responsive column
+  hiding, motion); no bespoke control look may be introduced.
 
 ### FR-10 Review decisions (accept / reject)
 
@@ -390,6 +405,14 @@ absence while a `SUBMIT` lease was held.
   submit action? (Default: explicit action; acceptance only queues.) | FR-10.6 |
 
 ## Appendix C — Change log
+
+- **v5.7** — the List view is replaced by an accepted-deviations **History** table
+  (paginated, newest decision first); jobs filters moved into the column headers; every
+  control and surface is a Salt DS component (FR-9.14).
+
+- **v5.6** — jobs table: duration per job (derived from started/finished, live for a
+  running job), server-side pagination with a total, sortable columns, and filters for
+  every column. `GET /api/jobs` returns `{count, total, rows}` and `JobView.durationMs`.
 
 - **v5.5** — the always-on healthy banner is gone: session/sync status moves to a footer
   that also shows the running app version (`GET /api/version`). Only problems (expired

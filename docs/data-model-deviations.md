@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v2 |
+| **Version** | v3 |
 | **Date** | 2026-11-04 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/api-deviations.md` |
@@ -38,9 +38,11 @@ change that alters the code (see AGENTS.md, plan-mode rules).
 
 ## 3. Schema version and migration
 
-- `PRAGMA user_version = 3` after `Database.migrate()`.
+- `PRAGMA user_version = 4` after `Database.migrate()`.
 - v3 is additive: `item_decisions` (4.12) is created with `CREATE TABLE IF NOT EXISTS`
   on the next boot. No backfill — every existing item is simply undecided.
+- v4 is additive: indexes for the jobs table (`item_key`, `started_at`) support the
+  new filters. No column changes; duration stays derived from `started_at`/`finished_at`.
 - **Fresh database only.** `migrate()` detects a legacy database (its `jobs` table has
   no `kind` column) and raises instead of half-applying the schema.
 - Cutover has happened: `data/app.db` now holds the workflow schema. The legacy
@@ -150,7 +152,10 @@ holds a half-discovered set of links.
 | `created_at`, `started_at`, `finished_at` | TEXT | — | Timeline |
 | `error` | TEXT | yes | Last failure |
 
-**Indexes:** `(status, kind, created_at)` for claiming.
+**Indexes:** `(status, kind, created_at)` for claiming; `(item_key)` and
+`(started_at)` for the jobs table's filters.
+**Duration** is never stored: it is `finished_at - started_at`, or `now - started_at`
+while a job is running. Storing it would create a second source of truth.
 **Constraint (invariant I2):**
 
 ```sql

@@ -1,4 +1,4 @@
-/* Layout. Salt tokens only; no colour literals except tone tints. */
+/* Layout only: every surface and control comes from Salt DS. */
 
 *,
 *::before,
@@ -10,30 +10,17 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--salt-color-gray-10, #f7f7f7);
 }
 
-.topbar {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 6px 16px;
-  background: var(--salt-color-white, #fff);
-  border-bottom: 1px solid var(--salt-color-gray-40, #d9d9d9);
+.app-tabs {
+  min-width: 360px;
 }
 
-.topbar nav {
-  display: flex;
-  gap: 12px;
-}
-
-.topbar nav a {
-  font-size: 12px;
-}
-
-.topbar nav a {
-  color: var(--salt-color-blue-600, #1c5bd8);
-  text-decoration: none;
+.app-header {
+  padding: 2px 16px;
+  background: var(--salt-container-primary-background);
+  border-bottom: var(--salt-size-fixed-100) var(--salt-borderStyle-solid)
+    var(--salt-separator-borderColor);
 }
 
 .content {
@@ -41,7 +28,7 @@
   width: 100%;
   max-width: 1440px;
   margin: 0 auto;
-  padding: 10px 16px 24px;
+  padding: 8px 16px 16px;
 }
 
 .content h1 {
@@ -59,408 +46,29 @@
   line-height: 18px;
 }
 
-.footer {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 12px;
+.app-footer {
+  margin-top: auto;
+  background: var(--salt-container-primary-background);
+}
+
+.app-footer-content {
   padding: 4px 16px;
-  border-top: 1px solid var(--salt-color-gray-40, #d9d9d9);
-  background: var(--salt-color-white, #fff);
-  font-size: 11px;
-  color: var(--salt-color-gray-200, #4c4c4c);
-}
-
-.footer-status {
-  text-align: right;
-}
-
-@media (max-width: 600px) {
-  .footer {
-    grid-template-columns: 1fr auto;
-    grid-template-rows: auto auto;
-  }
-
-  .footer > span:first-child {
-    grid-row: 1;
-    grid-column: 1;
-  }
-
-  .footer .saltButton {
-    grid-row: 1;
-    grid-column: 2;
-  }
-
-  .footer-status {
-    grid-row: 2;
-    grid-column: 1 / -1;
-    text-align: left;
-  }
-}
-
-.footer .saltButton {
-  min-height: 22px;
-  height: 22px;
-  padding: 0 6px;
-  font-size: 11px;
-}
-
-.queue-bar {
-  margin-left: auto;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  font-size: 11px;
-  color: var(--salt-color-gray-200, #4c4c4c);
-}
-
-/* --- status chip ------------------------------------------------------- */
-
-.chip {
-  display: inline-block;
-  padding: 0 6px;
-  border-radius: 8px;
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: 600;
-  white-space: nowrap;
-  border: 1px solid transparent;
-}
-
-.chip[data-tone='info'] {
-  background: #e8f0fe;
-  border-color: #b6cdfb;
-  color: #174ea6;
-}
-
-.chip[data-tone='success'] {
-  background: #e6f4ea;
-  border-color: #a8dab5;
-  color: #137333;
-}
-
-.chip[data-tone='warning'] {
-  background: #fef7e0;
-  border-color: #f2d17a;
-  color: #8a5a00;
-}
-
-.chip[data-tone='danger'] {
-  background: #fce8e6;
-  border-color: #f3b3ae;
-  color: #a50e0e;
-}
-
-.chip[data-tone='neutral'] {
-  background: #eeeeee;
-  border-color: #d0d0d0;
-  color: #4c4c4c;
-}
-
-/* --- list grid --------------------------------------------------------- */
-
-.grid {
-  width: 100%;
-  border-collapse: collapse;
-  background: var(--salt-color-white, #fff);
-}
-
-.grid th {
-  text-align: left;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 5px 8px;
-  border-bottom: 1px solid var(--salt-color-gray-40, #d9d9d9);
-  color: var(--salt-color-gray-200, #4c4c4c);
-  white-space: nowrap;
-}
-
-.grid td {
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--salt-color-gray-20, #ededed);
-  font-size: 12px;
-}
-
-.grid .mono {
-  font-size: 11px;
-}
-
-.grid tbody tr {
-  cursor: pointer;
-}
-
-.grid tbody tr:hover td,
-.grid tbody tr:focus td {
-  background: var(--salt-color-gray-10, #f7f7f7);
-}
-
-.grid tbody tr:focus {
-  outline: 2px solid var(--salt-color-blue-400, #4c8ff0);
-  outline-offset: -2px;
-}
-
-.grid .num {
-  text-align: right;
-}
-
-.mono {
-  font-family: var(--salt-typography-fontFamily-code, ui-monospace, monospace);
-  font-size: 12px;
-}
-
-.filters {
-  align-items: end;
-  flex-wrap: wrap;
-}
-
-.filters label {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 0 1 220px;
-  min-width: 0;
-}
-
-.filters label:nth-of-type(3) {
-  flex: 1 1 280px;
-  max-width: 420px;
-}
-
-.filters .saltInput {
-  width: 100%;
-}
-
-.filters select,
-.filters input {
-  min-width: 0;
-  width: 100%;
-}
-
-/* --- detail drawer ----------------------------------------------------- */
-
-.drawer {
-  background: var(--salt-color-white, #fff);
-  border: 1px solid var(--salt-color-gray-40, #d9d9d9);
-  border-radius: 6px;
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.drawer-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-}
-
-.drawer-meta {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-  font-size: 11px;
-}
-
-.reason {
-  background: #fce8e6;
-  border: 1px solid #f3b3ae;
-  color: #a50e0e;
-  padding: 8px 10px;
-  border-radius: 4px;
-  font-size: 13px;
-}
-
-.fields {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 4px 16px;
-  margin: 6px 0 0;
-}
-
-.field {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  border-bottom: 1px dotted var(--salt-color-gray-40, #d9d9d9);
-  padding: 2px 0;
-}
-
-.field dt {
-  color: var(--salt-color-gray-200, #4c4c4c);
-  font-size: 11px;
-}
-
-.field dd {
-  margin: 0;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-
-.description {
-  white-space: pre-wrap;
-  font-size: 11px;
-  max-width: 420px;
-}
-
-.refs,
-.history {
-  list-style: none;
-  padding: 0;
-  margin: 8px 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-}
-
-.refs li {
-  display: flex;
-  gap: 12px;
-  align-items: baseline;
-}
-
-.refs .mono {
-  min-width: 140px;
-  color: var(--salt-color-gray-200, #4c4c4c);
-}
-
-.missing {
-  color: var(--salt-color-gray-200, #4c4c4c);
-  font-style: italic;
-}
-
-.muted {
-  color: var(--salt-color-gray-200, #4c4c4c);
-}
-
-/* --- jobs -------------------------------------------------------------- */
-
-.jobs {
-  display: grid;
-  grid-template-columns: minmax(360px, 1fr) minmax(320px, 1.2fr);
-  gap: 14px;
-}
-
-@media (max-width: 900px) {
-  .jobs {
-    grid-template-columns: 1fr;
-  }
-}
-
-.job-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.job-row {
-  display: grid;
-  grid-template-columns: 48px 110px 70px 1fr auto;
-  gap: 8px;
-  align-items: center;
-  width: 100%;
-  padding: 3px 6px;
-  background: none;
-  border: none;
-  border-bottom: 1px solid var(--salt-color-gray-20, #ededed);
-  text-align: left;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.job-row:hover,
-.job-row:focus {
-  background: var(--salt-color-gray-10, #f7f7f7);
-}
-
-.job-logs pre {
-  background: #1e1e1e;
-  color: #e8e8e8;
-  padding: 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  max-height: 240px;
-  overflow: auto;
-  white-space: pre-wrap;
-}
-
-/* --- states harness ---------------------------------------------------- */
-
-.states-section {
-  background: var(--salt-color-white, #fff);
-  border: 1px solid var(--salt-color-gray-40, #d9d9d9);
-  border-radius: 6px;
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
 }
 
 .auth-card {
   max-width: 560px;
 }
 
-@media (max-width: 900px) {
-  .content {
-    padding: 8px 10px 16px;
-  }
-
-  .grid th:nth-child(n + 4),
-  .grid td:nth-child(n + 4) {
-    display: none;
-  }
+.mono {
+  font-family: var(--salt-typography-fontFamily-code, ui-monospace, monospace);
+  font-size: 11px;
 }
 
-@media (max-width: 600px) {
-  .filters label,
-  .filters label:nth-of-type(3) {
-    flex: 1 1 100%;
-    max-width: none;
-  }
-
-  .grid th:nth-child(n + 3),
-  .grid td:nth-child(n + 3) {
-    display: none;
-  }
+.num {
+  text-align: right;
 }
 
-@media (max-width: 900px) {
-  .job-row {
-    grid-template-columns: 34px 92px 54px 1fr;
-  }
-
-  .job-row span:nth-child(5) {
-    display: none;
-  }
-
-  .job-row span:nth-child(4) {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
-@media (max-width: 600px) {
-  .field {
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .drawer,
-  .states-section {
-    padding: 10px;
-  }
-}
-
-
-/* --- review deck (legacy layout) ---------------------------------------- */
-
-.view-toggle {
-  display: flex;
-  gap: 8px;
-}
+/* --- review deck -------------------------------------------------------- */
 
 .deck-card-wrap {
   width: 100%;
@@ -482,71 +90,22 @@
   opacity: 0;
 }
 
-.deck-stack {
+.deck-bar {
+  width: 100%;
   max-width: 640px;
-  margin: 0 auto;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .deck-description {
   max-height: 150px;
   overflow-y: auto;
-  padding: 6px 8px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.02);
 }
 
 .deck-description-text {
-  font-size: 11px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   display: block;
-}
-
-.deck-title-link {
-  font-family: var(--salt-typography-fontFamily-code, ui-monospace, monospace);
-  font-size: 12px;
-}
-
-.deck-ref-label {
-  min-width: 104px;
-  font-size: 11px;
-}
-
-.deck-refs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2px 12px;
-}
-
-.deck-roi {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px 12px;
-}
-
-.deck-field {
-  display: flex;
-}
-
-.deck-field-label {
-  width: 140px;
-  flex: 0 0 140px;
-  font-size: 11px;
-}
-
-.deck-field > div:last-child {
-  flex: 1;
-  min-width: 0;
-}
-
-.deck-warning {
-  color: #8a5a00;
-  background: #fef7e0;
-  border: 1px solid #f2d17a;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 11px;
 }
 
 .deck-complete {
@@ -558,64 +117,86 @@
   margin-top: 12px;
 }
 
-.deck-next {
-  text-align: center;
-  font-size: 11px;
-}
+/* --- jobs / history tables --------------------------------------------- */
 
-.deck-bar,
-.deck-announcement {
-  width: 100%;
-  max-width: 640px;
-  margin-left: auto;
-  margin-right: auto;
-}
-
-.deck-announcement:empty {
-  display: none;
-}
-
-.deck-announcement {
-  min-height: 12px;
-  margin: 0;
-  text-align: center;
-  font-size: 11px;
-  color: var(--salt-color-gray-200, #4c4c4c);
-}
-
-.deck-actions {
+.jobs {
   display: flex;
+  flex-direction: column;
   gap: 8px;
+}
+
+.job-table-wrap {
+  position: relative;
+}
+
+.job-row,
+.history-row {
+  cursor: pointer;
+}
+
+.job-row[aria-selected='true'] td {
+  background: var(--salt-selectable-background-selected);
+}
+
+.job-error {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-empty {
+  display: block;
+  padding: 8px 4px;
+}
+
+.job-loading {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+}
+
+.job-logs-pre {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: var(--salt-typography-fontFamily-code, ui-monospace, monospace);
+  font-size: 11px;
+}
+
+.pagination-rows {
+  width: 140px;
+}
+
+.job-filter-row th {
+  padding-top: 2px;
+  padding-bottom: 4px;
+}
+
+.job-filter-row .saltInput,
+.job-filter-row .saltDropdown {
   width: 100%;
-  max-width: 640px;
-  margin: 0 auto;
 }
 
-.deck-actions .saltButton {
-  flex: 1;
-  min-height: 40px;
-  justify-content: center;
-  font-size: 13px;
+.history-search {
+  width: 260px;
+  max-width: 100%;
 }
 
-@media (max-width: 640px) {
-  .deck-refs {
-    grid-template-columns: 1fr;
+@media (max-width: 900px) {
+  .job-col-phase,
+  .job-col-error,
+  .history-values,
+  .history-approval {
+    display: none;
   }
+}
 
-  .deck-field {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 4px;
-  }
-
-  .deck-field-label {
-    width: auto;
-    flex: none;
-  }
-
-  .deck-roi {
-    grid-template-columns: 1fr;
+@media (max-width: 600px) {
+  .job-col-item,
+  .job-col-started {
+    display: none;
   }
 }
 
@@ -623,23 +204,4 @@
   .deck-card-wrap {
     transition: none;
   }
-}
-
-
-/* --- density overrides --------------------------------------------------- */
-
-.saltCardContent {
-  padding: 12px;
-}
-
-.saltBanner {
-  padding: 2px 8px;
-}
-
-.saltBannerContent {
-  margin: 2px 0;
-}
-
-.deck-stack .saltCardContent {
-  padding: 10px 12px;
 }

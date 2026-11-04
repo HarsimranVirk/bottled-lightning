@@ -58,6 +58,7 @@ function deckProps(overrides: Partial<Parameters<typeof DecisionDeck>[0]> = {}) 
     onDecide: vi.fn(async () => true),
     onReplay: vi.fn(),
     replaying: false,
+    onHistory: vi.fn(),
     onRefresh: vi.fn(),
     refreshing: false,
     ...overrides,

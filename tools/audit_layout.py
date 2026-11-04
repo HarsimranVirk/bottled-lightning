@@ -123,10 +123,10 @@ def main(argv: list[str] | None = None) -> int:
                 # The list view shares the route but changes the layout.
                 page.goto(base + "/deviations-z02", wait_until="networkidle")
                 page.wait_for_timeout(args.wait_ms)
-                page.get_by_role("button", name="List").click()
+                page.get_by_role("radio", name="History").click()
                 page.wait_for_timeout(args.wait_ms)
                 viewport, scroll_width, offenders = _report(page)
-                label = f"/deviations-z02 (list) {width}px"
+                label = f"/deviations-z02 (history) {width}px"
                 if scroll_width > viewport:
                     failures += 1
                     print(f"FAIL {label}: scrollWidth {scroll_width} > {viewport}")

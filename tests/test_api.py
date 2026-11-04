@@ -11,7 +11,7 @@ from app.api.errors import ApiError
 from app.api.schemas import (
     ItemRowView,
     JobLogsView,
-    JobView,
+    JobsPageView,
     QueueView,
     SessionView,
     SyncView,
@@ -325,12 +325,23 @@ class _FakeAdmin:
 
     def jobs(
         self,
-        workflow: str | None,
-        kind: str | None,
-        status: str | None,
-        limit: int,
-    ) -> list[JobView]:
-        return []
+        workflow: str | None = None,
+        kind: str | None = None,
+        status: str | None = None,
+        phase: str | None = None,
+        item: str | None = None,
+        job_id: str | None = None,
+        error: str | None = None,
+        started_after: str | None = None,
+        started_before: str | None = None,
+        duration_min_ms: int | None = None,
+        duration_max_ms: int | None = None,
+        sort: str = "id",
+        order: str = "desc",
+        limit: int = 25,
+        offset: int = 0,
+    ) -> JobsPageView:
+        return JobsPageView(count=0, total=0, rows=[])
 
     def job_logs(self, job_id: int) -> JobLogsView:
         raise ApiError(404, "unknown job", "unknown_job")

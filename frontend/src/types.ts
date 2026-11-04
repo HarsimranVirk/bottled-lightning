@@ -124,7 +124,7 @@ export interface paths {
         };
         /**
          * List Jobs
-         * @description Jobs newest first, optionally filtered by workflow, kind and status.
+         * @description One filtered, sorted page of jobs (FR-7.10).
          */
         get: operations["list_jobs_api_jobs_get"];
         put?: never;
@@ -527,6 +527,8 @@ export interface components {
              * Format: date-time
              */
             createdAt: string;
+            /** Durationms */
+            durationMs?: number | null;
             /** Error */
             error?: string | null;
             /** Finishedat */
@@ -547,6 +549,18 @@ export interface components {
             status: string;
             /** Workflow */
             workflow: string;
+        };
+        /**
+         * JobsPageView
+         * @description One page of the jobs table plus the filtered total.
+         */
+        JobsPageView: {
+            /** Count */
+            count: number;
+            /** Rows */
+            rows: components["schemas"]["JobView"][];
+            /** Total */
+            total: number;
         };
         /** PageRefView */
         PageRefView: {
@@ -703,6 +717,8 @@ export interface operations {
             query?: {
                 decision?: string | null;
                 q?: string | null;
+                sort?: string;
+                order?: string;
                 limit?: number;
                 offset?: number;
             };
@@ -936,7 +952,18 @@ export interface operations {
                 workflow?: string | null;
                 kind?: string | null;
                 status?: string | null;
+                phase?: string | null;
+                item?: string | null;
+                id?: string | null;
+                error?: string | null;
+                started_after?: string | null;
+                started_before?: string | null;
+                duration_min_ms?: number | null;
+                duration_max_ms?: number | null;
+                sort?: string;
+                order?: string;
                 limit?: number;
+                offset?: number;
             };
             header?: never;
             path?: never;
@@ -950,7 +977,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["JobView"][];
+                    "application/json": components["schemas"]["JobsPageView"];
                 };
             };
             /** @description Validation Error */

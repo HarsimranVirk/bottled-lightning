@@ -6,7 +6,7 @@ workflows share the same tables without interfering. See docs/class-design-devia
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS work_items (
@@ -97,6 +97,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     error TEXT
 );
 CREATE INDEX IF NOT EXISTS jobs_claim ON jobs(status, kind, created_at);
+CREATE INDEX IF NOT EXISTS jobs_item ON jobs(item_key);
+CREATE INDEX IF NOT EXISTS jobs_started ON jobs(started_at);
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_active ON jobs(workflow, item_key)
     WHERE status IN ('queued', 'running', 'blocked_auth');
 
