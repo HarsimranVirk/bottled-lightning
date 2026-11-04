@@ -11,7 +11,12 @@ from ._util import opt_str
 
 
 class SessionRepository:
-    """The persisted SF auth snapshot and session events."""
+    """
+    The persisted SF auth snapshot and session events.
+
+    Only one snapshot matters (the latest); older rows are kept as history but never
+    read. ``clear`` is the "force re-login" path.
+    """
 
     def __init__(self, db: Database) -> None:
         """Bind to the database handle."""
@@ -40,7 +45,13 @@ class SessionRepository:
         )
 
     def save(self, storage_state: str, cookie_count: int, org: str | None) -> None:
-        """Persist a storage-state snapshot."""
+        """
+        Persist a storage-state snapshot.
+
+        Example:
+            state = await context.storage_state()
+            repo.save(json.dumps(state), cookie_count=len(state["cookies"]), org=org_base)
+        """
         with self._db.transaction() as conn:
             conn.execute(
                 """

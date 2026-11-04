@@ -7,7 +7,13 @@ from app.db.connection import Database
 
 
 class EventRepository:
-    """Lifecycle audit trail for items and jobs."""
+    """
+    Lifecycle audit trail for items and jobs.
+
+    Append-only. Events complement the typed columns: they record *why* something
+    happened (skip reason, auth pause, closure attribution) without widening the
+    item table for every possibility.
+    """
 
     def __init__(self, db: Database) -> None:
         """Bind to the database handle."""

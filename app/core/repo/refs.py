@@ -38,7 +38,13 @@ class PageRefRepository:
         }
 
     def replace(self, workflow: str, key: str, refs: Sequence[PageRef]) -> None:
-        """Replace all refs for an item atomically."""
+        """
+        Replace all refs for an item atomically.
+
+        Extraction discovers refs in parallel, so it collects them first and writes once
+        — the item never holds a half-set of links. Re-running extraction therefore also
+        drops links that no longer exist in SF.
+        """
         with self._db.transaction() as conn:
             conn.execute(
                 "DELETE FROM work_item_refs WHERE workflow = ? AND item_key = ?",

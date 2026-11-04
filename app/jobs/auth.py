@@ -10,11 +10,16 @@ from app.core.repo.jobs import JobRepository
 
 
 class AuthGate:
-    """Single policy for "Salesforce needs a manual login".
+    """
+    Single policy for "Salesforce needs a manual login".
 
-    While paused, no job is claimed and no watcher refreshes; in-flight jobs are parked as
-    ``blocked_auth`` instead of failed (FR-1.4, FR-7.8). Everything resumes when a fresh
-    snapshot is saved.
+    While paused, no job is claimed and in-flight work is parked instead of failed
+    (FR-1.4, FR-7.8). ``wait()`` is what the dispatcher and watcher block on.
+
+    Example:
+        await auth.wait()      # returns immediately unless paused
+        auth.pause("expired")
+        await auth.wait()      # blocks until resume()
     """
 
     def __init__(self, jobs: JobRepository, events: EventRepository) -> None:
@@ -51,6 +56,14 @@ class AuthGate:
         self._events.emit("auth_resumed")
 
     def on_session_expired(self, job: Job) -> None:
-        """Park the current job and stop claiming more until a login happens."""
+        """
+        Park the current job and stop claiming more until a login happens.
+
+        Example:
+            try:
+                ...
+            except SessionExpired:
+                auth.on_session_expired(job)   # blocked_auth + paused
+        """
         self._jobs.release_blocked(job.id)
         self.pause("session expired — manual login required")

@@ -50,7 +50,13 @@ def _to_field(row: sqlite3.Row) -> FieldValue:
 
 
 class FieldValueRepository:
-    """Editable value state: extracted, synced, proposed, applied."""
+    """
+    Editable value state: extracted, synced, proposed, applied.
+
+    The repository enforces the precedence rule that makes resync safe: a refresh
+    may move ``last_synced`` but never touches ``proposed``, so an operator's
+    pending edit survives the next 30-second cycle (FR-2.5 / invariant I4).
+    """
 
     def __init__(self, db: Database) -> None:
         """Bind to the database handle."""
@@ -85,7 +91,15 @@ class FieldValueRepository:
     def set_extracted(
         self, workflow: str, key: str, values: Mapping[str, str | None]
     ) -> None:
-        """Seed scraped values. Never disturbs a pending proposal (FR-2.5 / I4)."""
+        """
+        Seed scraped values; never disturbs a pending proposal.
+
+        Writes ``extracted`` (and ``last_synced`` if it was null). If the operator has
+        already proposed a value, the row's status is left alone.
+
+        Example:
+            fields.set_extracted(workflow, key, {"loan_amount": "25,50,000"})
+        """
         stamp = to_iso(utcnow())
         with self._db.transaction() as conn:
             for field_key, value in values.items():
@@ -121,7 +135,14 @@ class FieldValueRepository:
     def set_last_synced(
         self, workflow: str, key: str, values: Mapping[str, str | None]
     ) -> None:
-        """Update the SF-observed value only; the operator's proposal wins."""
+        """
+        Update the SF-observed value only; the operator's proposal wins.
+
+        Example (operator is mid-edit, SF value changed underneath):
+            fields.propose(workflow, key, {"tenure": "300"})
+            fields.set_last_synced(workflow, key, {"tenure": "240"})
+            # proposed=300, last_synced=240, status=PROPOSED
+        """
         stamp = to_iso(utcnow())
         with self._db.transaction() as conn:
             for field_key, value in values.items():
@@ -148,7 +169,16 @@ class FieldValueRepository:
     def propose(
         self, workflow: str, key: str, changes: Mapping[str, str | None]
     ) -> None:
-        """Set or clear a proposed value. ``None`` clears it and falls back to extracted."""
+        """
+        Set or clear a proposed value.
+
+        ``None`` clears the proposal and falls back to ``APPLIED`` if a value was ever
+        written, else ``EXTRACTED``. Non-null values move the field to ``PROPOSED``.
+
+        Example:
+            fields.propose(workflow, key, {"loan_amount": "30,00,000"})
+            fields.propose(workflow, key, {"loan_amount": None})   # discard that edit
+        """
         stamp = to_iso(utcnow())
         with self._db.transaction() as conn:
             for field_key, value in changes.items():
@@ -196,7 +226,7 @@ class FieldValueRepository:
                 )
 
     def discard_proposed(self, workflow: str, key: str) -> None:
-        """Clear every pending edit and fall back to applied/extracted."""
+        """Clear every pending edit for an item and fall back to applied/extracted."""
         with self._db.transaction() as conn:
             conn.execute(
                 """
@@ -219,7 +249,12 @@ class FieldValueRepository:
             )
 
     def mark_applied(self, workflow: str, key: str, field_key: str, value: str) -> None:
-        """Record the value SF accepted for a field."""
+        """
+        Record the value SF accepted for a field.
+
+        Kept separate from ``proposed`` so the audit shows both what was asked for and
+        what was written; validation compares ``applied`` against the intended value.
+        """
         with self._db.transaction() as conn:
             conn.execute(
                 """

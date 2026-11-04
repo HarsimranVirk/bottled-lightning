@@ -27,7 +27,13 @@ _LMS_TAB = 'a[data-tab-value="flexipage_tab2"]'
 
 
 class _Lms2Adapter(AdapterBase):
-    """Shared discovery for the LMS 2.0 panels on the opportunity page."""
+    """
+    Shared discovery for the LMS 2.0 panels on the opportunity page.
+
+    Both LMS objects live behind the ``flexipage_tab2`` tab and render their rows
+    inside a custom component's shadow root. The adapter waits for the tab, clicks
+    it, then polls the shadow DOM until rows appear.
+    """
 
     host_tag: str = ""
     detail_path: str = ""

@@ -22,7 +22,13 @@ def product_type_from(body: str) -> str | None:
 
 
 class OpportunityAdapter(AdapterBase):
-    """Opportunity page: product type."""
+    """
+    Opportunity page: product type.
+
+    The value is read from the body text after the label renders (``Product Type``
+    → next non-empty line). It is stored as an attribute and forwarded to the
+    CL-contract adapter through the discovery context.
+    """
 
     kind = DeviationObject.OPPORTUNITY.value
 

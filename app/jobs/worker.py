@@ -37,7 +37,13 @@ class TabSessionFactory(Protocol):
 
 
 class Worker:
-    """Executes one claimed job and owns its lease and tabs."""
+    """
+    Executes one claimed job and owns its lease and tabs.
+
+    The worker is the only place that translates pipeline outcomes into job status,
+    and the only place that guarantees the lease is released and the tabs are
+    closed — including when the pipeline raises.
+    """
 
     def __init__(
         self,
@@ -61,7 +67,18 @@ class Worker:
         self._lease_ttl_s = lease_ttl_s
 
     async def execute(self, job: Job) -> None:
-        """Run one job to completion, recording its outcome."""
+        """
+        Run one job to completion, recording its outcome.
+
+        Outcome mapping:
+
+        * extraction ``EXTRACTED``/``SKIPPED`` -> job ``SUCCEEDED``
+        * extraction ``FAILED`` -> requeued once, then ``FAILED``
+        * submission ``COMPLETED``/``ALREADY_CLOSED`` -> job ``SUCCEEDED``
+        * submission ``FAILED`` -> ``FAILED`` (never retried automatically)
+        * ``SessionExpired`` -> ``BLOCKED_AUTH`` and the dispatcher pauses
+        * anything else -> ``FAILED`` with the exception recorded
+        """
         log = RepositoryLogger(job.id, self._jobs)
         try:
             workflow = self._registry.get(job.workflow)

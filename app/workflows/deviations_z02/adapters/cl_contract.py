@@ -20,7 +20,13 @@ _CONTRACT_PREFIX = "LAI-"
 
 
 class ClContractAdapter(AdapterBase):
-    """CL contract link for the opportunity's matching product."""
+    """
+    CL contract link for the opportunity's matching product.
+
+    Reads the ``CL_Contracts__r`` related list and keeps the contract whose Product
+    column matches the mapped opportunity product. Several matches are ambiguous and
+    skip the item; no match simply contributes no ref.
+    """
 
     kind = DeviationObject.CL_CONTRACT.value
 

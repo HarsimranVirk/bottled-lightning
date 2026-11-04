@@ -23,7 +23,18 @@ from .tabs import TabProvider
 
 @dataclass(frozen=True, slots=True)
 class DiscoveryContext:
-    """What an adapter may need to find its object for one item."""
+    """
+    What an adapter may need in order to find its object.
+
+    Adapters are run in dependency order, and the context carries the results: the
+    record URL comes from the list row, the opportunity URL from the record page,
+    and the product type from the opportunity (the CL-contract match needs it).
+
+    Example progression for one item:
+        DiscoveryContext(item_key="Deviation-…", record_url="/lightning/r/a2f…/view")
+        … opportunity_url="https://org/lightning/r/Opportunity/006…/view"
+        … product_type="Home Loan (Resale)"
+    """
 
     item_key: str
     record_url: str
@@ -42,7 +53,18 @@ class DiscoveredRef:
 
 @dataclass(frozen=True, slots=True)
 class Discovery:
-    """What one adapter found: links, read-only values, editable values, or a skip."""
+    """
+    What one adapter found, or why it stopped.
+
+    Adapters contribute only their own slice: links (``refs``), read-only values
+    (``attributes``), catalogue values they are the source of (``fields``), or a
+    ``skip_reason`` such as an ambiguous match. The pipeline merges the slices and
+    persists once.
+
+    Example:
+        Discovery(refs=(DiscoveredRef("cl_contract", "LAI-1", url),))
+        Discovery(skip_reason="multiple matching CL contracts (2)")
+    """
 
     refs: tuple[DiscoveredRef, ...] = ()
     attributes: Mapping[str, str | None] = field(default_factory=dict)
@@ -52,7 +74,14 @@ class Discovery:
 
 @runtime_checkable
 class ObjectAdapter(Protocol):
-    """One SF object kind: discovery, reading and writing its fields."""
+    """
+    One SF object kind: discovery, reading and writing its fields.
+
+    ``discover`` runs during extraction and returns a slice (never persists).
+    ``read``/``write`` operate on an already-open record page and land with the
+    submission pipeline. Adapters depend on ``TabProvider``, so pipelines can be
+    tested without a browser.
+    """
 
     kind: str
 
@@ -108,7 +137,13 @@ class AdapterBase:
 
 
 class AdapterRegistry:
-    """Adapters by object kind for one workflow."""
+    """
+    Adapters by object kind for one workflow.
+
+    Example:
+        registry = build_adapters(settings.org_base, settings.request_timeout_ms)
+        adapter = registry.get("cl_contract")
+    """
 
     def __init__(self, adapters: Iterable[ObjectAdapter]) -> None:
         """Index adapters by ``kind``."""

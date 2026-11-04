@@ -39,7 +39,26 @@ _DROP_LINES = (
 
 
 def parse_description_fields(description: str) -> dict[str, str | None]:
-    """Extract the catalogue-sourced values from a deviation description."""
+    """
+    Extract the catalogue-sourced values from a deviation description.
+
+    Descriptions appear in two shapes, both handled by label aliases:
+
+    * verbose — ``Property Value (in Rs)- 45,00,000``, ``Loan Amount …-``,
+      ``Tenure …-``
+    * compact — ``LA-13,00,000``, ``PP-22,50,000``, ``EMI-16,663``
+
+    The bare ``EMI-`` line is the pre-calculated EMI and must never be captured;
+    only ``EMIs & other …-`` is. Percentages are ignored (``New PP - 50%`` is a
+    ratio, not an amount). Parsing is best-effort: a missing value is ``None``.
+
+    Example (compact shape, two lines of text):
+        LA-13,00,000
+        PP-22,50,000
+
+        -> {'loan_amount': '13,00,000', 'property_value': '22,50,000',
+            'tenure': None, 'emi_incl_hffc': None}
+    """
 
     def grab(patterns: tuple[str, ...]) -> str | None:
         """First non-empty value across a set of label patterns."""

@@ -18,7 +18,18 @@ class _Local(threading.local):
 
 
 class Database:
-    """Owns the SQLite file and hands out per-thread connections."""
+    """
+    One SQLite file with one connection per thread.
+
+    Repositories take this handle; nothing else opens a connection. WAL mode keeps
+    the watcher, the job loop and request handlers from blocking each other, and
+    ``foreign_keys`` is on so cascades behave.
+
+    Example:
+        db = Database(settings.db_path)
+        db.migrate()
+        items = WorkItemRepository(db)
+    """
 
     def __init__(self, path: Path) -> None:
         """Point the handle at ``path``; connections are opened lazily."""
@@ -31,7 +42,13 @@ class Database:
         return self._path
 
     def connect(self) -> sqlite3.Connection:
-        """Return this thread's connection, opening and configuring it once."""
+        """
+        Return this thread's connection, opening and configuring it once.
+
+        Configuration applied on first use: WAL journal, ``foreign_keys`` and a 5s busy
+        timeout. The connection is cached per thread, so a thread must not be shared
+        between unrelated callers without care.
+        """
         conn = self._local.conn
         if conn is not None:
             return conn
@@ -46,7 +63,14 @@ class Database:
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
-        """Run a unit of work; commit on success, roll back on any exception."""
+        """
+        Run a unit of work; commit on success, roll back on any exception.
+
+        Example:
+            with db.transaction() as conn:
+                conn.execute("INSERT ...")
+                conn.execute("UPDATE ...")
+        """
         conn = self.connect()
         try:
             yield conn
@@ -56,7 +80,13 @@ class Database:
             raise
 
     def migrate(self) -> None:
-        """Create the v2 schema if needed; refuse a pre-v2 database."""
+        """
+        Create the v2 schema if needed; refuse a pre-v2 database.
+
+        Legacy databases (the pre-refactor ``jobs`` table has no ``kind`` column) are
+        rejected before anything is created, so a migration can never half-apply to the
+        wrong schema. Point ``SF_DATA_DIR`` at a new directory instead.
+        """
         conn = self.connect()
         if self._is_legacy(conn):
             raise RuntimeError(
@@ -79,7 +109,7 @@ class Database:
         return "kind" not in columns
 
     def close(self) -> None:
-        """Close this thread's connection (tests, shutdown)."""
+        """Close this thread's connection (tests and shutdown)."""
         conn = self._local.conn
         if conn is not None:
             conn.close()

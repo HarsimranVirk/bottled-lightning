@@ -56,7 +56,18 @@ def _time(value: object) -> datetime:
 
 
 class WorkItemRepository:
-    """Item lifecycle: presence, transitions, epochs."""
+    """
+    Item lifecycle: presence, state transitions and presence epochs.
+
+    Everything workflow-agnostic lives here: creating an item from a list row,
+    recording that a refresh saw it, moving it through the state machine, closing it
+    and re-entering it when it reappears.
+
+    Example:
+        items = WorkItemRepository(db)
+        item = items.create_present("deviations_z02", row, sample.captured_at)
+        items.transition(item.workflow, item.key, WorkItemStatus.EXTRACTING)
+    """
 
     def __init__(self, db: Database) -> None:
         """Bind to the database handle."""
@@ -82,7 +93,16 @@ class WorkItemRepository:
         return item
 
     def create_present(self, workflow: str, row: ListRow, at: datetime) -> WorkItem:
-        """Create the item from a list row if new; idempotent."""
+        """
+        Create the item from a list row if new; idempotent.
+
+        ``INSERT OR IGNORE`` keeps repeated list refreshes cheap: an existing item is
+        returned untouched, so its status and values are never reset by a re-scan.
+
+        Example:
+            item = items.create_present(workflow, row, at)   # first time: PRESENT
+            again = items.create_present(workflow, row, at)  # second time: unchanged
+        """
         stamp = to_iso(at)
         with self._db.transaction() as conn:
             conn.execute(
@@ -111,7 +131,12 @@ class WorkItemRepository:
         at: datetime,
         href: str | None = None,
     ) -> None:
-        """Refresh presence (and the record URL) on a valid refresh."""
+        """
+        Refresh presence (and the record URL) on a valid refresh.
+
+        Only called for rows in a *valid* sample. Passing ``href`` also updates
+        ``record_url``, which is what lets an EXTRACT job start without the snapshot.
+        """
         with self._db.transaction() as conn:
             if href:
                 conn.execute(
@@ -143,7 +168,21 @@ class WorkItemRepository:
         present: bool | None = None,
         extracted_at: datetime | None = None,
     ) -> WorkItem:
-        """Apply a state-machine move, refusing terminal status under a lease."""
+        """
+        Apply a state-machine move, refusing terminal status under a lease.
+
+        Three guards make this the single safe writer of item status:
+
+        1. the move must be allowed by ``can_transition`` (else ``InvalidTransition``)
+        2. a terminal status is refused while a running job holds a live lease
+           (``LeaseHeld``), which is how FR-6.11 prevents closing a row mid-write
+        3. only ``SubmitPipeline`` is expected to pass terminal statuses
+
+        Example:
+            items.transition(workflow, key, WorkItemStatus.READY, extracted_at=now)
+            items.transition(workflow, key, WorkItemStatus.CLOSED,
+                             source=ClosureSource.EXTERNAL, reason="already_implemented")
+        """
         current = self.require(workflow, key)
         if current.status is not to and not can_transition(current.status, to):
             raise InvalidTransition(f"{workflow}/{key}: {current.status} -> {to}")
@@ -177,7 +216,12 @@ class WorkItemRepository:
         return self.require(workflow, key)
 
     def set_absent(self, workflow: str, key: str, at: datetime) -> None:
-        """Record that a valid refresh no longer shows the item."""
+        """
+        Record that a valid refresh no longer shows the item.
+
+        Flips ``present`` and stamps ``absent_since`` but writes no status: closure
+        decisions belong to ``ClosureResolver``, not to the reconciler.
+        """
         stamp = to_iso(at)
         with self._db.transaction() as conn:
             conn.execute(
@@ -190,7 +234,13 @@ class WorkItemRepository:
             )
 
     def begin_epoch(self, workflow: str, key: str) -> WorkItem:
-        """Re-enter after a closure, clearing terminal and extraction state."""
+        """
+        Re-enter after a closure, clearing terminal and extraction state.
+
+        A reappearing item starts a new ``epoch`` and returns to ``PRESENT``. Extraction
+        state is cleared too, so the next EXTRACT job actually re-reads the record
+        instead of short-circuiting on ``extracted_at`` (FR-6.13).
+        """
         with self._db.transaction() as conn:
             conn.execute(
                 """
@@ -227,7 +277,12 @@ class WorkItemRepository:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[WorkItem], int]:
-        """Page the items, newest-seen first."""
+        """
+        Page the items, newest-seen first.
+
+        ``query`` matches the key or the reason, which is enough for the UI's search
+        box. Returns the page and the total count for pagination.
+        """
         where = ["workflow = ?"]
         params: list[object] = [workflow]
         if status is not None:

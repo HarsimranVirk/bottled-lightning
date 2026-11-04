@@ -33,7 +33,19 @@ class JobLogger(Protocol):
 
 
 class ExtractionPipeline(Protocol):
-    """What a workflow must implement to extract data (FR-3)."""
+    """
+    What a workflow must implement to extract data (FR-3).
+
+    The pipeline receives one item and a tab group, does all browser work, persists
+    what it found through repositories, and returns an outcome. It must not decide
+    retries or job status — the worker does that.
+
+    Example (test double):
+        class FakeExtraction:
+            async def run(self, item, tabs, log) -> ExtractOutcome:
+                log(f"extracting {item.key}")
+                return ExtractOutcome.EXTRACTED
+    """
 
     async def run(
         self, item: WorkItem, tabs: TabProvider, log: JobLogger
@@ -43,7 +55,16 @@ class ExtractionPipeline(Protocol):
 
 
 class SubmissionPipeline(Protocol):
-    """What a workflow must implement to submit changes (FR-6)."""
+    """
+    What a workflow must implement to submit changes (FR-6).
+
+    The pipeline applies values, verifies them, performs the final action and
+    returns an outcome. It owns the phase markers on the job and must never reach
+    the final action after a failed validation (invariant I3).
+
+    Returns ``COMPLETED``, ``ALREADY_CLOSED`` or ``FAILED``; the worker maps those
+    to job status.
+    """
 
     async def run(
         self, item: WorkItem, tabs: TabProvider, log: JobLogger
@@ -54,7 +75,12 @@ class SubmissionPipeline(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class WorkflowDeps:
-    """Repositories a workflow implementation is allowed to use."""
+    """
+    The repositories a workflow implementation is allowed to use.
+
+    Passing them as one object keeps ``build_workflow`` signatures stable and makes
+    it obvious that pipelines never reach into the database directly.
+    """
 
     items: WorkItemRepository
     fields: FieldValueRepository
@@ -65,7 +91,13 @@ class WorkflowDeps:
 
 @dataclass(frozen=True, slots=True)
 class Workflow:
-    """One registered workflow: list view, catalogue, adapters and pipelines."""
+    """
+    One registered workflow: list view, catalogue, adapters and pipelines.
+
+    ``name`` scopes every database row; ``route`` is the REST noun (Z02 registers as
+    ``deviations_z02`` but mounts at ``/api/deviations``). ``map_row`` is the only
+    hook the generic reconciler needs to understand a workflow's list columns.
+    """
 
     name: str
     route: str

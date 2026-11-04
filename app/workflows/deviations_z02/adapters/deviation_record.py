@@ -33,7 +33,14 @@ logger = logging.getLogger(__name__)
 
 
 class DeviationRecordAdapter(AdapterBase):
-    """Deviation record: description, ROI values, ids and opportunity link."""
+    """
+    Deviation record: description, ROI values, ids and opportunity link.
+
+    The description is read from the tightest ancestor of its label that still
+    contains the whole body; the four ROI fields come from the Housing section,
+    which is expanded first. Missing values are normal — only a page that never
+    renders the description is a skip.
+    """
 
     kind = DeviationObject.DEVIATION.value
 

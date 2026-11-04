@@ -35,7 +35,21 @@ class TabSessions(TabProvider, Protocol):
 
 
 class TabGroup:
-    """Tabs for one job; guarantees cleanup even on failure."""
+    """
+    Tabs for one job; guarantees cleanup even on failure.
+
+    Every page opened through the group is tracked and closed when the job ends,
+    including on exceptions. That is what keeps memory bounded with several jobs in
+    flight (NFR-2).
+
+    Example:
+        tabs = runtime.new_tab_group()
+        try:
+            page = await tabs.new_page(url)
+            ...
+        finally:
+            await tabs.close_all()
+    """
 
     def __init__(self, context: BrowserContext, timeout_ms: int) -> None:
         """Track tabs for one browser context."""
@@ -70,7 +84,13 @@ class TabGroup:
 
     @asynccontextmanager
     async def open(self, url: str) -> AsyncIterator[Page]:
-        """Context manager: open, yield, always close."""
+        """
+        Context manager: open, yield, always close.
+
+        Example:
+            async with tabs.open(url) as page:
+                await page.get_by_text("Printable View").click()
+        """
         page = await self.new_page(url)
         try:
             yield page

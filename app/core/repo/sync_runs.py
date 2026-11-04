@@ -35,7 +35,13 @@ def _to_run(row: sqlite3.Row) -> SyncRun:
 
 
 class SyncRunRepository:
-    """History of list-view samples, valid and invalid."""
+    """
+    History of list-view samples, valid and invalid.
+
+    Invalid samples are stored with their warning rather than discarded, so a
+    persistently mismatching header (the classic silent-extraction failure) is
+    visible in the UI instead of looking like an empty list.
+    """
 
     def __init__(self, db: Database) -> None:
         """Bind to the database handle."""

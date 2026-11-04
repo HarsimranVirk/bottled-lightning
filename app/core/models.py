@@ -34,7 +34,21 @@ def from_iso(value: str | None) -> datetime | None:
 
 @dataclass(frozen=True, slots=True)
 class WorkItem:
-    """One row of a workflow's list view, across its whole lifecycle."""
+    """
+    One row of a workflow's list view, across its whole lifecycle.
+
+    Identity is ``(workflow, key)``. Notes on the squishier fields:
+
+    * ``present`` — seen in the latest *valid* refresh; a closure flips it to False
+    * ``epoch`` — increments each time an item returns after a closure, so history
+      stays attributable
+    * ``source``/``reason``/``closed_at`` — set when the item reaches a terminal
+      state; ``source`` says whether this system or SF closed it
+    * ``execute_attempted_at`` / ``execute_confirmed_at`` — the final-action audit
+      trail that makes FR-2.8 attribution answerable instead of guessed
+    * ``record_url`` — taken from the list row so an EXTRACT job never needs the
+      list snapshot to start
+    """
 
     workflow: str
     key: str
@@ -56,8 +70,21 @@ class WorkItem:
 
 @dataclass(frozen=True, slots=True)
 class FieldValue:
-    """Editable value state: what was scraped, what SF said last, what the operator wants,
-    and what was actually written."""
+    """
+    State of one editable value for one item.
+
+    The four value slots are deliberately separate:
+
+    * ``extracted`` — what extraction parsed (may be None; best-effort)
+    * ``last_synced`` — what SF showed at the last refresh
+    * ``proposed`` — the operator's pending edit; a refresh must never overwrite it
+    * ``applied`` — what SF accepted when the edit was written
+
+    Example progression for ``tenure``:
+        extracted=240, proposed=None, applied=None        # just extracted
+        extracted=240, proposed=300, applied=None         # operator edited
+        extracted=240, proposed=300, applied="300"        # submit succeeded
+    """
 
     workflow: str
     item: str
@@ -72,7 +99,13 @@ class FieldValue:
 
 @dataclass(frozen=True, slots=True)
 class Attribute:
-    """Read-only extracted value shown for context (description, ROI, product type)."""
+    """
+    A read-only extracted value, shown for context.
+
+    Attributes are the counterpart of :class:`FieldValue`: they are never edited
+    or written back. Description, ROI values and product type live here, which is
+    why adding a new read-only value needs no schema change.
+    """
 
     workflow: str
     item: str
@@ -93,7 +126,14 @@ class PageRef:
 
 @dataclass(frozen=True, slots=True)
 class Job:
-    """One unit of queued work for one item."""
+    """
+    One unit of queued work for one item.
+
+    ``kind`` decides which pipeline runs; ``phase`` records how far a submission
+    got. The lease fields (``lease_owner``, ``lease_expires_at``) make claiming
+    safe across restarts: a running job whose lease expires is requeued, and the
+    partial unique index guarantees at most one active job per item.
+    """
 
     id: int
     workflow: str
@@ -112,7 +152,13 @@ class Job:
 
 @dataclass(frozen=True, slots=True)
 class SyncRun:
-    """One refresh of one workflow's list view."""
+    """
+    One refresh of one workflow's list view.
+
+    Invalid runs are recorded too (FR-2.4): ``valid`` is False and ``warning``
+    carries the header/rows mismatch, which is how a silently broken extraction
+    becomes visible instead of looking like an empty list.
+    """
 
     id: int
     workflow: str
@@ -128,7 +174,13 @@ class SyncRun:
 
 @dataclass(frozen=True, slots=True)
 class SessionSnapshot:
-    """Persisted Playwright storage state, kept as opaque JSON text."""
+    """
+    Persisted Playwright storage state, kept as opaque JSON text.
+
+    The snapshot is as sensitive as the account password: it is never logged and
+    never returned by the API. ``cookie_count`` exists so the UI can show whether a
+    login actually produced cookies.
+    """
 
     storage_state: str
     cookie_count: int

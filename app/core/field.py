@@ -14,7 +14,17 @@ from enum import StrEnum
 
 
 class ValueType(StrEnum):
-    """How a field's text is parsed, canonicalised and compared."""
+    """
+    How a field's text is parsed, canonicalised, compared and rendered.
+
+    Storage stays TEXT so nothing SF shows is lost, but every comparison goes
+    through :func:`normalise`, which makes ``25,50,000`` and ``2550000.00`` the same
+    value.
+
+    * ``AMOUNT`` — money with Indian digit grouping and an optional currency symbol
+    * ``TENURE_MONTHS`` — whole months; stored in months (project convention)
+    * ``TEXT`` — free text, whitespace collapsed
+    """
 
     AMOUNT = "amount"
     TENURE_MONTHS = "months"
@@ -23,7 +33,17 @@ class ValueType(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class FieldTarget:
-    """One SF field that a value is written to."""
+    """
+    One SF field that a value is written to.
+
+    ``object_kind`` is a key in the workflow's ``AdapterRegistry`` (for Z02:
+    ``cl_contract``, ``collateral``, …); ``label`` is the SF field label on that
+    record. A field has several targets when the same value must agree across
+    objects (FR-6.3).
+
+    Example:
+        FieldTarget("cl_contract", "Loan Amount")
+    """
 
     object_kind: str
     label: str
@@ -31,7 +51,23 @@ class FieldTarget:
 
 @dataclass(frozen=True, slots=True)
 class EditableField:
-    """One editable value: label, type, and the SF fields it is written to."""
+    """
+    Declarative definition of one editable value — metadata, not data.
+
+    The catalogue is code: adding a field is one entry, and adapters derive what to
+    read and write from ``targets``. ``required`` means "must be supplied before
+    submit", not "extraction must find it"; parsing is best-effort, so an
+    unparsed value is simply empty.
+
+    Example:
+        EditableField(
+            key="tenure",
+            label="Tenure",
+            value_type=ValueType.TENURE_MONTHS,
+            targets=(FieldTarget("cl_contract", "Tenure"),),
+            source="tenure",
+        )
+    """
 
     key: str
     label: str
@@ -48,9 +84,25 @@ _MONTHS = re.compile(r"^(\d+)\s*(?:months?|mon|mos?|m)?$", re.IGNORECASE)
 
 
 def normalise(value: str, value_type: ValueType) -> str:
-    """Canonical form used for storage, comparison and validation.
+    """
+    Canonicalise a raw value for storage, comparison and validation.
 
-    Idempotent. Raises ``ValueError`` for input that cannot be interpreted.
+    Idempotent: ``normalise(normalise(x)) == normalise(x)``. Raises ``ValueError``
+    when the text cannot be interpreted — that is what turns a bad operator edit
+    into a validation error instead of a bad write.
+
+    Examples:
+        >>> normalise("25,50,000", ValueType.AMOUNT)
+        '2550000'
+        >>> normalise("₹ 25,50,000.00", ValueType.AMOUNT)
+        '2550000'
+        >>> normalise(" 240 months ", ValueType.TENURE_MONTHS)
+        '240'
+        >>> normalise("  Home   Loan (BT) ", ValueType.TEXT)
+        'Home Loan (BT)'
+        >>> normalise("abc", ValueType.AMOUNT)
+        Traceback (most recent call last):
+        ValueError: not an amount: 'abc'
     """
     match value_type:
         case ValueType.AMOUNT:
@@ -92,7 +144,18 @@ def _normalise_text(value: str) -> str:
 def fields_for(
     catalog: Sequence[EditableField], kind: str
 ) -> tuple[EditableField, ...]:
-    """Catalogue slice for one SF object kind; catalogue order is preserved."""
+    """
+    Catalogue slice for one SF object kind, in catalogue order.
+
+    A field appears in every slice whose object it targets, so a value that must
+    agree across objects is handled by each adapter without extra wiring.
+
+    Example:
+        >>> [f.key for f in fields_for(FIELD_CATALOG, "cl_contract")]
+        ['loan_amount', 'tenure', 'emi_incl_hffc']
+        >>> [f.key for f in fields_for(FIELD_CATALOG, "collateral")]
+        ['property_value']
+    """
     return tuple(
         field
         for field in catalog

@@ -18,7 +18,12 @@ _RELATED_LIST = "Collateral__r"
 
 
 class CollateralAdapter(AdapterBase):
-    """Collateral link for the opportunity."""
+    """
+    Collateral link for the opportunity.
+
+    More than one collateral on the opportunity is ambiguous (the deviation would
+    have to guess which), so it skips; exactly one is recorded as a ref.
+    """
 
     kind = DeviationObject.COLLATERAL.value
 

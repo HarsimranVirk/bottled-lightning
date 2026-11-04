@@ -21,7 +21,21 @@ logger = logging.getLogger(__name__)
 
 
 class Dispatcher:
-    """Claims jobs and runs them on N slots; pauses on auth."""
+    """
+    Claims jobs and runs them on N slots; pauses on authentication.
+
+    There is one asyncio task per slot and each claims one job at a time, so the
+    worker count is the concurrency limit. When the gate is paused (expired
+    session) no loop claims anything; lowering the count lets running jobs finish
+    rather than cancelling them mid-write (FR-7.7).
+
+    Example:
+        dispatcher = Dispatcher(jobs, worker, auth, settings)
+        task = asyncio.create_task(dispatcher.run_forever())
+        ...
+        dispatcher.stop()
+        await task
+    """
 
     def __init__(
         self,
@@ -55,7 +69,13 @@ class Dispatcher:
         return len(self._loops)
 
     async def run_forever(self) -> None:
-        """Run claim loops until ``stop()``; cancels them on exit."""
+        """
+        Run claim loops until ``stop()``; cancels them on exit.
+
+        Shutdown is deliberate: loops are cancelled only between jobs or while waiting
+        on the auth gate. A lease that is abandoned this way is requeued by the next
+        process.
+        """
         self._running = True
         self._sync_loops()
         try:
@@ -74,7 +94,12 @@ class Dispatcher:
         self._running = False
 
     def set_concurrency(self, count: int) -> None:
-        """Grow or shrink the pool; shrinking lets current jobs finish."""
+        """
+        Grow or shrink the pool; shrinking lets current jobs finish.
+
+        Surplus slots notice the new limit before their next claim and exit, so no job
+        is interrupted.
+        """
         self._desired = max(1, count)
         self._sync_loops()
 

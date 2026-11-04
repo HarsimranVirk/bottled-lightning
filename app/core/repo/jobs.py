@@ -40,7 +40,13 @@ def _to_job(row: sqlite3.Row) -> Job:
 
 
 class JobRepository:
-    """Persistent job queue: enqueue, lease, complete, recover."""
+    """
+    Persistent job queue: enqueue, lease, complete, fail, recover.
+
+    Leases make claiming safe without a lock: ``claim`` moves one queued row to
+    ``RUNNING`` with an expiry, ``heartbeat`` extends it, and ``requeue_stale``
+    returns expired leases to the queue after a crash.
+    """
 
     def __init__(self, db: Database) -> None:
         """Bind to the database handle."""
@@ -48,10 +54,16 @@ class JobRepository:
 
     # -- queue -------------------------------------------------------------
     def enqueue(self, workflow: str, kind: JobKind, key: str) -> Job:
-        """Create a queued job. If one is already active for the item, return it.
+        """
+        Create a queued job, or return the item's already-active job.
 
-        Invariant I2 (one active job per item) is enforced by the ``jobs_active`` partial
-        unique index, so a race between two callers cannot create a duplicate.
+        Deduplication is enforced by the ``jobs_active`` partial unique index, not by a
+        read-then-write check, so two callers racing cannot create two active jobs
+        (invariant I2).
+
+        Example:
+            job = jobs.enqueue(workflow, JobKind.EXTRACT, key)   # queued
+            jobs.enqueue(workflow, JobKind.EXTRACT, key)         # returns the same job
         """
         try:
             with self._db.transaction() as conn:
@@ -88,7 +100,13 @@ class JobRepository:
         return None if row is None else _to_job(row)
 
     def claim(self, owner: str, ttl_s: float) -> Job | None:
-        """Atomically take the oldest queued job and lease it to ``owner``."""
+        """
+        Atomically take the oldest queued job and lease it to ``owner``.
+
+        Implemented as a single ``UPDATE ... RETURNING`` so no other loop can claim the
+        same row. Returns ``None`` when the queue is empty. ``attempts`` increments
+        here, which is what the retry policy reads.
+        """
         now = utcnow()
         expires = now + timedelta(seconds=ttl_s)
         with self._db.transaction() as conn:
@@ -145,7 +163,13 @@ class JobRepository:
             )
 
     def fail(self, job_id: int, error: str, *, retryable: bool = False) -> None:
-        """Fail a job, or requeue it when the failure is retryable."""
+        """
+        Fail a job, or requeue it when the failure is retryable.
+
+        ``retryable=True`` puts the row back in ``QUEUED`` (attempts already counted);
+        otherwise it becomes ``FAILED`` with ``finished_at`` set and stays visible in
+        the UI with its error.
+        """
         now = to_iso(utcnow())
         with self._db.transaction() as conn:
             if retryable:
@@ -170,7 +194,12 @@ class JobRepository:
                 )
 
     def release_blocked(self, job_id: int) -> None:
-        """Park a job until authentication is restored."""
+        """
+        Park a job until authentication is restored (session expired).
+
+        The job keeps its active slot (the unique index still sees it) so nothing else
+        can queue a duplicate for the same item while the operator logs in.
+        """
         with self._db.transaction() as conn:
             conn.execute(
                 """
@@ -182,7 +211,12 @@ class JobRepository:
             )
 
     def cancel_active_for(self, workflow: str, key: str) -> int:
-        """Cancel queued/blocked jobs for an item (closure)."""
+        """
+        Cancel queued and blocked jobs for an item that has closed.
+
+        Running jobs are not touched: they abort at their next safe boundary and the
+        resolver applies the close when the lease is released (FR-6.11).
+        """
         with self._db.transaction() as conn:
             cursor = conn.execute(
                 """
@@ -215,7 +249,13 @@ class JobRepository:
         return cursor.rowcount > 0
 
     def requeue_stale(self) -> int:
-        """Return expired running leases to the queue."""
+        """
+        Return expired running leases to the queue.
+
+        Called when the queue looks idle and at boot. A crashed worker leaves a lease
+        behind; this is what makes the job runnable again without duplicating effects,
+        because every phase is idempotent (FR-6.8).
+        """
         with self._db.transaction() as conn:
             cursor = conn.execute(
                 """

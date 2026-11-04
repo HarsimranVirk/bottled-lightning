@@ -7,7 +7,19 @@ from enum import StrEnum
 
 
 class WorkItemStatus(StrEnum):
-    """Shared item lifecycle across every workflow."""
+    """
+    Shared item lifecycle across every workflow.
+
+    The happy path:
+
+        PRESENT -> EXTRACTING -> READY -> EDITING -> SUBMITTING
+                -> APPLYING -> VALIDATING -> EXECUTING -> COMPLETED
+
+    Closure can happen from most states: ``CLOSED`` when SF removed the item
+    (FR-2.6), ``SKIPPED`` when extraction hit ambiguity, and ``ABSENT_PENDING``
+    when closure was observed while a job still holds the lease (FR-6.11). Terminal
+    states are re-enterable only through ``PRESENT`` (a new presence epoch).
+    """
 
     PRESENT = "present"
     EXTRACTING = "extracting"
@@ -30,14 +42,26 @@ TERMINAL_STATUSES: frozenset[WorkItemStatus] = frozenset(
 
 
 class JobKind(StrEnum):
-    """What a job does: extract data or submit changes."""
+    """
+    What a job does: extract data or submit changes.
+
+    ``EXTRACT`` runs the workflow's extraction pipeline; ``SUBMIT`` runs its
+    submission pipeline. The workflow is carried separately on the job row.
+    """
 
     EXTRACT = "extract"
     SUBMIT = "submit"
 
 
 class JobStatus(StrEnum):
-    """Job lifecycle, including the parked-on-auth state."""
+    """
+    Job lifecycle, including the parked-on-auth state.
+
+        QUEUED -> RUNNING -> SUCCEEDED
+                          -> FAILED
+        RUNNING -> BLOCKED_AUTH   (session expired; resumes after a login)
+        QUEUED  -> CANCELLED      (item closed before it ran)
+    """
 
     QUEUED = "queued"
     RUNNING = "running"
@@ -53,7 +77,12 @@ ACTIVE_JOB_STATUSES: frozenset[JobStatus] = frozenset(
 
 
 class Phase(StrEnum):
-    """Ordered stage a job is executing; submission uses all four."""
+    """
+    Ordered stage a job is executing; submission uses all four.
+
+    Extraction jobs only use ``EXTRACT``. Submission walks ``APPLY`` -> ``VALIDATE``
+    -> ``EXECUTE`` and persists each step so a crash can be reasoned about.
+    """
 
     EXTRACT = "extract"
     APPLY = "apply"
@@ -62,14 +91,26 @@ class Phase(StrEnum):
 
 
 class ClosureSource(StrEnum):
-    """Who caused a closure: this system or Salesforce."""
+    """
+    Who caused a closure: this system or Salesforce.
+
+    ``SYSTEM`` means our final action was clicked (and, when observed, confirmed).
+    ``EXTERNAL`` means the item left the list without us implementing it — the
+    distinction FR-2.8 requires, derived from our own action record rather than from
+    SF's modified-by field.
+    """
 
     SYSTEM = "system"
     EXTERNAL = "external"
 
 
 class FieldStatus(StrEnum):
-    """Lifecycle of one editable value."""
+    """
+    Lifecycle of one editable value.
+
+        EXTRACTED -> PROPOSED -> APPLIED
+        EXTRACTED -> REJECTED          (SF refused a write)
+    """
 
     EXTRACTED = "extracted"
     PROPOSED = "proposed"
@@ -78,7 +119,12 @@ class FieldStatus(StrEnum):
 
 
 class WriteOutcome(StrEnum):
-    """Per-field result of a write attempt."""
+    """
+    Per-field result of a write attempt.
+
+    ``UNKNOWN`` exists because a click can succeed while the page dies before the
+    result is read; callers treat it as neither success nor failure.
+    """
 
     SAVED = "saved"
     REJECTED = "rejected"
@@ -86,7 +132,13 @@ class WriteOutcome(StrEnum):
 
 
 class ExtractOutcome(StrEnum):
-    """Pipeline result for an extraction job."""
+    """
+    Pipeline result for an extraction job.
+
+    ``EXTRACTED`` — data (or the fact that it was already extracted) is stored.
+    ``SKIPPED`` — ambiguity or missing data; terminal, with a reason on the item.
+    ``FAILED`` — retryable; the worker may requeue once.
+    """
 
     EXTRACTED = "extracted"
     SKIPPED = "skipped"
@@ -94,7 +146,14 @@ class ExtractOutcome(StrEnum):
 
 
 class SubmitOutcome(StrEnum):
-    """Pipeline result for a submission job."""
+    """
+    Pipeline result for a submission job.
+
+    ``COMPLETED`` — our final action ran (the workflow's word for it, e.g.
+    "Implemented"). ``ALREADY_CLOSED`` — the item was gone before we acted, which
+    is a clean terminal outcome, not an error. ``FAILED`` — needs a human; never
+    retried automatically.
+    """
 
     COMPLETED = "completed"
     ALREADY_CLOSED = "already_closed"
@@ -142,8 +201,19 @@ _TRANSITIONS: Mapping[WorkItemStatus, frozenset[WorkItemStatus]] = {
 
 
 def can_transition(current: WorkItemStatus, target: WorkItemStatus) -> bool:
-    """A no-op transition (same status) is always allowed; re-entry after a new presence
-    epoch is allowed by the terminal statuses' rule."""
+    """
+    Whether the lifecycle allows ``current -> target``.
+
+    A no-op transition is always allowed (idempotent writes). The rules are
+    intentionally strict: execution cannot be reached without validation, and a
+    terminal state can only be re-entered through ``PRESENT``.
+
+    Example:
+        >>> can_transition(WorkItemStatus.VALIDATING, WorkItemStatus.EXECUTING)
+        True
+        >>> can_transition(WorkItemStatus.VALIDATING, WorkItemStatus.COMPLETED)
+        False
+    """
     if current is target:
         return True
     return target in _TRANSITIONS[current]

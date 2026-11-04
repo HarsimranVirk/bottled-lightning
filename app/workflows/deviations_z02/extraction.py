@@ -42,7 +42,17 @@ _PARALLEL_KINDS: tuple[str, ...] = (
 
 
 class DeviationsZ02Extraction:
-    """Extraction pipeline for Z02 (class design, section 9.2)."""
+    """
+    Extraction pipeline for Z02 (class design, section 9.2).
+
+    Order is a dependency chain: the record page yields the opportunity link, the
+    opportunity yields the product type the CL-contract match needs, and only then
+    can the remaining four objects be discovered in parallel.
+
+    Outcomes: ``EXTRACTED`` (values stored, item READY), ``SKIPPED`` (ambiguity or
+    missing opportunity link, item SKIPPED with a reason), ``FAILED`` (persistence
+    problem; the item is returned to PRESENT so it can be retried).
+    """
 
     def __init__(
         self,
@@ -69,7 +79,14 @@ class DeviationsZ02Extraction:
     async def run(
         self, item: WorkItem, tabs: TabProvider, log: JobLogger
     ) -> ExtractOutcome:
-        """Extract one deviation and persist everything it found."""
+        """
+        Extract one deviation and persist everything it found.
+
+        Example log for one item:
+            extract start: deviations_z02/Deviation-03112026-486382
+            Deviation-03112026-486382: extracted
+            done: extracted
+        """
         if item.extracted_at is not None and not self._force:
             log(f"{item.key}: already extracted; nothing to do")
             return ExtractOutcome.EXTRACTED

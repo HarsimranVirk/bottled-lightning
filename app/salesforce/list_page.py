@@ -34,7 +34,19 @@ def parse_item_total(text: str) -> int | None:
 
 
 class ListPage:
-    """Owns one always-open list-view page (FR-2.1)."""
+    """
+    Owns one always-open list-view page (FR-2.1).
+
+    A sample combines three reads: the header total, the record links from the
+    live (virtualised) list, and all rows plus approval dates from the Printable
+    View popup. Validity is decided afterwards by ``ListSample.valid``.
+
+    Example:
+        page = await context.new_page()
+        lp = ListPage(context, page, spec, timeout_ms)
+        await lp.open()
+        sample = await lp.read()
+    """
 
     def __init__(
         self,
@@ -71,7 +83,14 @@ class ListPage:
         await self._wait_for_rows()
 
     async def read(self) -> ListSample:
-        """Sample the page. Validity is decided by ``ListSample.valid`` (FR-2.9)."""
+        """
+        Sample the page; validity is decided by ``ListSample.valid``.
+
+        Printable view is read first because it needs a freshly rendered page; the
+        link pass comes second because it scrolls. If the popup is unavailable the
+        sample still has rows (from links) but no approval dates — and its validity
+        depends only on the header/row count.
+        """
         header_total = await self._read_total()
         # Printable view first: it needs a clean, freshly rendered list page. The record
         # links are collected afterwards because that pass scrolls the page.

@@ -22,7 +22,19 @@ from .tabs import TabGroup
 
 
 class BrowserRuntime:
-    """Owns the Playwright loop; the only place browser objects live."""
+    """
+    Owns the Playwright loop; the only place browser objects live.
+
+    One dedicated thread runs one asyncio loop, which owns one warm Chromium
+    context. Everything that touches a ``Page`` runs on that loop; other threads
+    reach it through :meth:`run` (blocking) or :meth:`spawn` (fire-and-forget).
+
+    Example:
+        runtime = BrowserRuntime(settings, session)
+        runtime.start()
+        sample = runtime.run(worker_coroutine_factory)
+        runtime.stop()
+    """
 
     def __init__(self, settings: Settings, session: SessionProvider) -> None:
         """Hold configuration; nothing launches until ``start()``."""
@@ -38,7 +50,12 @@ class BrowserRuntime:
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> None:
-        """Launch the loop thread and warm browser, blocking until ready."""
+        """
+        Launch the loop thread and warm browser, blocking until ready.
+
+        Raises ``RuntimeError`` if the browser cannot start within 180s, so a boot
+        problem surfaces immediately instead of as a mysterious empty queue.
+        """
         if self._thread is not None:
             return
         self._ready.clear()
@@ -84,7 +101,15 @@ class BrowserRuntime:
 
     # -- bridges -----------------------------------------------------------
     def run[T](self, factory: Callable[[], Coroutine[None, None, T]]) -> T:
-        """Run a coroutine on the browser loop and wait for its result."""
+        """
+        Run a coroutine on the browser loop and wait for its result.
+
+        The factory is called *on* the loop, which keeps Playwright objects on their own
+        thread. Calling this from inside the loop raises instead of deadlocking.
+
+        Example:
+            sample = runtime.run(lambda: list_page.read())
+        """
         loop = self._require_loop()
         try:
             current = asyncio.get_running_loop()
@@ -96,7 +121,12 @@ class BrowserRuntime:
         return future.result()
 
     def spawn(self, factory: Callable[[], Coroutine[None, None, object]]) -> None:
-        """Start a long-lived task (watcher, dispatcher) on the browser loop."""
+        """
+        Start a long-lived task on the browser loop.
+
+        Used for the watcher and the dispatcher. Exceptions are logged, never raised
+        into the caller, because these tasks outlive the call that started them.
+        """
         loop = self._require_loop()
         future = asyncio.run_coroutine_threadsafe(factory(), loop)
         self._background.add(future)

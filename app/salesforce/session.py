@@ -36,7 +36,12 @@ def is_lightning_url(url: str) -> bool:
 
 
 async def is_login_page(page: Page) -> bool:
-    """Reliable detection: URL heuristics plus the password input Salesforce renders."""
+    """
+    Reliable login detection: URL heuristics plus the password input.
+
+    Example:
+        await is_login_page(page)   # True on hffc.my.salesforce.com/?ec=302…
+    """
     if is_login_url(page.url):
         return True
     try:
@@ -46,12 +51,24 @@ async def is_login_page(page: Page) -> bool:
 
 
 def cookie_params_from_state(storage_state: str) -> list[SetCookieParam]:
-    """Convert a Playwright storage-state JSON string into ``add_cookies`` arguments.
+    """
+    Convert a storage-state JSON string into ``add_cookies`` arguments.
 
-    Each cookie is rebuilt field by field with explicit types — no ``cast`` and no
-    ``Any`` leaking out of ``json.loads``. ``SetCookieParam`` is the exact type in
-    ``BrowserContext.add_cookies``'s signature (Playwright only exports it from its
-    implementation module).
+    Each cookie is rebuilt field by field with explicit types, so nothing from
+    ``json.loads`` leaks as ``Any`` into the browser API. Malformed entries are
+    skipped rather than raising: a partially broken snapshot should still get the
+    cookies it can.
+
+    Example input:
+        {"cookies": [{"name": "sid", "value": "abc",
+                       "domain": ".lightning.force.com", "path": "/",
+                       "expires": 1800000000.0, "httpOnly": true,
+                       "secure": true, "sameSite": "None"}]}
+
+    Example output:
+        [{"name": "sid", "value": "abc", "domain": ".lightning.force.com",
+          "path": "/", "expires": 1800000000.0, "httpOnly": True,
+          "secure": True, "sameSite": "None"}]
     """
     try:
         raw: object = json.loads(storage_state)
@@ -141,7 +158,12 @@ class SessionProvider:
         return await self.inject(context)
 
     async def save(self, context: BrowserContext) -> int:
-        """Persist the context's storage state."""
+        """
+        Persist the context's storage state.
+
+        Returns the cookie count. Cookie-less snapshots are still stored so the UI can
+        show that a login produced nothing — but the next job will fail fast.
+        """
         state = await context.storage_state()
         cookies = state.get("cookies", [])
         count = len(cookies) if isinstance(cookies, list) else 0
@@ -151,10 +173,15 @@ class SessionProvider:
         return count
 
     async def ensure(self, page: Page) -> None:
-        """Verify the page is authenticated, navigating once if needed.
+        """
+        Verify the page is authenticated, navigating once if needed.
 
-        Raises ``SessionExpired`` so the worker can park the job (FR-1.4) instead of
-        treating it as a failure.
+        Detection is deliberately two-sided: URL heuristics catch the classic-host
+        redirect (``my.salesforce.com/?ec=302``), and the DOM check catches a login form
+        served at a Lightning-looking URL.
+
+        Raises ``SessionExpired`` so the worker parks the job as ``blocked_auth``
+        instead of failing it.
         """
         if is_lightning_url(page.url) and not await is_login_page(page):
             return
