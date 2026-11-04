@@ -1,9 +1,12 @@
-"""Small async DOM helpers shared by the Z02 adapters."""
+"""Async Playwright DOM helpers used by the Salesforce layer and adapters.
+
+Nothing here knows about a specific SF object; the workflow-specific parts (selectors,
+URL fields, field labels) stay in the adapter modules.
+"""
 
 from __future__ import annotations
 
 import logging
-import re
 from contextlib import suppress
 
 from playwright.async_api import Locator, Page
@@ -30,37 +33,6 @@ async def dismiss_banner(page: Page) -> None:
     with suppress(Exception):
         if await dismiss.count() > 0 and await dismiss.is_visible():
             await dismiss.click(timeout=2000)
-
-
-async def click_show_more(page: Page, max_clicks: int = 300) -> int:
-    pattern = re.compile(r"^\s*Show more\s*$", re.IGNORECASE)
-    clicked = 0
-    while clicked < max_clicks:
-        locator = page.get_by_role("button", name=pattern)
-        if await locator.count() == 0:
-            break
-        try:
-            await locator.first.click(timeout=5000)
-        except Exception as exc:  # noqa: BLE001 - best effort
-            logger.debug("show more click failed: %s", exc)
-            break
-        clicked += 1
-        await page.wait_for_timeout(2000)
-    return clicked
-
-
-async def wait_for_count(
-    locator: Locator, minimum: int, timeout_s: float, page: Page
-) -> bool:
-    """Poll a locator count until it reaches ``minimum`` or the deadline passes."""
-    deadline = timeout_s * 1000
-    waited = 0.0
-    while waited < deadline:
-        if await locator.count() >= minimum:
-            return True
-        await page.wait_for_timeout(300)
-        waited += 300
-    return await locator.count() >= minimum
 
 
 def absolute_url(href: str, org_base: str) -> str:

@@ -69,6 +69,8 @@ app/
     models.py                     WorkItem, FieldValue, Attribute, PageRef, Job, SyncRun
     status.py                     WorkItemStatus, JobKind, JobStatus, Phase, ClosureSource
     logging.py                    SF_LOG_LEVEL (default INFO; DEBUG for per-row noise)
+  utils/
+    dom.py                        async Playwright helpers (safe text, waits, URL joins)
     field.py                      EditableField, FieldTarget, ValueType, normalise()
     errors.py                     Error taxonomy
     registry.py                   WorkflowRegistry
@@ -113,7 +115,6 @@ app/
       product_map.py              CL_CONTRACT_PRODUCT_MAP (reference data)
       adapters/
         __init__.py               build_adapters(org_base, timeout_ms)
-        dom.py                    async DOM helpers (safe text, show more, URLs)
         deviation_record.py  opportunity.py  cl_contract.py
         collateral.py  lms2.py    (LMS2 CL contract + collateral)
       extraction.py               DeviationsZ02Extraction

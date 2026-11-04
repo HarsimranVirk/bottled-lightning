@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from app.salesforce.adapters import AdapterBase, Discovery, DiscoveryContext
 from app.salesforce.tabs import TabProvider
+from app.utils.dom import absolute_url, safe_body_text, wait_for_text
 from app.workflows.deviations_z02.catalog import DeviationObject
-
-from .dom import absolute_url, safe_body_text, wait_for_text
 
 
 def product_type_from(body: str) -> str | None:

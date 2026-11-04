@@ -11,10 +11,9 @@ from app.salesforce.adapters import (
     DiscoveryContext,
 )
 from app.salesforce.tabs import TabProvider
+from app.utils.dom import absolute_url, related_list_url, safe_inner_text, wait_for_rows
 from app.workflows.deviations_z02.catalog import DeviationObject
 from app.workflows.deviations_z02.product_map import CL_CONTRACT_PRODUCT_MAP
-
-from .dom import absolute_url, related_list_url, safe_inner_text, wait_for_rows
 
 _RELATED_LIST = "CL_Contracts__r"
 _CONTRACT_PREFIX = "LAI-"

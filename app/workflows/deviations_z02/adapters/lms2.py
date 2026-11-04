@@ -18,9 +18,8 @@ from app.salesforce.adapters import (
     DiscoveryContext,
 )
 from app.salesforce.tabs import TabProvider
+from app.utils.dom import absolute_url
 from app.workflows.deviations_z02.catalog import DeviationObject
-
-from .dom import absolute_url
 
 logger = logging.getLogger(__name__)
 

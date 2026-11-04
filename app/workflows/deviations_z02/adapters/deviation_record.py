@@ -13,13 +13,12 @@ from app.salesforce.adapters import (
     DiscoveryContext,
 )
 from app.salesforce.tabs import TabProvider
+from app.utils.dom import absolute_url, dismiss_banner, safe_inner_text
 from app.workflows.deviations_z02.catalog import DeviationObject
 from app.workflows.deviations_z02.description import (
     clean_description,
     parse_description_fields,
 )
-
-from .dom import absolute_url, dismiss_banner, safe_inner_text
 
 _HOUSING_ROI_SELECTORS: dict[str, str] = {
     "requested_roi": "sfdc:RecordField.Consumer_Loan_Deviation__c.Requested_ROI__c",
