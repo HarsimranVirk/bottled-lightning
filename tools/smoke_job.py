@@ -1,7 +1,7 @@
 """Dev-only: run one EXTRACT job through the real queue. Not shipped in the wheel.
 
-    SF_DATA_DIR=./data-v2 .venv/bin/python tools/smoke_job.py
-    SF_DATA_DIR=./data-v2 .venv/bin/python tools/smoke_job.py Deviation-03112026-486382
+    .venv/bin/python tools/smoke_job.py
+    .venv/bin/python tools/smoke_job.py Deviation-03112026-486382
 
 Exercises the same path the app will use: list row -> queued job -> dispatcher ->
 worker -> extraction pipeline -> job logs. Requires a saved session.

@@ -81,7 +81,7 @@ class Database:
 
     def migrate(self) -> None:
         """
-        Create the v2 schema if needed; refuse a pre-v2 database.
+        Create the workflow schema if needed; refuse a legacy database.
 
         Legacy databases (the pre-refactor ``jobs`` table has no ``kind`` column) are
         rejected before anything is created, so a migration can never half-apply to the
@@ -91,7 +91,7 @@ class Database:
         if self._is_legacy(conn):
             raise RuntimeError(
                 "legacy schema detected in "
-                f"{self._path} (pre-v2 tables). Schema v2 needs a fresh database: "
+                f"{self._path} (legacy tables). This schema needs a fresh database: "
                 "point SF_DATA_DIR at a new directory or delete the existing app.db "
                 "(refactor plan, open item O-4)."
             )

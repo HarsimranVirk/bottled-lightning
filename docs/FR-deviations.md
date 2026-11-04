@@ -1,12 +1,12 @@
-# Functional Requirements — Loan Deviations (v2)
+# Functional Requirements — Loan Deviations
 
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v2.1 |
+| **Version** | v3 |
 | **Date** | 2026-11-04 |
 | **Scope** | Loan deviations workflow only |
-| **Supersedes** | Implicit v1 behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
+| **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
 
 ---
 
@@ -315,7 +315,7 @@ absence while a `SUBMIT` lease was held.
 | O-1 | Which SF object and field label each of `loan_amount`, `property_value`, `tenure`, `emi_incl_hffc` is written to, and whether any value fans out to several objects. | FR-6.3, data model |
 | O-2 | Exact label of the modal confirm button for `Implement`. | FR-6.5 |
 | O-3 | Whether `z01`/`z03`/`z04` and `app/cancellations/` are live or dead scaffolding (proposed: delete). | Architecture |
-| O-4 | Whether the local `data/app.db` may be wiped for a clean schema v2 (proposed: yes). | Migration |
+| O-4 | ~~Wipe the legacy `data/app.db` for the new schema.~~ **Resolved** — wiped; `data/` now holds the workflow store. | — |
 | O-5 | ~~Whether the deviation record page remains readable after implement.~~ **Resolved** — no record-page reconciliation; attribution is local (FR-6.12). | — |
 | O-6 | Archive or hard-delete closed deviations (FR-8.2). | FR-8.2, data model |
 

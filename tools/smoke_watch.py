@@ -1,6 +1,6 @@
 """Dev-only: run one watcher cycle through the real list view. Not shipped in the wheel.
 
-    SF_DATA_DIR=./data-v2 .venv/bin/python tools/smoke_watch.py
+    .venv/bin/python tools/smoke_watch.py
 
 Opens the dedicated list page, samples it, reconciles the store and prints the recorded
 ``sync_runs`` row plus what changed. Requires a saved session.

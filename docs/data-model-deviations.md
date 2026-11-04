@@ -6,7 +6,7 @@
 | **Version** | v1 |
 | **Date** | 2026-11-04 |
 | **Feature** | Loan deviations (Z02) |
-| **Companions** | `docs/FR-deviations-v2.md`, `docs/class-design-deviations.md`, `docs/api-deviations.md` |
+| **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/api-deviations.md` |
 | **Implemented by** | `app/db/schema.py`, `app/core/repo/*` |
 
 This document is the source of truth for persisted state. If the code and this
@@ -39,10 +39,11 @@ change that alters the code (see AGENTS.md, plan-mode rules).
 ## 3. Schema version and migration
 
 - `PRAGMA user_version = 2` after `Database.migrate()`.
-- **Fresh database only.** `migrate()` detects a pre-v2 database (its `jobs` table has
+- **Fresh database only.** `migrate()` detects a legacy database (its `jobs` table has
   no `kind` column) and raises instead of half-applying the schema.
-- The pre-refactor `data/app.db` is therefore untouched until cutover. Testing uses a
-  separate `SF_DATA_DIR` (`data-v2/`, gitignored).
+- Cutover has happened: `data/app.db` now holds the workflow schema. The legacy
+  database was wiped, not migrated (the only valuable rows were auth snapshots, which
+  one manual login re-creates).
 - Cutover (refactor Phase 9) deletes the old file; there is no data migration because
   the only valuable rows are auth snapshots, which are re-created by one manual login.
 - Open item **O-4** is the decision to wipe; until it is answered, nothing touches

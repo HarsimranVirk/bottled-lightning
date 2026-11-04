@@ -1,4 +1,4 @@
-"""SQLite schema for the workflow store (schema v2).
+"""SQLite schema for the workflow store.
 
 Every item table is workflow-scoped: ``workflow`` is part of each primary key, so several
 workflows share the same tables without interfering. See docs/class-design-deviations.md.

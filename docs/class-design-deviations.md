@@ -3,11 +3,11 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v2 |
+| **Version** | v3 |
 | **Date** | 2026-11-04 |
-| **Companions** | `docs/FR-deviations-v2.md` (v2.1), `docs/data-model-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
-| **Change** | v2 introduces the workflow abstraction; v1 was deviations-only |
-| **Implemented so far** | Phases 1–5 on `refactor/deviations-v2`: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,adapters}`, `app/jobs/{dispatcher,worker,auth,logger}`, `app/pipeline/{watcher,reconciler,closure}`,
+| **Companions** | `docs/FR-deviations.md` (v3), `docs/data-model-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
+| **Change** | Introduced the workflow abstraction; earlier drafts were deviations-only |
+| **Implemented so far** | Phases 1–5 on `refactor/deviations`: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,adapters}`, `app/jobs/{dispatcher,worker,auth,logger}`, `app/pipeline/{watcher,reconciler,closure}`,
 `app/utils/dom`, `app/workflows/deviations_z02/{catalog,description,product_map,adapters,extraction}` |
 
 This document describes the target class design. It separates the parts that are the
@@ -65,7 +65,7 @@ app/
   config.py                       Settings (frozen dataclass + env loader)
   db/
     connection.py                 Database: engine, thread-local conns, transaction()
-    schema.py                     DDL v2 + PRAGMA user_version migrations
+    schema.py                     DDL + PRAGMA user_version migrations
   core/                           shared mechanism — knows no workflow
     models.py                     WorkItem, FieldValue, Attribute, PageRef, Job, SyncRun
     status.py                     WorkItemStatus, JobKind, JobStatus, Phase, ClosureSource
@@ -448,7 +448,7 @@ class Database:
 
 WAL, `foreign_keys=ON`, `busy_timeout=5000`, one connection per thread.
 
-### 6.2 Schema v2
+### 6.2 Schema
 
 The schema — tables, columns, keys, indexes, and each table's mutable /
 one-shot / append-only semantics — is specified in

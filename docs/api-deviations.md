@@ -6,7 +6,7 @@
 | **Version** | v1 |
 | **Date** | 2026-11-04 |
 | **Feature** | Loan deviations (Z02) |
-| **Companions** | `docs/FR-deviations-v2.md`, `docs/class-design-deviations.md`, `docs/data-model-deviations.md` |
+| **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/data-model-deviations.md` |
 | **Implemented by** | refactor Phase 7 (`app/api/*`); not built yet |
 
 This document is the source of truth for the HTTP surface and the matching

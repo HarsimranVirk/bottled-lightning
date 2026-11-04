@@ -21,7 +21,7 @@ mode**, and no code is written until the design is written down in `docs/`.
 A plan is only complete when it contains all four of these, in this order:
 
 1. **FR doc** — create or edit the feature's requirements document in `docs/`
-   (follow the existing shape, e.g. `docs/FR-deviations-v2.md`: status/version
+   (follow the existing shape, e.g. `docs/FR-deviations.md`: status/version
    header, purpose, in-scope, out-of-scope, numbered requirement IDs `FR-x.y`,
    edge cases, acceptance criteria). Existing FR docs are edited in place
    (bump the version) rather than duplicated.

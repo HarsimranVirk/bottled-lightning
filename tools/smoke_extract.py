@@ -1,9 +1,9 @@
 """Dev-only: extract one deviation against the live org. Not shipped in the wheel.
 
-    SF_DATA_DIR=./data-v2 .venv/bin/python tools/smoke_extract.py
-    SF_DATA_DIR=./data-v2 .venv/bin/python tools/smoke_extract.py Deviation-28102026-484106
+    .venv/bin/python tools/smoke_extract.py
+    .venv/bin/python tools/smoke_extract.py Deviation-28102026-484106
 
-Requires a saved session (``python -m app.salesforce.login`` with the same SF_DATA_DIR).
+Requires a saved session (``python -m app.salesforce.login`` in the same data directory).
 Extraction only reads Salesforce; nothing is written back (that starts in Phase 6).
 """
 

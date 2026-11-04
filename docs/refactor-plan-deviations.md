@@ -3,12 +3,12 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v2 |
+| **Version** | v3 |
 | **Date** | 2026-11-04 |
-| **Target design** | `docs/class-design-deviations.md` (v2, workflow abstraction) |
-| **Requirements** | `docs/FR-deviations-v2.md` (v2.1) |
+| **Target design** | `docs/class-design-deviations.md` (v3) |
+| **Requirements** | `docs/FR-deviations.md` (v3) |
 
-> v2 of this plan adds the workflow seam from the v2 class design: core mechanism in
+> This plan implements the workflow seam: core mechanism in
 > `app/core`, `app/salesforce`, `app/pipeline`, `app/jobs`; deviations lives in
 > `app/workflows/deviations_z02` and is one implementation of `ExtractionPipeline` /
 > `SubmissionPipeline`. Nothing in this plan implements a second workflow — it only keeps
@@ -20,8 +20,8 @@ This plan executes the design recorded in:
 
 | Document | Contents | Status |
 |---|---|---|
-| `docs/FR-deviations-v2.md` | requirements, FR-1…FR-9, NFRs, open items | v2.1, reviewed |
-| `docs/class-design-deviations.md` | classes, protocols, workflow seam, ownership, invariants | v2 |
+| `docs/FR-deviations.md` | requirements, FR-1…FR-9, NFRs, open items | v3, reviewed |
+| `docs/class-design-deviations.md` | classes, protocols, workflow seam, ownership, invariants | v3 |
 | `docs/data-model-deviations.md` | tables, columns, keys, semantics, migration, retention | v1 |
 | `docs/api-deviations.md` | endpoints, payloads, status codes, TS types | v1 |
 
@@ -29,7 +29,7 @@ If implementation reveals a gap, the document is amended first and the change la
 with it (AGENTS.md). Phase 7 implements the API doc; Phases 1–2 implement the data
 model doc.
 
-**Documentation scope during the refactor:** every module, class and function in the v2
+**Documentation scope during the refactor:** every module, class and function in the rewritten
 stack (`app/core`, `app/db`, `app/salesforce`, `app/jobs`, `app/utils`,
 `app/workflows`) and in `tests/` is documented to the AGENTS.md standard. The v1 modules
 scheduled for deletion in Phase 9 (`app/store.py`, `app/sync.py`, `app/routes.py`,
@@ -48,7 +48,7 @@ mean porting each extractor twice. Instead: freeze features on `main`, build the
 on a branch in dependency order, cut over in one merge, delete the old code in the merge
 commit.
 
-Rollback is the tag `pre-deviations-v2` on the current `main`. The local `data/app.db` is
+Rollback is the tag `pre-deviations` on the original `main`. The local `data/app.db` is
 disposable (O-4), so there is no data migration to reverse.
 
 Rules for the whole effort:
@@ -67,8 +67,8 @@ Rules for the whole effort:
 Rough sizing assumes one focused developer: **~22–27 working days**, of which Phases 3 and
 6 (adapters, submit) are the long poles because they are UI-selector work.
 
-**Progress:** Phases 0–5 are done on branch `refactor/deviations-v2` (core domain,
-schema v2, repositories, workflow seam, Z02 catalog + description parser, async browser
+**Progress:** Phases 0–5 are done on branch `refactor/deviations` (core domain,
+the workflow schema, repositories, workflow seam, Z02 catalog + description parser, async browser
 runtime, session snapshot/expiry, `ListPage`, login CLI, six Z02 adapters, the
 `DeviationsZ02Extraction` pipeline, the job dispatcher/worker/auth gate, and the
 `ListWatcher`/`Reconciler`/`ClosureResolver` refresh loop). Phases 6–9 are not started.
@@ -84,7 +84,7 @@ and correctly reports an expired session, and `ListPage` was verified end-to-end
 local fake list page (header total, links, printable-view popup, validity rule). A real
 run needs `python -m app.salesforce.login` first.
 
-Also landed in Phase 1/2: `Database.migrate()` refuses a pre-v2 database instead of
+Also landed in Phase 1/2: `Database.migrate()` refuses a legacy database instead of
 half-migrating it (`legacy schema detected … needs a fresh database`), which makes O-4 an
 explicit decision rather than a silent corruption.
 
@@ -371,7 +371,6 @@ The v2 stack refuses the legacy `data/app.db` on purpose, so test against a sepa
 directory until cutover (see O-4):
 
 ```bash
-export SF_DATA_DIR="$PWD/data-v2"
 .venv/bin/python -m app.salesforce.login        # once, headed browser
 .venv/bin/python tools/smoke_list.py            # header == rows, valid=True
 .venv/bin/python tools/smoke_extract.py         # first row
