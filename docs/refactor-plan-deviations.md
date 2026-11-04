@@ -331,3 +331,26 @@ Mapped to the FR doc:
 
 Only O-1 and O-4 actually stop work in Phase 1: the catalogue can ship with placeholder
 targets, but the DB shape needs the wipe decision.
+
+---
+
+## 8. Live testing during the refactor
+
+The v2 stack refuses the legacy `data/app.db` on purpose, so test against a separate data
+directory until cutover (see O-4):
+
+```bash
+export SF_DATA_DIR="$PWD/data-v2"
+.venv/bin/python -m app.salesforce.login        # once, headed browser
+.venv/bin/python tools/smoke_list.py            # header == rows, valid=True
+.venv/bin/python tools/smoke_extract.py         # first row
+.venv/bin/python tools/smoke_extract.py Deviation-28102026-484106
+```
+
+- `smoke_list.py` prints the sampled header total, row count and validity.
+- `smoke_extract.py` runs the real `DeviationsZ02Extraction` pipeline against the live org
+  and prints the persisted fields, attributes and page refs plus the resulting status.
+  Re-running re-extracts by default (`--no-force` respects `extracted_at`).
+
+Extraction only reads Salesforce. Nothing is written to SF before Phase 6, so these runs
+are safe. Both tools are dev-only and are not packaged in the wheel.

@@ -9,6 +9,9 @@ auth.json
 sf_profile/
 data/
 
+# Separate data dir used for v2 testing (refactor plan, O-4)
+data-v2/
+
 # Diagnostics artifacts
 error.png
 diag.png
