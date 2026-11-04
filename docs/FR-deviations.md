@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.2 |
+| **Version** | v5.3 |
 | **Date** | 2026-11-04 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -292,6 +292,11 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   change that is not regenerated fails the typecheck.
 - **FR-9.12** UI changes ship with screenshots of their state-matrix rows at narrow,
   medium and wide widths.
+- **FR-9.13** No screen requires horizontal scrolling at 390, 768 or 1280 px. The list
+  hides columns and the filters wrap instead of widening the page. All data text (the
+  deck description, ROI values, page refs and detail fields) is selectable so the
+  operator can copy values; a drag gesture must never be the only way to interact, and
+  it must not run on a text panel the operator is selecting.
 
 ### FR-10 Review decisions (accept / reject)
 
@@ -382,6 +387,10 @@ absence while a `SUBMIT` lease was held.
   submit action? (Default: explicit action; acceptance only queues.) | FR-10.6 |
 
 ## Appendix C — Change log
+
+- **v5.3** — responsive requirement (FR-9.13): no horizontal page scrolling at any
+  review width, and all data text stays selectable; the deck omits its drag on the
+  description/ROI/ref panels so values can be copied.
 
 - **v5.2** — the review deck is restored to the legacy card shape: record link, approval
   date, pages to update, raw description, ROI details, four editable prefilled parameters,

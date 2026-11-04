@@ -123,6 +123,8 @@ Existing behaviours that must survive the port (they encode hard-won facts):
 - Ambiguity → skip with reason, never a guess.
 - Header-total cross-check.
 - Playwright text locators, not `page.evaluate` DOM scans (except the LMS shadow DOM case).
+- `tools/audit_layout.py` fails CI-style checks when any route needs horizontal scrolling
+  at 390/768/1280 px.
 
 ---
 

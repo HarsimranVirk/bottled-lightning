@@ -132,7 +132,12 @@ export function DecisionDeck({
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
     if (!canAct || event.button !== 0) return
     const target = event.target
-    if (target instanceof HTMLElement && target.closest('button, a, input')) return
+    if (
+      target instanceof HTMLElement &&
+      target.closest('button, a, input, [data-no-swipe]')
+    ) {
+      return
+    }
     event.currentTarget.setPointerCapture(event.pointerId)
     setDrag({
       startX: event.clientX,

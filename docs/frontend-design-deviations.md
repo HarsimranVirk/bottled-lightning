@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v3 |
+| **Version** | v3.1 |
 | **Date** | 2026-11-04 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
@@ -264,6 +264,9 @@ Rules:
   danger/neutral); the tone never carries meaning alone.
 - One deck, one table, one drawer. Desktop-first (operator laptop, ≥1280 px); the drawer
   becomes a full page below 900 px; card, table and drawer are usable at 390 px.
+- **No horizontal page scrolling at 390/768/1280 px.** The shell is border-box; filters
+  wrap; the list drops to Status + Deviation at 600 px instead of scrolling sideways.
+  Long values wrap (`overflow-wrap: anywhere`), never widen the page.
 - Deck card: Salt `Card elevation="raised"`, max-width 640 px, centred (the legacy
   width). One card at a time; the next item is named below it, not stacked behind it.
   The accept stamp is success-toned, the skip stamp danger-toned; both are text
@@ -278,10 +281,12 @@ Rules:
 ## 8. Accessibility and feedback
 
 - WCAG 2.2 AA: focus visible, 4.5:1 text contrast, 24 px targets, no motion required.
-- The deck is fully operable with buttons and keys; swiping is additive. The top card is a
-  `group` with `aria-roledescription="review card"` and the action buttons are always in
-  the tab order. Decision results go to an `aria-live="polite"` line ("Accepted … · 2
-  left"), never to a modal.
+- The deck is fully operable with buttons and keys; swiping is additive. The action
+  buttons are always in the tab order. Decision results go to an `aria-live="polite"`
+  line ("Accepted … · deck complete"), never to a modal.
+- **All data text is selectable.** The card suppresses its drag over buttons, links,
+  inputs and the description/ROI/ref panels, so selecting text to copy never moves the
+  card. The description panel carries `data-no-swipe` and `user-select: text`.
 - The drawer traps focus and returns it on close; `Esc` closes it.
 - Job/status changes announced through `aria-live="polite"` (no per-second spam: only
   status changes, not elapsed time).
@@ -307,6 +312,7 @@ Rules:
 | Components | RTL + MSW | disabled rules per status, field error rendering, submit confirmation, paused banner |
 | Deck | RTL + MSW | accept/reject buttons, keyboard, undo, failed decision keeps the card, undone card returns |
 | States | `/dev/states` route + Playwright screenshots | every row of the matrix, at 390/768/1280 |
+| Responsive | `tools/audit_layout.py` | fails when any route needs horizontal scrolling at 390/768/1280 |
 | Contract | generated types + MSW handlers | a field rename on the backend breaks typecheck |
 
 Visual review loop: build → run → screenshot the state harness at three widths → inspect

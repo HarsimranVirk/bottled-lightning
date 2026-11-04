@@ -1,4 +1,10 @@
-/* Slice A layout. Salt tokens only; no colour literals except tone tints. */
+/* Layout. Salt tokens only; no colour literals except tone tints. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
 
 .shell {
   min-height: 100vh;
@@ -139,11 +145,25 @@
 
 .filters {
   align-items: end;
+  flex-wrap: wrap;
+}
+
+.filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.filters .saltInput {
+  width: 100%;
 }
 
 .filters select,
 .filters input {
-  min-width: 180px;
+  min-width: 0;
+  width: 100%;
 }
 
 /* --- detail drawer ----------------------------------------------------- */
@@ -323,6 +343,13 @@
   }
 }
 
+@media (max-width: 600px) {
+  .grid th:nth-child(n + 3),
+  .grid td:nth-child(n + 3) {
+    display: none;
+  }
+}
+
 @media (max-width: 900px) {
   .job-row {
     grid-template-columns: 34px 92px 54px 1fr;
@@ -392,6 +419,13 @@
   margin: 0 auto;
 }
 
+.deck-description,
+.deck-roi,
+.deck-refs,
+.deck-field {
+  user-select: text;
+}
+
 .deck-description {
   max-height: 220px;
   overflow-y: auto;
@@ -404,6 +438,7 @@
 .deck-description-text {
   font-size: 12px;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   display: block;
 }
 

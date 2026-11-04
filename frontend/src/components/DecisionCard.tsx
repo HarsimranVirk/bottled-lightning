@@ -97,7 +97,7 @@ export function DecisionCard({
           ) : null}
 
           {refs.length > 0 ? (
-            <StackLayout gap={0.5}>
+            <StackLayout gap={0.5} className="deck-refs" data-no-swipe>
               <Text color="secondary" styleAs="label">
                 Pages to update
               </Text>
@@ -117,7 +117,7 @@ export function DecisionCard({
           <Text color="secondary" styleAs="label">
             Loan Deviation Description — read it, raw is truth
           </Text>
-          <div className="deck-description">
+          <div className="deck-description" data-no-swipe>
             {detail === null ? (
               <Text color="secondary">loading description…</Text>
             ) : description ? (
@@ -132,7 +132,7 @@ export function DecisionCard({
           <Text color="secondary" styleAs="label">
             Housing Loan Deviation Details
           </Text>
-          <div className="deck-roi">
+          <div className="deck-roi" data-no-swipe>
             {ROI_FIELDS.map((field) => (
               <StackLayout gap={0} key={field.key}>
                 <Text color="secondary" styleAs="label">
