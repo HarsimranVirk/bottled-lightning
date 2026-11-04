@@ -179,35 +179,7 @@ export function DecisionCard({
             )}
           </Card>
 
-          <GridLayout columns={{ xs: 1, lg: 2 }} gap={2}>
-            <StackLayout gap={1}>
-              <Text color="secondary" styleAs="label">
-                New loan parameters to populate — prefilled where the parser could read the
-                description; correct anything it got wrong:
-              </Text>
-              <StackLayout gap={1}>
-                {ordered.map((field) => (
-                  <FormField key={field.key} labelPlacement="left">
-                    <FormFieldLabel>{field.label}</FormFieldLabel>
-                    <Input
-                      value={draftDisplay(field, values[field.key] ?? '')}
-                      inputProps={{
-                        inputMode: field.valueType === 'text' ? undefined : 'numeric',
-                        'aria-label': field.label,
-                        onChange: (event) => {
-                          const raw = event.target.value
-                          onField(
-                            field.key,
-                            field.valueType === 'text' ? raw : raw.replace(/[^\d]/g, ''),
-                          )
-                        },
-                      }}
-                    />
-                  </FormField>
-                ))}
-              </StackLayout>
-            </StackLayout>
-
+          <GridLayout columns={{ xs: 1, lg: "1fr 1fr" }} gap={2}>
             <StackLayout gap={2}>
               {refs.length > 0 ? (
                 <StackLayout gap={0.5}>
@@ -243,6 +215,34 @@ export function DecisionCard({
                     </StackLayout>
                   ))}
                 </GridLayout>
+              </StackLayout>
+            </StackLayout>
+
+            <StackLayout gap={1}>
+              <Text color="secondary" styleAs="label">
+                New loan parameters to populate — prefilled where the parser could read the
+                description; correct anything it got wrong:
+              </Text>
+              <StackLayout gap={1}>
+                {ordered.map((field) => (
+                  <FormField key={field.key} labelPlacement="left">
+                    <FormFieldLabel>{field.label}</FormFieldLabel>
+                    <Input
+                      value={draftDisplay(field, values[field.key] ?? '')}
+                      inputProps={{
+                        inputMode: field.valueType === 'text' ? undefined : 'numeric',
+                        'aria-label': field.label,
+                        onChange: (event) => {
+                          const raw = event.target.value
+                          onField(
+                            field.key,
+                            field.valueType === 'text' ? raw : raw.replace(/[^\d]/g, ''),
+                          )
+                        },
+                      }}
+                    />
+                  </FormField>
+                ))}
               </StackLayout>
             </StackLayout>
           </GridLayout>

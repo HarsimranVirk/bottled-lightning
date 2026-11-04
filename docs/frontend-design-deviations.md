@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v3.6 |
+| **Version** | v3.7 |
 | **Date** | 2026-11-04 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
@@ -112,6 +112,10 @@ accepted/skipped/to-review tallies, then Skip and Accept. The header keeps the
 | leaving | card slides out right (accept) or left (skip) for 420 ms | — |
 | complete | `Deck complete 🎉`, accepted/skipped counts, **Replay skipped**, Refresh | undo all skips |
 | paused session | deck still usable (decisions + proposals are local) + global auth banner | Skip, Accept |
+
+Below the description the card splits into **read-only data on the left** (Pages to
+update, ROI) and the **four editable values on the right**; Skip/Accept span the card.
+On narrow screens the card stacks in that order: description, read-only, editable.
 
 Card order: newest `last_seen` first, the same order as the list. "next up: <key>" names
 the card behind the top one. **Accept** PATCHes the card's cleaned values as proposals
