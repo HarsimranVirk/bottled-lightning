@@ -44,7 +44,7 @@ class EventRepository:
     ) -> list[tuple[str, str | None, str, str | None]]:
         """Most recent events, optionally filtered by workflow and item."""
         where: list[str] = []
-        params: list[object] = []
+        params: list[str] = []
         if workflow is not None:
             where.append("workflow = ?")
             params.append(workflow)

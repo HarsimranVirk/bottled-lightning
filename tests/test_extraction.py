@@ -26,15 +26,20 @@ OPP_URL = "https://org/lightning/r/Opportunity/006/view"
 
 
 class FakeTabs:
+    """Tab provider that fails if a pipeline actually opens a page."""
     async def new_page(self, url: str) -> Page:
+        """Opening a tab in a fake pipeline is a bug in the test."""
         raise AssertionError("fake adapters must not open tabs")
 
     async def close_page(self, page: Page) -> None:
+        """Closing a tab in a fake pipeline is a bug in the test."""
         raise AssertionError("fake adapters must not close tabs")
 
 
 class FakeAdapter(AdapterBase):
+    """Adapter returning a canned discovery and recording its context."""
     def __init__(self, kind: str, discovery: Discovery) -> None:
+        """Store the canned discovery."""
         self.kind = kind
         self.discovery = discovery
         self.calls = 0
@@ -43,25 +48,31 @@ class FakeAdapter(AdapterBase):
     async def discover(
         self, tabs: TabProvider, context: DiscoveryContext
     ) -> Discovery:
+        """Record the context and return the canned discovery."""
         self.calls += 1
         self.contexts.append(context)
         return self.discovery
 
 
 class FailingAdapter(AdapterBase):
+    """Adapter that raises, to test error translation."""
     kind = DeviationObject.OPPORTUNITY.value
 
     def __init__(self, error: Exception) -> None:
+        """Store the error to raise."""
         self._error = error
 
     async def discover(
         self, tabs: TabProvider, context: DiscoveryContext
     ) -> Discovery:
+        """Raise the configured error."""
         raise self._error
 
 
 class ExtractionTests(DbTestCase):
+    """Extraction pipeline ordering, persistence and skip handling."""
     def _item(self) -> WorkItem:
+        """Create the item the pipeline will extract."""
         items = self.deps().items
         return items.create_present(
             "deviations_z02",
@@ -77,6 +88,7 @@ class ExtractionTests(DbTestCase):
     def _pipeline(
         self, adapters: list[AdapterBase], *, force: bool = False
     ) -> DeviationsZ02Extraction:
+        """Build the pipeline with a fresh adapter registry."""
         deps = self.deps()
         return DeviationsZ02Extraction(
             "deviations_z02",
@@ -90,11 +102,13 @@ class ExtractionTests(DbTestCase):
         )
 
     def _run(self, pipeline: DeviationsZ02Extraction, item: WorkItem) -> ExtractOutcome:
+        """Run the pipeline on a fresh event loop."""
         import asyncio
 
         return asyncio.run(pipeline.run(item, FakeTabs(), lambda _m: None))
 
     def test_happy_path_persists_everything(self) -> None:
+        """Fields, attributes and refs are all stored and the item becomes ready."""
         record = FakeAdapter(
             DeviationObject.DEVIATION.value,
             Discovery(
@@ -156,6 +170,7 @@ class ExtractionTests(DbTestCase):
         self.assertEqual(refs["cl_contract"].name, "LAI-1")
 
     def test_product_type_is_passed_to_the_cl_contract_adapter(self) -> None:
+        """The opportunity's product type reaches the CL-contract adapter (ordering)."""
         record = FakeAdapter(
             DeviationObject.DEVIATION.value,
             Discovery(
@@ -190,7 +205,7 @@ class ExtractionTests(DbTestCase):
         self.assertEqual(contract.contexts[0].opportunity_url, OPP_URL)
 
     def test_unparsed_values_are_not_a_skip(self) -> None:
-        """Parsing is best-effort (FR-4.3): no value is not a reason to stop."""
+        """Missing values still produce a ready item; parsing is best-effort."""
         record = FakeAdapter(
             DeviationObject.DEVIATION.value,
             Discovery(
@@ -232,6 +247,7 @@ class ExtractionTests(DbTestCase):
         self.assertIsNone(fields["tenure"].extracted)
 
     def test_ambiguity_skips_the_whole_item(self) -> None:
+        """One ambiguous match skips the item with that reason."""
         record = FakeAdapter(
             DeviationObject.DEVIATION.value,
             Discovery(
@@ -269,6 +285,7 @@ class ExtractionTests(DbTestCase):
         self.assertEqual(item.reason, "multiple matching CL contracts")
 
     def test_adapter_exception_becomes_a_skip(self) -> None:
+        """An adapter crash is logged and skips only that object."""
         record = FakeAdapter(
             DeviationObject.DEVIATION.value,
             Discovery(
@@ -301,6 +318,7 @@ class ExtractionTests(DbTestCase):
         self.assertIn("internal error in opportunity", item.reason or "")
 
     def test_missing_opportunity_link_skips(self) -> None:
+        """Without an opportunity link the item cannot proceed and skips."""
         record = FakeAdapter(DeviationObject.DEVIATION.value, Discovery())
         others = [
             FakeAdapter(kind, Discovery())
@@ -319,6 +337,7 @@ class ExtractionTests(DbTestCase):
         self.assertIn("no Opportunity link", self.deps().items.require("deviations_z02", KEY).reason or "")
 
     def test_already_extracted_is_a_no_op(self) -> None:
+        """extracted_at short-circuits re-extraction (FR-3.8)."""
         item = self._item()
         deps = self.deps()
         deps.items.transition("deviations_z02", KEY, WorkItemStatus.EXTRACTING)
@@ -336,6 +355,7 @@ class ExtractionTests(DbTestCase):
         self.assertEqual(item.key, KEY)
 
     def test_force_re_extracts(self) -> None:
+        """force=True bypasses the one-shot marker."""
         deps = self.deps()
         deps.items.create_present(
             "deviations_z02",

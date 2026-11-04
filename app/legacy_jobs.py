@@ -6,7 +6,6 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 from threading import Thread
-from typing import cast
 
 from app.deviations.types import ScrapedDetail
 
@@ -14,7 +13,7 @@ from . import config, store
 from .browser import SalesforceSession, SessionExpired
 from .deviations_z02 import PROFILE
 from .deviations_z02.pipeline import extract_one_deviation
-from .types import ListSnapshot
+from .types import JsonValue, ListSnapshot
 
 # ---------------------------------------------------------------------------
 # Persistent worker pool
@@ -192,7 +191,7 @@ def _run_job(
         if total is not None and len(numbers) != total:
             detail = f"count mismatch: header={total}, extracted={len(numbers)}"
 
-        results: list[dict[str, str | int | None]] = []
+        results: list[dict[str, JsonValue]] = []
         rlock = threading.Lock()
 
         def make_task(value: str, href: str) -> Callable[[SalesforceSession], None]:
@@ -211,7 +210,8 @@ def _run_job(
                     traceback.print_exc()
                     return
                 with rlock:
-                    results.append(cast(dict[str, str | int | None], entry.model_dump()))
+                    snapshot: dict[str, JsonValue] = entry.model_dump()
+                    results.append(snapshot)
                 refs = entry.refs
                 for i_ref, ref in enumerate(refs, start=1):
                     if not isinstance(ref, dict):

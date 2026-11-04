@@ -30,7 +30,9 @@ COOKIE = {
 
 
 class UrlTests(unittest.TestCase):
+    """Login and Lightning URL detection."""
     def test_login_redirect_is_detected(self) -> None:
+        """The classic-host redirect counts as a login page, printable view does not."""
         self.assertTrue(
             is_login_url(
                 "https://hffc.my.salesforce.com/?ec=302&startURL=%2Fvisualforce%2Fsession"
@@ -40,9 +42,11 @@ class UrlTests(unittest.TestCase):
         self.assertFalse(is_login_url("https://hffc.lightning.force.com/lightning/o/"))
 
     def test_printable_view_host_is_not_a_login_page(self) -> None:
+        """The my.salesforce.com printable host is not mistaken for login."""
         self.assertFalse(is_login_url("https://hffc.my.salesforce.com/a2f/x?fcf=1"))
 
     def test_lightning_page(self) -> None:
+        """An authenticated Lightning URL is recognised and blank pages are not."""
         self.assertTrue(
             is_lightning_url("https://hffc.lightning.force.com/lightning/o/X/list")
         )
@@ -51,7 +55,9 @@ class UrlTests(unittest.TestCase):
 
 
 class CookieDecodingTests(unittest.TestCase):
+    """Storage-state to add_cookies conversion."""
     def test_cookie_is_rebuilt_field_by_field(self) -> None:
+        """Every cookie field is copied with its type intact."""
         params = cookie_params_from_state(json.dumps({"cookies": [COOKIE]}))
         self.assertEqual(len(params), 1)
         cookie = params[0]
@@ -65,17 +71,21 @@ class CookieDecodingTests(unittest.TestCase):
         self.assertEqual(cookie["sameSite"], "None")
 
     def test_incomplete_cookies_are_skipped(self) -> None:
+        """Cookies without domain/path are dropped, not guessed."""
         broken = {"cookies": [{"name": "no-domain"}]}
         self.assertEqual(cookie_params_from_state(json.dumps(broken)), [])
 
     def test_invalid_input(self) -> None:
+        """Malformed JSON yields no cookies instead of raising."""
         self.assertEqual(cookie_params_from_state("not json"), [])
         self.assertEqual(cookie_params_from_state("[]"), [])
         self.assertEqual(cookie_params_from_state('{"cookies": "nope"}'), [])
 
 
 class SessionProviderTests(DbTestCase):
+    """Session provider state and snapshot exposure."""
     def _settings(self) -> Settings:
+        """Settings pointing at the temp data dir."""
         return Settings(
             org_base="https://example",
             data_dir=self.tmp_path,
@@ -91,6 +101,7 @@ class SessionProviderTests(DbTestCase):
         )
 
     def test_expiry_flag_round_trip(self) -> None:
+        """Expiry flags set and restore."""
         provider = SessionProvider(SessionRepository(self.db), self._settings())
         self.assertFalse(provider.expired)
         provider.mark_expired()
@@ -99,6 +110,7 @@ class SessionProviderTests(DbTestCase):
         self.assertFalse(provider.expired)
 
     def test_snapshot_is_exposed(self) -> None:
+        """The latest snapshot and its cookie count are readable."""
         repo = SessionRepository(self.db)
         repo.save(json.dumps({"cookies": [COOKIE]}), 1, "org")
         provider = SessionProvider(repo, self._settings())
@@ -109,7 +121,9 @@ class SessionProviderTests(DbTestCase):
 
 
 class RuntimeGuardTests(DbTestCase):
+    """Browser runtime guards before startup."""
     def test_run_before_start_raises(self) -> None:
+        """Calling run()/new_tab_group() before start() fails loudly."""
         settings = Settings(
             org_base="https://example",
             data_dir=self.tmp_path,
@@ -127,7 +141,8 @@ class RuntimeGuardTests(DbTestCase):
         self.assertFalse(runtime.started)
 
         async def work() -> None:
-            return None
+            """Trivial coroutine never scheduled in this test."""
+            return
 
         with self.assertRaises(RuntimeError):
             runtime.run(work)

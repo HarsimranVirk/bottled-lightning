@@ -177,7 +177,8 @@ async def _await_lms_rows(
 async def _scrape_lms_rows(page: Page, host_tag: str) -> list[dict[str, str]]:
     """Read rows from the component's shadow root."""
     try:
-        raw: object = await page.evaluate(_LMS_ROWS_JS, host_tag)
+        # Playwright's evaluate() is typed Any; narrow immediately with isinstance.
+        raw = await page.evaluate(_LMS_ROWS_JS, host_tag)
     except Exception as exc:  # noqa: BLE001 - component not rendered
         logger.debug("LMS row scrape failed for %s: %s", host_tag, exc)
         return []

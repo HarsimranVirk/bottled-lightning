@@ -71,7 +71,7 @@ def cookie_params_from_state(storage_state: str) -> list[SetCookieParam]:
           "secure": True, "sameSite": "None"}]
     """
     try:
-        raw: object = json.loads(storage_state)
+        raw = json.loads(storage_state)
     except ValueError:
         return []
     if not isinstance(raw, dict):

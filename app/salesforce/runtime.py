@@ -46,7 +46,7 @@ class BrowserRuntime:
         self._error: BaseException | None = None
         self._playwright: Playwright | None = None
         self._context: BrowserContext | None = None
-        self._background: set[Future[object]] = set()
+        self._background: set[Future[None]] = set()
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> None:
@@ -120,7 +120,7 @@ class BrowserRuntime:
         future = asyncio.run_coroutine_threadsafe(factory(), loop)
         return future.result()
 
-    def spawn(self, factory: Callable[[], Coroutine[None, None, object]]) -> None:
+    def spawn(self, factory: Callable[[], Coroutine[None, None, None]]) -> None:
         """
         Start a long-lived task on the browser loop.
 
@@ -192,7 +192,7 @@ class BrowserRuntime:
                 await playwright.stop()
 
 
-def _report_failure(future: Future[object]) -> None:
+def _report_failure(future: Future[None]) -> None:
     """Log a background task's exception."""
     with suppress(Exception):
         error = future.exception()

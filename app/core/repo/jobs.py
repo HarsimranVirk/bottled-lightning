@@ -278,7 +278,7 @@ class JobRepository:
     ) -> list[Job]:
         """List jobs, newest first, with optional filters."""
         where: list[str] = []
-        params: list[object] = []
+        params: list[str] = []
         if workflow is not None:
             where.append("workflow = ?")
             params.append(workflow)

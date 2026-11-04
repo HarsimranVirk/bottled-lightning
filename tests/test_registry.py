@@ -27,22 +27,27 @@ from app.workflows.deviations_z02 import WORKFLOW_NAME, build_workflow
 
 
 class FakeExtraction:
+    """Stand-in extraction pipeline for the registry tests."""
     async def run(
         self, item: WorkItem, tabs: TabProvider, log: JobLogger
     ) -> ExtractOutcome:
+        """Stand-in pipeline that proves a workflow can be registered without core changes."""
         log(f"fake extraction {item.key}")
         return ExtractOutcome.EXTRACTED
 
 
 class FakeSubmission:
+    """Stand-in submission pipeline for the registry tests."""
     async def run(
         self, item: WorkItem, tabs: TabProvider, log: JobLogger
     ) -> SubmitOutcome:
+        """Stand-in submission pipeline for the fake workflow."""
         log(f"fake submission {item.key}")
         return SubmitOutcome.COMPLETED
 
 
 def fake_workflow(name: str = "cancellations") -> Workflow:
+    """Minimal workflow used to prove the seam is workflow-agnostic."""
     catalog: tuple[EditableField, ...] = (
         EditableField(
             key="reason",
@@ -53,6 +58,7 @@ def fake_workflow(name: str = "cancellations") -> Workflow:
     )
 
     def map_row(row: ListRow) -> Mapping[str, str]:
+        """No list columns are mapped for the fake workflow."""
         return {"href": row.href}
 
     return Workflow(
@@ -69,6 +75,7 @@ def fake_workflow(name: str = "cancellations") -> Workflow:
 
 
 def settings_for(path: Path) -> Settings:
+    """Settings pointing at a temp data dir, for build_workflow tests."""
     return Settings(
         org_base="https://example",
         data_dir=path,
@@ -85,7 +92,9 @@ def settings_for(path: Path) -> Settings:
 
 
 class RegistryTests(unittest.TestCase):
+    """Workflow registration and lookup behaviour."""
     def test_accepts_a_second_workflow(self) -> None:
+        """A second workflow registers and keeps its own labels."""
         registry = WorkflowRegistry()
         registry.register(fake_workflow())
         loaded = registry.get("cancellations")
@@ -93,17 +102,20 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(loaded.terminal_labels[WorkItemStatus.COMPLETED], "Approved")
 
     def test_unknown_workflow_raises(self) -> None:
+        """Unknown names raise UnknownWorkflow rather than returning None."""
         registry = WorkflowRegistry()
         with self.assertRaises(UnknownWorkflow):
             registry.get("nope")
 
     def test_two_workflows_coexist(self) -> None:
+        """Registration order is preserved and nothing is overwritten."""
         registry = WorkflowRegistry()
         registry.register(fake_workflow())
         registry.register(fake_workflow("second"))
         self.assertEqual(registry.names(), ("cancellations", "second"))
 
     def test_deviations_workflow_is_registrable(self) -> None:
+        """The Z02 workflow builds from settings and exposes the expected route/catalogue."""
         with tempfile.TemporaryDirectory() as tmp:
             database = Database(Path(tmp) / "app.db")
             database.migrate()

@@ -16,20 +16,24 @@ from app.db.connection import Database
 
 
 class DbTestCase(unittest.TestCase):
+    """Base case that gives each test a fresh migrated SQLite file."""
     tmp_path: Path
     db: Database
 
     def setUp(self) -> None:
+        """Create a temp directory and a migrated database for this test."""
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp_path = Path(self._tmp.name)
         self.db = Database(self.tmp_path / "test.db")
         self.db.migrate()
 
     def tearDown(self) -> None:
+        """Close the connection and remove the temp directory."""
         self.db.close()
         self._tmp.cleanup()
 
     def deps(self) -> WorkflowDeps:
+        """Wire the workflow repositories onto this test's database."""
         return WorkflowDeps(
             items=WorkItemRepository(self.db),
             fields=FieldValueRepository(self.db),

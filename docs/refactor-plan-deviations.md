@@ -14,6 +14,30 @@
 > `SubmissionPipeline`. Nothing in this plan implements a second workflow — it only keeps
 > the door open.
 
+## 0. Design documents
+
+This plan executes the design recorded in:
+
+| Document | Contents | Status |
+|---|---|---|
+| `docs/FR-deviations-v2.md` | requirements, FR-1…FR-9, NFRs, open items | v2.1, reviewed |
+| `docs/class-design-deviations.md` | classes, protocols, workflow seam, ownership, invariants | v2 |
+| `docs/data-model-deviations.md` | tables, columns, keys, semantics, migration, retention | v1 |
+| `docs/api-deviations.md` | endpoints, payloads, status codes, TS types | v1 |
+
+If implementation reveals a gap, the document is amended first and the change lands
+with it (AGENTS.md). Phase 7 implements the API doc; Phases 1–2 implement the data
+model doc.
+
+**Documentation scope during the refactor:** every module, class and function in the v2
+stack (`app/core`, `app/db`, `app/salesforce`, `app/jobs`, `app/utils`,
+`app/workflows`) and in `tests/` is documented to the AGENTS.md standard. The v1 modules
+scheduled for deletion in Phase 9 (`app/store.py`, `app/sync.py`, `app/routes.py`,
+`app/browser.py`, `app/legacy_jobs.py`, `app/types.py`, `app/deviations/`,
+`app/deviations_z02/`) keep their original sparse comments until they are removed; they
+are not edited further, per the cutover strategy. `app/updater.py` and `app/main.py`
+survive and are documented.
+
 ---
 
 ## 1. Strategy

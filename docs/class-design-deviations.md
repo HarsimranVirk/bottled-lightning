@@ -5,7 +5,7 @@
 | **Status** | Draft for review |
 | **Version** | v2 |
 | **Date** | 2026-11-04 |
-| **Companion** | `docs/FR-deviations-v2.md` (v2.1), `docs/refactor-plan-deviations.md` |
+| **Companions** | `docs/FR-deviations-v2.md` (v2.1), `docs/data-model-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
 | **Change** | v2 introduces the workflow abstraction; v1 was deviations-only |
 | **Implemented so far** | Phases 1–4 on `refactor/deviations-v2`: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,adapters}`, `app/jobs/{dispatcher,worker,auth,logger}`, `app/utils/dom`, `app/workflows/deviations_z02/{catalog,description,product_map,adapters,extraction}` |
 
@@ -449,98 +449,19 @@ WAL, `foreign_keys=ON`, `busy_timeout=5000`, one connection per thread.
 
 ### 6.2 Schema v2
 
-All item tables are workflow-scoped; `workflow` is part of every primary key.
+The schema — tables, columns, keys, indexes, and each table's mutable /
+one-shot / append-only semantics — is specified in
+**`docs/data-model-deviations.md`**. Shape in one glance:
 
-```sql
-CREATE TABLE work_items (
-    workflow TEXT NOT NULL,
-    item_key TEXT NOT NULL,
-    status TEXT NOT NULL,
-    source TEXT, reason TEXT,
-    present INTEGER NOT NULL DEFAULT 1,
-    epoch INTEGER NOT NULL DEFAULT 1,
-    first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
-    absent_since TEXT,
-    approved_at TEXT,
-    extracted_at TEXT,
-    execute_attempted_at TEXT, execute_confirmed_at TEXT,
-    closed_at TEXT,
-    PRIMARY KEY (workflow, item_key)
-);
-CREATE INDEX work_items_status ON work_items(workflow, status);
+- item tables, workflow-scoped: `work_items`, `work_item_fields`,
+  `work_item_attributes`, `work_item_refs`
+- audit, append-only: `work_item_edits`, `work_item_events`, `job_logs`,
+  `sync_runs`, `session_events`
+- queue: `jobs`, with a partial unique index enforcing one active job per item
+- auth: `sessions` (latest snapshot wins)
 
-CREATE TABLE work_item_fields (
-    workflow TEXT NOT NULL, item_key TEXT NOT NULL, field_key TEXT NOT NULL,
-    extracted TEXT, last_synced TEXT, proposed TEXT, applied TEXT,
-    status TEXT NOT NULL, updated_at TEXT NOT NULL,
-    PRIMARY KEY (workflow, item_key, field_key)
-);
-
-CREATE TABLE work_item_attributes (
-    workflow TEXT NOT NULL, item_key TEXT NOT NULL, name TEXT NOT NULL,
-    value TEXT,
-    PRIMARY KEY (workflow, item_key, name)
-);
-
-CREATE TABLE work_item_refs (
-    workflow TEXT NOT NULL, item_key TEXT NOT NULL, kind TEXT NOT NULL,
-    name TEXT NOT NULL, url TEXT NOT NULL,
-    PRIMARY KEY (workflow, item_key, kind)
-);
-
-CREATE TABLE work_item_edits (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    workflow TEXT NOT NULL, item_key TEXT NOT NULL, field_key TEXT NOT NULL,
-    old_value TEXT, new_value TEXT,
-    job_id INTEGER, created_at TEXT NOT NULL
-);
-
-CREATE TABLE work_item_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    workflow TEXT, item_key TEXT, job_id INTEGER,
-    kind TEXT NOT NULL, detail TEXT,
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE jobs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    workflow TEXT NOT NULL, item_key TEXT NOT NULL,
-    kind TEXT NOT NULL, status TEXT NOT NULL,
-    phase TEXT, attempts INTEGER NOT NULL DEFAULT 0,
-    lease_owner TEXT, lease_expires_at TEXT,
-    created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT,
-    error TEXT
-);
-CREATE INDEX jobs_claim ON jobs(status, kind, created_at);
-CREATE UNIQUE INDEX jobs_active ON jobs(workflow, item_key)
-    WHERE status IN ('queued', 'running', 'blocked_auth');
-
-CREATE TABLE job_logs (
-    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
-    seq INTEGER NOT NULL, line TEXT NOT NULL, at TEXT NOT NULL,
-    PRIMARY KEY (job_id, seq)
-);
-
-CREATE TABLE sync_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    workflow TEXT NOT NULL, captured_at TEXT NOT NULL,
-    header_total INTEGER, rows_read INTEGER NOT NULL,
-    valid INTEGER NOT NULL, warning TEXT,
-    added INTEGER NOT NULL DEFAULT 0, updated INTEGER NOT NULL DEFAULT 0,
-    closed INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE TABLE sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    org TEXT, storage_state TEXT NOT NULL,
-    cookie_count INTEGER NOT NULL, created_at TEXT NOT NULL
-);
-
-CREATE TABLE session_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    event TEXT NOT NULL, detail TEXT, created_at TEXT NOT NULL
-);
-```
+Repositories remain the only code that issues SQL, per the ownership map in that
+document.
 
 The `jobs_active` partial unique index is invariant I2 enforced by the database rather than
 by application logic.
@@ -963,34 +884,10 @@ live in `AdminService`, which owns the `BrowserRuntime` bridge.
 
 ### 11.2 Routes
 
-`make_router(workflow: Workflow) -> APIRouter` is mounted once per workflow at
-`/api/{workflow.name}`; the shape is identical for every workflow.
-
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/api/workflows` | registered workflows + labels + field catalogue |
-| GET | `/api/sessions` | auth state + last event |
-| POST | `/api/sessions` | start manual login |
-| DELETE | `/api/sessions` | clear snapshot |
-| GET | `/api/syncs?workflow=` | last sync run + health |
-| POST | `/api/syncs` | force a refresh |
-| GET | `/api/deviations` | unified view, `?status=&q=&limit=&offset=` |
-| GET | `/api/deviations/{key}` | one item, grouped by object |
-| PATCH | `/api/deviations/{key}/field-values` | propose values |
-| DELETE | `/api/deviations/{key}/field-values` | discard proposals |
-| POST | `/api/deviations/{key}/jobs` | enqueue SUBMIT |
-| GET | `/api/jobs?workflow=&kind=&status=` | queue |
-| GET | `/api/jobs/{id}` / `GET /api/jobs/{id}/logs` | job detail |
-| DELETE | `/api/jobs/{id}` | cancel a queued job |
-| GET / PATCH | `/api/workers` | concurrency + in-flight |
-| GET/POST | `/api/updates`, `/api/updates/checks`, `/api/updates/installations` | unchanged |
-
-`/api/deviations` is simply `make_router(deviations)` mounted under its own noun — no
-generic `/api/workflows/{name}/items`. Adding a workflow adds `/api/cancellations` with
-the same shape and no new handler code.
-
-Legacy aliases (`/views`, `/views/{id}/run`, `/deviations/run`, `/deviations/sync`, …) are
-removed, not deprecated.
+The endpoint list, payloads, status codes and TypeScript types live in
+**`docs/api-deviations.md`**. The only structural rule here: routes are generated by
+`make_router(workflow)` and mounted once per registered workflow, so adding a workflow
+adds a REST surface with no new handler code.
 
 ### 11.3 DTOs
 

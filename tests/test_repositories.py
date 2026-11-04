@@ -32,6 +32,7 @@ KEY = "Deviation-28102026-484106"
 
 
 def row(key: str = KEY) -> ListRow:
+    """Build a synthetic list row with a record link."""
     return ListRow(
         key=key,
         href=f"/lightning/r/a2f/{key}/view",
@@ -41,7 +42,9 @@ def row(key: str = KEY) -> ListRow:
 
 
 class WorkItemTests(DbTestCase):
+    """Item presence, transitions, leases and epochs."""
     def test_lifecycle(self) -> None:
+        """A new item starts present and moves through extraction to ready."""
         items = WorkItemRepository(self.db)
         created = items.create_present(WORKFLOW, row(), utcnow())
         self.assertIs(created.status, WorkItemStatus.PRESENT)
@@ -57,18 +60,21 @@ class WorkItemTests(DbTestCase):
         self.assertIsNotNone(ready.extracted_at)
 
     def test_create_present_is_idempotent(self) -> None:
+        """Repeated refreshes do not reset an existing item."""
         items = WorkItemRepository(self.db)
         first = items.create_present(WORKFLOW, row(), utcnow())
         second = items.create_present(WORKFLOW, row(), utcnow())
         self.assertEqual(first, second)
 
     def test_illegal_transition_is_rejected(self) -> None:
+        """The state machine refuses jumps that skip validation."""
         items = WorkItemRepository(self.db)
         items.create_present(WORKFLOW, row(), utcnow())
         with self.assertRaises(InvalidTransition):
             items.transition(WORKFLOW, KEY, WorkItemStatus.COMPLETED)
 
     def test_terminal_status_is_blocked_by_active_lease(self) -> None:
+        """Closing is deferred while a job runs, but absent-pending is allowed (FR-6.11)."""
         items = WorkItemRepository(self.db)
         jobs = JobRepository(self.db)
         items.create_present(WORKFLOW, row(), utcnow())
@@ -93,6 +99,7 @@ class WorkItemTests(DbTestCase):
         self.assertIs(closed.source, ClosureSource.EXTERNAL)
 
     def test_absent_and_new_epoch(self) -> None:
+        """Absence is recorded without closing, and reappearance starts an epoch."""
         items = WorkItemRepository(self.db)
         items.create_present(WORKFLOW, row(), utcnow())
         items.set_absent(WORKFLOW, KEY, utcnow())
@@ -106,6 +113,7 @@ class WorkItemTests(DbTestCase):
         self.assertIs(reentered.status, WorkItemStatus.PRESENT)
 
     def test_list_and_search(self) -> None:
+        """Filtering, search and paging all work on the same table."""
         items = WorkItemRepository(self.db)
         items.create_present(WORKFLOW, row("Deviation-1-1"), utcnow())
         items.create_present(WORKFLOW, row("Deviation-2-2"), utcnow())
@@ -127,7 +135,9 @@ class WorkItemTests(DbTestCase):
 
 
 class FieldValueTests(DbTestCase):
+    """Editable value precedence rules."""
     def test_proposal_survives_a_resync(self) -> None:
+        """A refresh may move last_synced but never overwrites a pending edit (I4)."""
         fields = FieldValueRepository(self.db)
         fields.set_extracted(WORKFLOW, KEY, {"loan_amount": "2550000"})
         fields.propose(WORKFLOW, KEY, {"loan_amount": "3000000"})
@@ -152,6 +162,7 @@ class FieldValueTests(DbTestCase):
         self.assertIs(discarded.status, FieldStatus.APPLIED)
 
     def test_clearing_a_proposal_falls_back_to_extracted(self) -> None:
+        """Discarding an edit restores the extracted status."""
         fields = FieldValueRepository(self.db)
         fields.set_extracted(WORKFLOW, KEY, {"tenure": "240"})
         fields.propose(WORKFLOW, KEY, {"tenure": "300"})
@@ -163,7 +174,9 @@ class FieldValueTests(DbTestCase):
 
 
 class JobTests(DbTestCase):
+    """Queue claiming, leasing and recovery."""
     def test_enqueue_dedupes_active_jobs(self) -> None:
+        """The unique index prevents two active jobs for one item (I2)."""
         jobs = JobRepository(self.db)
         first = jobs.enqueue(WORKFLOW, JobKind.EXTRACT, KEY)
         second = jobs.enqueue(WORKFLOW, JobKind.EXTRACT, KEY)
@@ -171,6 +184,7 @@ class JobTests(DbTestCase):
         self.assertEqual(len(jobs.query(WORKFLOW)), 1)
 
     def test_claim_lease_and_complete(self) -> None:
+        """A claim leases exactly one job; a second claim finds nothing."""
         jobs = JobRepository(self.db)
         job = jobs.enqueue(WORKFLOW, JobKind.EXTRACT, KEY)
         self.assertIsNotNone(jobs.claim("w0", ttl_s=300))
@@ -186,6 +200,7 @@ class JobTests(DbTestCase):
         self.assertIsNone(done.lease_owner)
 
     def test_retryable_failure_requeues(self) -> None:
+        """A retryable failure returns the job to the queue."""
         jobs = JobRepository(self.db)
         job = jobs.enqueue(WORKFLOW, JobKind.EXTRACT, KEY)
         jobs.claim("w0", ttl_s=300)
@@ -195,6 +210,7 @@ class JobTests(DbTestCase):
         self.assertEqual(again.error, "boom")
 
     def test_stale_lease_is_requeued(self) -> None:
+        """An expired lease is recovered after a crash."""
         jobs = JobRepository(self.db)
         job = jobs.enqueue(WORKFLOW, JobKind.EXTRACT, KEY)
         jobs.claim("w0", ttl_s=-1)
@@ -202,6 +218,7 @@ class JobTests(DbTestCase):
         self.assertIs(jobs.require(job.id).status, JobStatus.QUEUED)
 
     def test_cancel_queued_job(self) -> None:
+        """Queued jobs can be cancelled once, not twice."""
         jobs = JobRepository(self.db)
         job = jobs.enqueue(WORKFLOW, JobKind.EXTRACT, KEY)
         self.assertTrue(jobs.cancel(job.id))
@@ -209,6 +226,7 @@ class JobTests(DbTestCase):
         self.assertFalse(jobs.cancel(job.id))
 
     def test_logs_are_ordered(self) -> None:
+        """Job log sequence numbers preserve order."""
         jobs = JobRepository(self.db)
         job = jobs.enqueue(WORKFLOW, JobKind.EXTRACT, KEY)
         jobs.log(job.id, "first")
@@ -217,7 +235,9 @@ class JobTests(DbTestCase):
 
 
 class SyncRunTests(DbTestCase):
+    """Refresh history, including invalid samples."""
     def test_record_and_latest(self) -> None:
+        """The latest run is returned with its counters."""
         runs = SyncRunRepository(self.db)
         run_id = runs.record(
             SyncRun(
@@ -240,6 +260,7 @@ class SyncRunTests(DbTestCase):
         self.assertTrue(latest.valid)
 
     def test_invalid_run_is_recorded_with_warning(self) -> None:
+        """A header mismatch is stored with its warning rather than dropped."""
         runs = SyncRunRepository(self.db)
         runs.record(
             SyncRun(
@@ -262,7 +283,9 @@ class SyncRunTests(DbTestCase):
 
 
 class SupportingRepoTests(DbTestCase):
+    """Attributes, refs, edits, events and sessions."""
     def test_attributes_round_trip(self) -> None:
+        """Attributes upsert by name and clear per item."""
         attrs = AttributeRepository(self.db)
         attrs.upsert(WORKFLOW, KEY, {"description": "x", "requested_roi": None})
         self.assertEqual(
@@ -275,6 +298,7 @@ class SupportingRepoTests(DbTestCase):
         self.assertEqual(attrs.for_item(WORKFLOW, KEY), {})
 
     def test_page_refs_replace(self) -> None:
+        """Refs are replaced atomically, dropping stale kinds."""
         refs = PageRefRepository(self.db)
         refs.replace(
             WORKFLOW,
@@ -292,6 +316,7 @@ class SupportingRepoTests(DbTestCase):
         self.assertEqual(refs.for_item(WORKFLOW, KEY), {})
 
     def test_edits_and_events(self) -> None:
+        """Audit rows are appended and readable."""
         edits = EditRepository(self.db)
         edits.record(WORKFLOW, KEY, "loan_amount", "1", "2", utcnow())
         self.assertEqual(edits.count(WORKFLOW, KEY), 1)
@@ -302,6 +327,7 @@ class SupportingRepoTests(DbTestCase):
         self.assertEqual(recent[0][0], "extracted")
 
     def test_sessions_round_trip(self) -> None:
+        """Snapshots save, read back, and clear."""
         sessions = SessionRepository(self.db)
         self.assertIsNone(sessions.snapshot())
         sessions.save('{"cookies": []}', cookie_count=0, org="hffc")
@@ -317,7 +343,9 @@ class SupportingRepoTests(DbTestCase):
 
 
 class SettingsTests(unittest.TestCase):
+    """Settings loading and database file creation."""
     def test_list_url_is_built(self) -> None:
+        """The Z02 list URL is built from the org base and filter."""
         settings = load_settings()
         self.assertGreaterEqual(settings.workers, 1)
         self.assertIn("Consumer_Loan_Deviation__c", settings.deviations_z02_list_url)
@@ -325,6 +353,7 @@ class SettingsTests(unittest.TestCase):
         self.assertIsInstance(settings, Settings)
 
     def test_migrate_creates_the_file(self) -> None:
+        """Migration creates missing parent directories."""
         import tempfile
         from pathlib import Path
 

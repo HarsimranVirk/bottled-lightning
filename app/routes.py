@@ -2,7 +2,7 @@
 
 import contextlib
 import threading
-from typing import Literal, cast
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -261,7 +261,8 @@ def update_deviation(value: str, body: DecisionIn) -> dict[str, JsonValue]:
         store.delete_deviation_active(value)
     det = store.get_deviation_details(value)
     if det is not None:
-        return cast(dict[str, JsonValue], det)  # det values are str | None, a subset of JsonValue
+        payload: dict[str, JsonValue] = {str(key): value for key, value in det.items()}
+        return payload
     return {"value": value, "decision": body.decision}
 
 

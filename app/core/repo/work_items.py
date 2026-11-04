@@ -47,7 +47,7 @@ def _to_item(row: sqlite3.Row) -> WorkItem:
     )
 
 
-def _time(value: object) -> datetime:
+def _time(value: str | None) -> datetime:
     """Parse a required stored timestamp."""
     parsed = from_iso(opt_str(value))
     if parsed is None:
@@ -190,7 +190,7 @@ class WorkItemRepository:
             raise LeaseHeld(f"{workflow}/{key}: cannot close while a job lease is held")
 
         sets = ["status = ?"]
-        params: list[object] = [to.value]
+        params: list[str | int] = [to.value]
         if reason is not None:
             sets.append("reason = ?")
             params.append(reason)
@@ -284,7 +284,7 @@ class WorkItemRepository:
         box. Returns the page and the total count for pagination.
         """
         where = ["workflow = ?"]
-        params: list[object] = [workflow]
+        params: list[str | int] = [workflow]
         if status is not None:
             where.append("status = ?")
             params.append(status.value)

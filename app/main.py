@@ -21,6 +21,7 @@ WEB_DIR = PACKAGED_WEB_DIR if (PACKAGED_WEB_DIR / "index.html").exists() else DE
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Startup/shutdown: init the DB, fail stale jobs, start the worker pool."""
     preexisting = config.DB_PATH.exists()
     store.init_db()
     stale = store.fail_stale_running_jobs()
@@ -57,6 +58,7 @@ app.include_router(router)
 
 @app.get("/", response_model=None)
 def index() -> FileResponse | dict[str, str]:
+    """Serve the SPA entry point (or a hint when the frontend is not built)."""
     index_file = WEB_DIR / "index.html"
     if index_file.exists():
         return FileResponse(index_file)
@@ -67,6 +69,7 @@ app.mount("/", StaticFiles(directory=str(WEB_DIR), check_dir=False, html=True), 
 
 
 def _lan_ip() -> str | None:
+    """Best-effort LAN address for the boot banner."""
     import socket
 
     try:
@@ -81,6 +84,7 @@ def _lan_ip() -> str | None:
 
 
 def main() -> None:
+    """CLI entry point: parse args, configure logging, run uvicorn."""
     from .core.logging import configure_logging
 
     configure_logging()

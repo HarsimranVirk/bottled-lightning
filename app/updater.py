@@ -10,7 +10,6 @@ import urllib.request
 import zipfile
 from collections.abc import Iterable
 from pathlib import Path
-from typing import cast
 
 from . import config
 
@@ -34,7 +33,7 @@ __all__ = [
 
 
 class UpdateError(Exception):
-    pass
+    """Raised for an update that must not be installed (bad URL, version or digest)."""
 
 
 _state: dict[str, JsonValue] = {
@@ -46,13 +45,16 @@ _state_lock = threading.Lock()
 
 
 def current_version() -> str:
+    """The running package version, without a leading v."""
     from . import __version__
 
     return __version__
 
 
 def is_newer(candidate: str, current: str) -> bool:
+    """True when ``candidate`` is a higher version than ``current``."""
     def _parse(v: str) -> tuple[int, ...] | None:
+        """Split a version into comparable integer segments."""
         v = v.strip().lstrip("vV")
         m = re.match(r"^(\d+(?:\.\d+)*)(.*)$", v)
         if not m:
@@ -75,6 +77,7 @@ def is_newer(candidate: str, current: str) -> bool:
 
 
 def select_wheel_asset(assets: Iterable[dict[str, str]]) -> dict[str, str] | None:
+    """Pick the wheel to install: project wheel first, then newest version."""
     wheels = [a for a in assets if str(a.get("name", "")).endswith(".whl")]
     if not wheels:
         return None
@@ -98,6 +101,7 @@ def select_wheel_asset(assets: Iterable[dict[str, str]]) -> dict[str, str] | Non
 
 
 def sha256_file(path: Path) -> str:
+    """Hex SHA-256 of a file, used to verify a downloaded wheel."""
     h = hashlib.sha256()
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(65536), b""):
@@ -106,6 +110,7 @@ def sha256_file(path: Path) -> str:
 
 
 def _validate_url(url: str) -> str:
+    """Refuse any download that is not served by GitHub."""
     if not url.startswith("https://github.com/"):
         raise UpdateError("url must be a github https url")
     if not url.startswith("https://"):
@@ -114,6 +119,7 @@ def _validate_url(url: str) -> str:
 
 
 def verify_wheel(path: Path, expected_version: str | None = None) -> None:
+    """Check a wheel's embedded version and (when provided) its digest."""
     if not zipfile.is_zipfile(path):
         raise UpdateError("not a valid wheel")
     with zipfile.ZipFile(path) as z:
@@ -132,6 +138,7 @@ def verify_wheel(path: Path, expected_version: str | None = None) -> None:
 
 
 def _fetch_json(url: str, timeout: int = 30) -> dict[str, JsonValue]:
+    """GET a JSON object from the GitHub API."""
     req = urllib.request.Request(url, headers={"User-Agent": "bottled-lightning"})
     with urllib.request.urlopen(req, timeout=timeout) as response:
         payload = json.loads(response.read().decode("utf-8"))
@@ -141,10 +148,12 @@ def _fetch_json(url: str, timeout: int = 30) -> dict[str, JsonValue]:
 
 
 def _state_file() -> Path:
+    """Path of the cached update state file."""
     return getattr(config, "UPDATE_STATE_FILE", config.DATA_DIR / "update_state.json")
 
 
 def _load_cache() -> dict[str, JsonValue] | None:
+    """Read the cached check result, or None when absent/unreadable."""
     try:
         data = json.loads(_state_file().read_text())
         if isinstance(data, dict):
@@ -155,6 +164,7 @@ def _load_cache() -> dict[str, JsonValue] | None:
 
 
 def _save_cache(result: dict[str, JsonValue]) -> None:
+    """Persist the last check result (best effort)."""
     try:
         _state_file().write_text(json.dumps(result))
     except OSError:
@@ -162,10 +172,12 @@ def _save_cache(result: dict[str, JsonValue]) -> None:
 
 
 def _fresh(cached: dict[str, JsonValue]) -> bool:
+    """Whether a cached result is still usable."""
     return True
 
 
 def _set_status(status: str, detail: str = "", **fields: JsonValue) -> None:
+    """Update the in-memory status snapshot under the lock."""
     with _state_lock:
         _state["status"] = status
         _state["detail"] = detail
@@ -175,6 +187,7 @@ def _set_status(status: str, detail: str = "", **fields: JsonValue) -> None:
 
 
 def _finish(result: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    """Persist and publish a check result, then return it."""
     _save_cache(result)
     with _state_lock:
         for k, v in result.items():
@@ -184,15 +197,54 @@ def _finish(result: dict[str, JsonValue]) -> dict[str, JsonValue]:
 
 
 def _github_repo() -> str:
+    """The GitHub repository releases are read from."""
     return "harsimranvirk/bottled-lightning"
 
 
+def _asset_records(value: JsonValue) -> list[dict[str, str]]:
+    """Coerce the release ``assets`` JSON into typed records.
+
+    GitHub returns a list of objects; anything that is not a dict of strings is
+    dropped rather than guessed at.
+    """
+    if not isinstance(value, list):
+        return []
+    records: list[dict[str, str]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        record: dict[str, str] = {}
+        for key, field in item.items():
+            if isinstance(key, str) and isinstance(field, str):
+                record[key] = field
+        records.append(record)
+    return records
+
+
+def _failed(error: str) -> dict[str, JsonValue]:
+    """Build the canonical failed-check payload."""
+    return {
+        "status": "failed",
+        "update_available": False,
+        "error": error,
+        "detail": error,
+    }
+
+
 def check_for_update(force: bool = False) -> dict[str, JsonValue]:
+    """Ask GitHub for the latest release and describe what the app should do.
+
+    Never raises: a missing repo, network failure or malformed release is a normal
+    ``failed`` result that the UI reports. Results are cached in the update state
+    file unless ``force`` is set.
+    """
+    result: dict[str, JsonValue]
     if config.UPDATE_POLICY == "off":
-        result = cast(
-            dict[str, JsonValue],
-            {"status": "disabled", "update_available": False, "detail": "updates disabled"},
-        )
+        result = {
+            "status": "disabled",
+            "update_available": False,
+            "detail": "updates disabled",
+        }
         _finish(result)
         return result
     if not force:
@@ -204,95 +256,73 @@ def check_for_update(force: bool = False) -> dict[str, JsonValue]:
         payload = _fetch_json(url)
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            result = cast(
-                dict[str, JsonValue],
-                {
-                    "status": "up-to-date",
-                    "update_available": False,
-                    "detail": "no releases",
-                    "error": None,
-                },
-            )
+            result = {
+                "status": "up-to-date",
+                "update_available": False,
+                "detail": "no releases",
+                "error": None,
+            }
             _finish(result)
             return result
-        result = cast(
-            dict[str, JsonValue],
-            {"status": "failed", "update_available": False, "error": str(e), "detail": str(e)},
-        )
+        result = _failed(str(e))
         _finish(result)
         return result
     except (OSError, ValueError) as e:
-        result = cast(
-            dict[str, JsonValue],
-            {"status": "failed", "update_available": False, "error": str(e), "detail": str(e)},
-        )
+        result = _failed(str(e))
         _finish(result)
         return result
 
     tag = str(payload.get("tag_name", ""))
-    assets = payload.get("assets", [])
-    if not isinstance(assets, list):
-        assets = []
-    wheel = select_wheel_asset(cast(list[dict[str, str]], assets)) if assets else None
+    wheel = select_wheel_asset(_asset_records(payload.get("assets")))
     if wheel is None:
-        result = cast(
-            dict[str, JsonValue],
-            {
-                "status": "failed",
-                "update_available": False,
-                "error": "missing wheel asset",
-                "detail": "missing wheel asset",
-            },
-        )
+        result = _failed("missing wheel asset")
         _finish(result)
         return result
 
-    download_url = str(wheel.get("browser_download_url", ""))
+    download_url = wheel.get("browser_download_url", "")
     try:
         _validate_url(download_url)
     except UpdateError as e:
-        result = cast(
-            dict[str, JsonValue],
-            {"status": "failed", "update_available": False, "error": str(e), "detail": str(e)},
-        )
+        result = _failed(str(e))
         _finish(result)
         return result
 
     available = is_newer(tag, current_version())
-    result = cast(
-        dict[str, JsonValue],
-        {
-            "status": "update-available" if available else "up-to-date",
-            "update_available": available,
-            "latest": tag,
-            "download_url": download_url,
-            "error": None,
-            "detail": "ok",
-        },
-    )
+    result = {
+        "status": "update-available" if available else "up-to-date",
+        "update_available": available,
+        "latest": tag,
+        "download_url": download_url,
+        "error": None,
+        "detail": "ok",
+    }
     _finish(result)
     return result
 
 
 def _apply_from(info: dict[str, str]) -> None:
-    pass
+    """Placeholder: installation is not wired yet."""
 
 
 def apply_pending(force_check: bool = True) -> dict[str, str]:
+    """Apply a previously detected update (no-op stub today)."""
     if force_check:
         check_for_update(force=True)
     return {"status": "none"}
 
 
 def apply_pending_async(force_check: bool = True) -> dict[str, str]:
+    """Async-friendly alias for :func:`apply_pending`."""
     return apply_pending(force_check=force_check)
 
 
 def status() -> dict[str, JsonValue]:
+    """Snapshot of the last update check for the API."""
     with _state_lock:
         return dict(_state)
 
 
 def start_auto_update() -> None:
+    """Kick off a background check at boot when the policy allows it."""
     if config.UPDATE_AUTO_START:
         threading.Thread(target=lambda: check_for_update(force=False), daemon=True).start()

@@ -1,3 +1,5 @@
+"""LMS 2.0 CL-contract updater stub (superseded by the v2 workflow; deleted in Phase 9)."""
+
 from app.browser import SalesforceSession
 
 """LMS2 CL contract updater strategy (stub)."""

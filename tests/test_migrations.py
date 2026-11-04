@@ -11,7 +11,9 @@ from app.db.connection import Database
 
 
 class LegacyGuardTests(unittest.TestCase):
+    """A pre-v2 database is refused rather than half-migrated."""
     def test_legacy_schema_is_refused_without_mutation(self) -> None:
+        """Migration fails before creating anything next to legacy tables."""
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "app.db"
             conn = sqlite3.connect(path)
@@ -46,6 +48,7 @@ class LegacyGuardTests(unittest.TestCase):
             self.assertEqual(names, {"jobs"})
 
     def test_fresh_database_migrates(self) -> None:
+        """A new file gets the full v2 schema."""
         with tempfile.TemporaryDirectory() as tmp:
             database = Database(Path(tmp) / "app.db")
             database.migrate()

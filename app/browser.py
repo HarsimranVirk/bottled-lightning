@@ -6,17 +6,17 @@ import sys
 import time
 from pathlib import Path
 from types import TracebackType
-from typing import Literal, Self, cast
+from typing import Literal, Self
 
 from playwright.sync_api import (
     BrowserContext,
     Page,
     Playwright,
-    StorageState,
     sync_playwright,
 )
 
 from . import config, store
+from .salesforce.session import cookie_params_from_state
 
 __all__ = ["SalesforceSession", "SessionExpired"]
 
@@ -71,19 +71,18 @@ class SalesforceSession:
             args=args,
         )
         snapshot = store.get_auth_snapshot()
-        state: StorageState | None = None
+        raw_state: str | None = None
         if snapshot:
-            raw = json.loads(str(snapshot["storage_state"]))
-            if isinstance(raw, dict):
-                state = cast(StorageState, raw)
+            raw_state = str(snapshot["storage_state"])
         elif config.AUTH_FILE.exists():
-            raw = json.loads(config.AUTH_FILE.read_text())
-            if isinstance(raw, dict):
-                state = cast(StorageState, raw)
-        if state is not None:
-            cookies = state.get("cookies", [])
-            if isinstance(cookies, list):
-                self.ctx.add_cookies(cookies)  # type: ignore[arg-type]  # storage-state cookies are structurally SetCookieParam
+            try:
+                raw_state = config.AUTH_FILE.read_text()
+            except OSError:
+                raw_state = None
+        if raw_state is not None:
+            cookies = cookie_params_from_state(raw_state)
+            if cookies:
+                self.ctx.add_cookies(cookies)
         self.page = self.ctx.new_page()
         return self
 

@@ -586,7 +586,7 @@ def list_deviation_history(
         "lms2_cl_contract_url",
     }
     where: list[str] = []
-    params: list[object] = []
+    params: list[str] = []
     for key, val in filters.items():
         if key not in allowed:
             continue
