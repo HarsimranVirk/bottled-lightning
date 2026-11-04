@@ -71,6 +71,11 @@ export function DecisionCard({
   const ordered = orderedFields(fields)
   const description = detail?.attributes.description ?? null
   const descriptionParts = description === null ? null : splitParameters(description)
+  // Long descriptions flow into newspaper columns so the whole text stays visible
+  // without scrolling; short Old/New pairs keep their block-aligned columns.
+  const descriptionInColumns = description !== null && description.length > 500
+  const descriptionLines = description === null ? 0 : description.split('\n').length
+  const descriptionInFourColumns = descriptionInColumns && descriptionLines > 30
   const recordHref = row.recordUrl ? absoluteUrl(row.recordUrl, listUrl) : null
   const refRank = (kind: string): number => {
     const index = REF_ORDER.indexOf(kind)
@@ -113,6 +118,15 @@ export function DecisionCard({
               <Text color="secondary">loading description…</Text>
             ) : description === null ? (
               <Text color="secondary">no description picked yet — run an extraction first</Text>
+            ) : descriptionInColumns ? (
+              <Text
+                styleAs="code"
+                className={`deck-description-text deck-description-columns${
+                  descriptionInFourColumns ? ' deck-description-columns-4' : ''
+                }`}
+              >
+                {description}
+              </Text>
             ) : descriptionParts ? (
               <GridLayout columns={{ xs: 1, md: 2 }} gap={2}>
                 <Text styleAs="code" className="deck-description-text">

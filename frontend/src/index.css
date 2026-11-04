@@ -103,6 +103,35 @@
   display: block;
 }
 
+.deck-description {
+  padding: 10px 12px;
+}
+
+/* Long prose descriptions use newspaper columns so the whole text is visible
+   without scrolling; Old/New blocks already render side by side. */
+.deck-description-columns {
+  column-count: 3;
+  column-gap: 24px;
+}
+
+@media (min-width: 1100px) {
+  .deck-description-columns-4 {
+    column-count: 5;
+  }
+}
+
+@media (max-width: 1024px) {
+  .deck-description-columns {
+    column-count: 2;
+  }
+}
+
+@media (max-width: 768px) {
+  .deck-description-columns {
+    column-count: 1;
+  }
+}
+
 .deck-complete {
   text-align: center;
   padding: 14px;
