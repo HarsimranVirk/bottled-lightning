@@ -214,10 +214,12 @@ class WorkItemService:
     def patch_fields(
         self, workflow_name: str, key: str, changes: Mapping[str, str | None]
     ) -> ItemDetailView:
-        """Propose editable values; ``None`` discards a proposal.
+        """Propose editable values; ``None`` or an empty string discards a proposal.
 
-        Values are canonicalised with the field's ``ValueType``; an unparseable value is
-        rejected with 422 before anything is stored.
+        An empty/whitespace value means “no update”, not “write an empty value”: the
+        operator clearing an input must never send an empty amount to Salesforce. Values
+        are canonicalised with the field's ``ValueType``; an unparseable non-empty value
+        is rejected with 422 before anything is stored.
         """
         workflow = self._workflow(workflow_name)
         item = self._item(workflow, key)
@@ -228,7 +230,7 @@ class WorkItemService:
             spec = next((f for f in workflow.catalog if f.key == field_key), None)
             if spec is None:
                 raise ApiError(422, f"unknown field: {field_key}", "unknown_field")
-            if value is None:
+            if value is None or not value.strip():
                 normalised[field_key] = None
                 continue
             try:
@@ -319,10 +321,11 @@ class WorkItemService:
         if self._is_paused():
             raise ApiError(409, "manual login required", "login_required")
 
+        stored = self._fields.for_item(workflow.name, key)
         proposed = {
-            field.key
-            for field in self._fields.for_item(workflow.name, key).values()
-            if field.proposed is not None
+            field.key: field
+            for field in stored.values()
+            if field.proposed is not None and field.proposed.strip()
         }
         if not proposed:
             raise ApiError(422, "no proposed values to submit", "nothing_to_submit")
@@ -332,6 +335,20 @@ class WorkItemService:
 
         job = self._jobs.enqueue(workflow.name, JobKind.SUBMIT, key)
         self._items.transition(workflow.name, key, WorkItemStatus.SUBMITTING)
+        submitted_at = utcnow()
+        for field_key, field in sorted(proposed.items()):
+            # FR-5.3: the audit is written when the operator submits, so the old value
+            # (what the edit was based on) and the proposed value are both recorded
+            # even if the job later fails before writing.
+            self._edits.record(
+                workflow.name,
+                key,
+                field_key,
+                field.last_synced or field.extracted,
+                field.proposed,
+                submitted_at,
+                job.id,
+            )
         self._events.emit(
             "submitted", workflow=workflow.name, item=key, job_id=job.id
         )

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v2 |
+| **Version** | v2.3 |
 | **Date** | 2026-11-04 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/data-model-deviations.md` |
@@ -215,7 +215,8 @@ undecided again. `404` unknown item; `409` when the item is not decidable.
 
 ### `PATCH /api/deviations/{key}/field-values`
 
-Body: only the fields being changed; `null` discards a proposal.
+Body: only the fields being changed; `null`, `""` or a whitespace-only string discards a
+proposal and means “no update”. Only non-empty proposed values are ever written.
 
 ```json
 { "loan_amount": "14,50,000", "tenure": null }
@@ -235,7 +236,8 @@ Discards all proposals and returns the item to `ready`.
 
 ### `POST /api/deviations/{key}/jobs` → `202`
 
-Enqueues one `SUBMIT` job (FR-5.4).
+Enqueues one `SUBMIT` job (FR-5.4) and writes the edit audit (`work_item_edits`) for
+every proposed value before returning.
 
 ```json
 { "jobId": 42, "kind": "submit", "status": "queued" }
@@ -244,7 +246,14 @@ Enqueues one `SUBMIT` job (FR-5.4).
 - `409` when an active job already exists for the item (enforced by the partial unique
   index, not by a check-then-insert).
 - `409` with `code: "login_required"` when `AuthGate` is paused.
-- `422` when a `required` field has no value.
+- `422` when there are no proposed values to submit.
+
+During Phase 6 bring-up the job applies and validates the values but does not click
+Implement (FR-6.14): it returns `validated` and the item goes back to `ready` with
+`reason="validated; final action disabled"`. The response shape is unchanged. A rejected
+write or a read-back mismatch fails the job and moves the item to `needs_review`; there
+is no automatic rollback, so the item reason and job logs identify which targets were
+already written (FR-6.15).
 
 ## 6. Jobs
 

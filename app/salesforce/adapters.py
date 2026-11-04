@@ -14,7 +14,7 @@ from typing import Protocol, runtime_checkable
 from playwright.async_api import Page
 
 from app.core.errors import UnknownAdapter
-from app.core.field import EditableField
+from app.core.field import FieldTarget
 from app.core.models import PageRef
 from app.core.status import WriteOutcome
 
@@ -78,9 +78,10 @@ class ObjectAdapter(Protocol):
     One SF object kind: discovery, reading and writing its fields.
 
     ``discover`` runs during extraction and returns a slice (never persists).
-    ``read``/``write`` operate on an already-open record page and land with the
-    submission pipeline. Adapters depend on ``TabProvider``, so pipelines can be
-    tested without a browser.
+    ``read``/``write`` operate on an already-open record page and are used by the
+    submission pipeline. They take :class:`FieldTarget` values so the pipeline keeps
+    field keys and the adapter keeps page/label knowledge. Adapters depend on
+    ``TabProvider``, so pipelines can be tested without a browser.
     """
 
     kind: str
@@ -94,15 +95,15 @@ class ObjectAdapter(Protocol):
         ...
 
     async def read(
-        self, page: Page, fields: Sequence[EditableField]
-    ) -> dict[str, str | None]:
-        """Read the catalogue values that live on this object."""
+        self, page: Page, targets: Sequence[FieldTarget]
+    ) -> dict[FieldTarget, str | None]:
+        """Read the target values that live on this object, in canonical units."""
         ...
 
     async def write(
-        self, page: Page, values: Mapping[str, str]
-    ) -> dict[str, WriteOutcome]:
-        """Write values to this object; returns per-field outcomes."""
+        self, page: Page, values: Mapping[FieldTarget, str]
+    ) -> dict[FieldTarget, WriteOutcome]:
+        """Write canonical values to their targets; returns per-target outcomes."""
         ...
 
 
@@ -124,16 +125,16 @@ class AdapterBase:
         return await tabs.new_page(ref.url)
 
     async def read(
-        self, page: Page, fields: Sequence[EditableField]
-    ) -> dict[str, str | None]:
-        """Not implemented until the submission pipeline (Phase 6)."""
-        raise NotImplementedError(f"{type(self).__name__}.read (submission Phase 6)")
+        self, page: Page, targets: Sequence[FieldTarget]
+    ) -> dict[FieldTarget, str | None]:
+        """Not implemented for base adapters."""
+        raise NotImplementedError(f"{type(self).__name__}.read")
 
     async def write(
-        self, page: Page, values: Mapping[str, str]
-    ) -> dict[str, WriteOutcome]:
-        """Not implemented until the submission pipeline (Phase 6)."""
-        raise NotImplementedError(f"{type(self).__name__}.write (submission Phase 6)")
+        self, page: Page, values: Mapping[FieldTarget, str]
+    ) -> dict[FieldTarget, WriteOutcome]:
+        """Not implemented for base adapters."""
+        raise NotImplementedError(f"{type(self).__name__}.write")
 
 
 class AdapterRegistry:

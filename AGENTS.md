@@ -50,6 +50,42 @@ Rules for the plan-mode phase:
   continue. Never let `docs/` drift from the code: a behaviour change and its
   doc update ship in the same change.
 
+### Design discussion and approval gate (mandatory)
+
+A feature request is **not** approval of a design. Before changing behaviour,
+data shape, an API contract, a Protocol/interface, a database table, or a
+selector strategy, the agent must discuss the design with the user and wait for
+explicit approval. This applies even when the user says "do it" in general
+terms — the agent still proposes the concrete design first.
+
+The discussion must happen **before** code or doc edits, and must be in plain
+language, not a keyword dump:
+
+1. **Explain what is being proposed and why.** Name the exact files, classes,
+   fields, endpoints, and user-visible behaviour that would change. Say what
+   stays the same.
+2. **List the realistic alternatives** (including "do nothing") and the
+   trade-offs: risk, effort, reversibility, effect on existing rows/data, and
+   effect on the operator workflow.
+3. **Ask a concrete question** and wait. A good question is "Approve option A
+   (…), option B (…), or do you want a different shape?" — not "shall I
+   proceed?".
+4. **Do not implement, edit code, or rewrite design docs in the same turn as the
+   proposal** unless the user has explicitly approved the proposal in that
+   conversation. Approval must be explicit ("yes, implement option A", "go
+   ahead with that design"), not inferred from an earlier feature request.
+5. **If the user asks a question, reports a bug, or asks for an explanation, answer
+   or investigate first.** Do not turn it into an unrequested code change.
+6. **If a design gap appears mid-implementation, stop and ask.** Do not silently
+   redesign, rename, or widen scope. Record the gap in the relevant `docs/` file
+   only after the user approves the direction.
+7. **Keep the user in the loop.** After approval, describe each implementation
+   slice in detail before starting it, and do not bundle unrelated design
+   changes into the same slice.
+
+This gate is intentionally stricter than "plan mode": the four documents are the
+record, but the user's explicit approval is what authorises implementation.
+
 ## Code documentation (required for every class and method)
 
 Every module, class, Protocol, function, and method in `app/` and `tests/` gets a

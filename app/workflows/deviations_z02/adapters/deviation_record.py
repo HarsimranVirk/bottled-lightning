@@ -14,10 +14,10 @@ from app.salesforce.adapters import (
 )
 from app.salesforce.tabs import TabProvider
 from app.utils.dom import absolute_url, dismiss_banner, safe_inner_text
-from app.workflows.deviations_z02.catalog import DeviationObject
+from app.workflows.deviations_z02.catalog import FIELD_CATALOG, DeviationObject
 from app.workflows.deviations_z02.description import (
     clean_description,
-    parse_description_fields,
+    parse_description_changes,
 )
 
 _HOUSING_ROI_SELECTORS: dict[str, str] = {
@@ -38,7 +38,9 @@ class DeviationRecordAdapter(AdapterBase):
 
     The description is read from the tightest ancestor of its label that still
     contains the whole body; the four ROI fields come from the Housing section,
-    which is expanded first. Missing values are normal — only a page that never
+    which is expanded first. Only values that changed between the description's Old
+    and New blocks are prefilled; unchanged values are stored as ``None`` so the
+    operator sees an empty field. Missing values are normal — only a page that never
     renders the description is a skip.
     """
 
@@ -75,7 +77,7 @@ class DeviationRecordAdapter(AdapterBase):
             return Discovery(
                 refs=(opportunity,) if opportunity is not None else (),
                 attributes=attributes,
-                fields=parse_description_fields(description),
+                fields=parse_description_changes(description, FIELD_CATALOG),
             )
         finally:
             await tabs.close_page(page)

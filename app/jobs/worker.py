@@ -83,7 +83,7 @@ class Worker:
 
         * extraction ``EXTRACTED``/``SKIPPED`` -> job ``SUCCEEDED``
         * extraction ``FAILED`` -> requeued once, then ``FAILED``
-        * submission ``COMPLETED``/``ALREADY_CLOSED`` -> job ``SUCCEEDED``
+        * submission ``COMPLETED``/``VALIDATED``/``ALREADY_CLOSED`` -> job ``SUCCEEDED``
         * submission ``FAILED`` -> ``FAILED`` (never retried automatically)
         * ``SessionExpired`` -> ``BLOCKED_AUTH`` and the dispatcher pauses
         * anything else -> ``FAILED`` with the exception recorded
@@ -153,7 +153,11 @@ class Worker:
         self, job: Job, outcome: SubmitOutcome, log: RepositoryLogger
     ) -> None:
         """Map a submission outcome to job status."""
-        if outcome in {SubmitOutcome.COMPLETED, SubmitOutcome.ALREADY_CLOSED}:
+        if outcome in {
+            SubmitOutcome.COMPLETED,
+            SubmitOutcome.VALIDATED,
+            SubmitOutcome.ALREADY_CLOSED,
+        }:
             self._jobs.complete(job.id)
             self._events.emit(
                 "job_succeeded",

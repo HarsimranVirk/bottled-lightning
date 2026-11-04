@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v3 |
+| **Version** | v3.3 |
 | **Date** | 2026-11-04 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/api-deviations.md` |
@@ -85,9 +85,9 @@ Semantics:
 | Column | Type | Null | Meaning |
 |---|---|---|---|
 | `workflow`, `item_key`, `field_key` | TEXT | no | Composite key; `field_key` comes from the workflow catalogue |
-| `extracted` | TEXT | yes | Best-effort parse result |
+| `extracted` | TEXT | yes | Best-effort parse result; `NULL` when the description value did not change or was not found |
 | `last_synced` | TEXT | yes | Value SF showed at the last refresh |
-| `proposed` | TEXT | yes | Operator edit awaiting submission |
+| `proposed` | TEXT | yes | Operator edit awaiting submission; `NULL` or empty means no update |
 | `applied` | TEXT | yes | Value SF accepted |
 | `status` | TEXT | no | `FieldStatus`: extracted / proposed / applied / rejected |
 | `updated_at` | TEXT | no | Last write |
@@ -125,6 +125,14 @@ holds a half-discovered set of links.
 | `old_value`, `new_value` | TEXT | yes | Before / after |
 | `job_id` | INTEGER | yes | Submission that carried the edit |
 | `created_at` | TEXT | no | When |
+
+Rows are written by `WorkItemService.submit` at the moment the `SUBMIT` job is
+enqueued: `old_value` is the last-known value (`last_synced`, else `extracted`) and
+`new_value` is the proposed value. Writing the audit before the browser work means a
+failed job still leaves the operator's intent on record (FR-5.3). The **actual** value
+read from Salesforce immediately before the write is recorded separately in the
+`submit_precheck` event and the job log, so the two are not confused: `old_value` is the
+operator-facing snapshot, while the event is the verified pre-write value.
 
 ### 4.6 `work_item_events` — audit (append-only)
 

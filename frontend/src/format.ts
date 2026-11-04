@@ -4,11 +4,18 @@ import type { FieldView, ItemRow, WorkflowFieldView } from './api'
 
 export type Tone = 'info' | 'success' | 'warning' | 'danger' | 'neutral'
 
-/** The value the operator sees: proposal, then extracted, then applied, else a dash. */
+/**
+ * The value the operator sees: proposal, then extracted, then applied, else blank.
+ *
+ * ``lastSynced`` is deliberately never used here. The current Salesforce value is not a
+ * prefill and must not be shown as a hint; an unchanged field starts blank in the edit
+ * form, and the operator decides whether to supply a value. The read-only views also
+ * leave the value blank rather than rendering a dash, so there is no visual hint either.
+ */
 export function fieldValue(fields: Record<string, FieldView>, key: string): string {
   const field = fields[key]
-  if (!field) return '—'
-  return field.proposed ?? field.extracted ?? field.applied ?? '—'
+  if (!field) return ''
+  return field.proposed ?? field.extracted ?? field.applied ?? ''
 }
 
 /** Colour tone for an item status. The word is always rendered too (FR-9.10). */
@@ -107,18 +114,21 @@ export function tenureToMonths(raw: string | null | undefined): string {
   return String(Math.round(value))
 }
 
-/** The card's draft starts from the value the operator would otherwise accept. */
+/**
+ * The card's draft starts from the proposed/extracted/applied value, never from the
+ * current SF value (``lastSynced``). A field with no proposal or prefill starts blank.
+ */
 export function draftFor(field: WorkflowFieldView, row: ItemRow): string {
   const raw = fieldValue(row.fields, field.key)
-  if (raw === '—') return ''
+  if (!raw) return ''
   if (field.valueType === 'amount') return digitsOf(raw)
   if (field.valueType === 'months') return tenureToMonths(raw)
   return raw
 }
 
-/** Read-only display for an editable value: amounts grouped, months plain. */
+/** Read-only display for an editable value: amounts grouped, months plain, blank if none. */
 export function displayValue(field: WorkflowFieldView, raw: string): string {
-  if (raw === '—') return raw
+  if (!raw) return ''
   return field.valueType === 'amount' ? indianFormat(digitsOf(raw)) : raw
 }
 

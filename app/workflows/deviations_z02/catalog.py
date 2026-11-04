@@ -22,35 +22,79 @@ class DeviationObject(StrEnum):
     LMS2_COLLATERAL = "lms2_collateral"
 
 
-# NOTE: the FieldTargets below are placeholders pending open item O-1 (which SF object
-# and field label each value is written to). Nothing else hard-codes these labels.
+# O-1 is resolved: every target below was confirmed against the live org. A field fans
+# out to every object that must agree; the section names are the page areas the
+# adapters scroll to (and disambiguate repeated labels on the LMS 2.0 forms).
 FIELD_CATALOG: tuple[EditableField, ...] = (
     EditableField(
         key="loan_amount",
         label="Loan Amount",
         value_type=ValueType.AMOUNT,
-        targets=(FieldTarget(DeviationObject.CL_CONTRACT, "Loan Amount"),),
+        targets=(
+            FieldTarget(
+                DeviationObject.OPPORTUNITY, "Loan Amount", section="LOAN PARAMETERS"
+            ),
+            FieldTarget(
+                DeviationObject.CL_CONTRACT, "Loan Amount", section="Contract"
+            ),
+            FieldTarget(
+                DeviationObject.CL_CONTRACT, "Financed Amount", section="Funding"
+            ),
+            FieldTarget(
+                DeviationObject.LMS2_CL_CONTRACT,
+                "New value",
+                section="Loan amount",
+            ),
+        ),
         source="loan_amount",
     ),
     EditableField(
         key="property_value",
         label="Property Value",
         value_type=ValueType.AMOUNT,
-        targets=(FieldTarget(DeviationObject.COLLATERAL, "Property Value"),),
+        targets=(
+            FieldTarget(
+                DeviationObject.OPPORTUNITY,
+                "Property Value Ex. Reg & ST(Financeable)",
+                section="LOAN PARAMETERS",
+            ),
+            FieldTarget(
+                DeviationObject.COLLATERAL, "Property Value", section="Details"
+            ),
+            FieldTarget(
+                DeviationObject.LMS2_COLLATERAL,
+                "Property Value",
+                section="Financials",
+            ),
+        ),
         source="property_value",
     ),
     EditableField(
         key="tenure",
         label="Tenure",
         value_type=ValueType.TENURE_MONTHS,
-        targets=(FieldTarget(DeviationObject.CL_CONTRACT, "Tenure"),),
+        targets=(
+            FieldTarget(
+                DeviationObject.OPPORTUNITY, "Tenure (Yrs)", section="LOAN PARAMETERS"
+            ),
+            FieldTarget(DeviationObject.CL_CONTRACT, "Term", section="Contract"),
+            FieldTarget(
+                DeviationObject.LMS2_CL_CONTRACT, "New value", section="Tenure"
+            ),
+        ),
         source="tenure",
     ),
     EditableField(
         key="emi_incl_hffc",
         label="EMI & other fixed payments incl. HFFC Loan",
         value_type=ValueType.AMOUNT,
-        targets=(FieldTarget(DeviationObject.CL_CONTRACT, "EMI"),),
+        targets=(
+            FieldTarget(
+                DeviationObject.OPPORTUNITY,
+                "EMIs & other fixed pmts inc HFFC Loan",
+                section="BUDGET ANALYSIS & SAVINGS PATTERN",
+            ),
+        ),
         source="emi_incl_hffc",
     ),
 )

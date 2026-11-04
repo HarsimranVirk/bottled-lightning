@@ -1,7 +1,8 @@
 """The Z02 loan-deviation workflow: registration seam.
 
-``build_workflow`` is the single wiring point. Extraction is implemented; submission is a
-placeholder until refactor Phase 6.
+``build_workflow`` is the single wiring point. Extraction and the apply/validate half of
+submission are implemented; the final Implement action is deliberately disabled during
+Phase 6 bring-up (``final_action=False``).
 """
 
 from __future__ import annotations
@@ -10,26 +11,15 @@ from collections.abc import Mapping
 
 from app.config import Settings
 from app.core.list_view import ListRow, ListViewSpec
-from app.core.models import WorkItem
-from app.core.status import SubmitOutcome, WorkItemStatus
-from app.core.workflow import JobLogger, Workflow, WorkflowDeps
+from app.core.status import WorkItemStatus
+from app.core.workflow import Workflow, WorkflowDeps
 from app.salesforce.adapters import AdapterRegistry
-from app.salesforce.tabs import TabProvider
 
 from .catalog import FIELD_CATALOG
 from .extraction import DeviationsZ02Extraction
+from .submission import DeviationsZ02Submission
 
 WORKFLOW_NAME = "deviations_z02"
-
-
-class _PendingSubmission:
-    """Placeholder until the submission pipeline lands (Phase 6)."""
-
-    async def run(
-        self, item: WorkItem, tabs: TabProvider, log: JobLogger
-    ) -> SubmitOutcome:
-        """Always raises: submission is not implemented yet."""
-        raise NotImplementedError("DeviationsZ02Submission lands in refactor Phase 6")
 
 
 def map_row(row: ListRow) -> Mapping[str, str]:
@@ -56,6 +46,16 @@ def build_workflow(
         adapters,
         force=force,
     )
+    submission = DeviationsZ02Submission(
+        WORKFLOW_NAME,
+        deps.items,
+        deps.fields,
+        deps.refs,
+        deps.events,
+        adapters,
+        FIELD_CATALOG,
+        final_action=False,
+    )
     return Workflow(
         name=WORKFLOW_NAME,
         route="deviations",
@@ -66,7 +66,7 @@ def build_workflow(
         catalog=FIELD_CATALOG,
         adapters=adapters,
         extraction=extraction,
-        submission=_PendingSubmission(),
+        submission=submission,
         map_row=map_row,
         terminal_labels={WorkItemStatus.COMPLETED: "Implemented"},
         ref_kinds=(

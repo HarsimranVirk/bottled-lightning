@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.12 |
-| **Date** | 2026-11-04 |
+| **Version** | v5.15 |
+| **Date** | 2026-11-05 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
 
@@ -132,12 +132,18 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   `requested_roi`, `ideal_roi`, `updated_roi`, `requested_variance`, record id, record
   URL and the Opportunity link.
 - **FR-3.3** From the description the system parses `property_value`, `loan_amount`,
-  `tenure` and `emi_incl_hffc`. When the description contains Old and New parameter
-  blocks, only the **New** block is authoritative; old values are never extracted. If
-  the New block omits a field, that field stays empty rather than inheriting the old
-  value. The bare `EMI-` pre-calculated line must never be captured; only the
-  `EMIs & other …` line is. Parsing is best-effort: a value the parser cannot find is
-  left empty, which is neither a failure nor a skip — the operator can supply it.
+  `tenure` and `emi_incl_hffc`. When the description contains both Old and New parameter
+  blocks, prefill a field only when the New value differs from the Old value; an equal
+  value is left empty because no update is needed. A field present only in the New block
+  is prefilled; a field present only in the Old block, or a description with no Old/New
+  structure, is left empty because there is not enough confidence that it changed. Only
+  the **New** block is authoritative; old values are never written. If the New block
+  omits a field, that field stays empty rather than inheriting the old value. The bare
+  `EMI-` pre-calculated line must never be captured; only the `EMIs & other …` line is.
+  Parsing is best-effort and conservative: a value the parser cannot confidently
+  identify as changed is left empty, which is neither a failure nor a skip — the operator
+  can supply it. The parser writes the raw New text and does not guess units; the
+  operator handles the details.
 - **FR-3.4** From the Opportunity page the system captures the product type and maps it
   to the CL-contract product using the existing product mapping.
 - **FR-3.5** The system discovers and records page refs for the Opportunity, the matching
@@ -187,16 +193,21 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   while a submit is queued or running is refused or coalesced — never duplicated.
 - **FR-5.5** The operator can discard pending edits and revert to the extracted or
   last-synced value.
+- **FR-5.6** Only non-empty proposed values are written. An empty or whitespace-only
+  value means “no update” and is never sent to Salesforce; the API treats it as
+  discarding the proposal. Submitting with no non-empty proposals is rejected.
 
 ### FR-6 Submission: apply → validate → implement
 
 - **FR-6.1** A `SUBMIT` job runs three ordered phases for exactly one deviation:
   **apply** (write the values), **validate** (the writes landed), **implement** (final
   SF operation).
-- **FR-6.2** Before writing, the job re-reads the current SF values. If they differ from
-  the values the edit was based on, the job aborts and flags the deviation for review
-  instead of overwriting someone else's change. Presence is checked twice: at the start
-  of apply, where an absent deviation skips all writes, and again as the last validation
+- **FR-6.2** Before writing, the job re-reads the current SF values and records them for
+  the audit and for idempotency (a target already holding the intended value is not
+  written again). A difference from the last watcher snapshot does **not** block the
+  write: description-derived values are not guaranteed to be true, so the operator's
+  proposed value is authoritative. Presence is still checked twice: at the start of
+  apply, where an absent deviation skips all writes, and again as the last validation
   step immediately before implementing (FR-6.5).
 - **FR-6.3** Apply writes each editable value to its configured target object(s). Where
   a value must exist consistently on more than one object, all targets are written and
@@ -237,6 +248,10 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   `validated`, and returns the item to `ready` with the reason `validated; final action
   disabled`. No Implement click, modal or confirmation is performed. The mode exists
   only until O-2 is resolved and is not a substitute for FR-6.5.
+- **FR-6.15** A failed submit does not roll back values that were already written. It
+  records per-target truth (`applied` / `rejected`), moves the deviation to
+  `needs_review`, fails the job, and notifies the operator with the field/object that
+  failed. The operator fixes the cause and resubmits.
 
 ### FR-7 Jobs & workers
 
@@ -345,9 +360,13 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-10.8** Every decision is audited with its kind, reason and timestamp, and is shown
   in the item detail history.
 - **FR-10.9** Decisions are made with two explicit buttons, **Skip** and **Accept**, that
-  span the card width. There are no swipe or arrow-key shortcuts: an accidental gesture
-  must never be able to accept a deviation. The buttons are keyboard reachable through
-  the normal tab order, and the result is announced through `aria-live`.
+  span the card width. The buttons carry the shortcut in their labels (`Skip (Shift+←)`,
+  `Accept (Shift+→)`) and expose it through `aria-keyshortcuts`. `Shift+←` records a skip
+  and `Shift+→` an accept, exactly as the buttons do: only while a decidable card is on
+  screen and no decision is in flight, and never while a text field or an open dialog owns
+  the keystroke, with another modifier held, or on key auto-repeat. There is no drag or
+  swipe gesture. The buttons remain keyboard reachable through the normal tab order, and
+  the result is announced through `aria-live`.
 - **FR-10.10** The card shows every editable value, prefilled from the extracted value,
   so missing or unparsed values are visible and correctable before a decision. Missing
   values are not an error and carry no warning: only one or two values may need an
@@ -445,6 +464,19 @@ Lightning record's iframe. Submission opens it through the org's Classic host
 (double-click, fill, Save).
 
 ## Appendix C — Change log
+
+- **v5.15** — the deck gains guarded keyboard decisions: `Shift+←` skips and `Shift+→`
+  accepts, with the shortcut shown on the buttons; ignored while typing, in a dialog, with
+  another modifier, and on auto-repeat (FR-10.9).
+
+- **v5.14** — prefill is conservative: a field is suggested only when both Old and New
+  blocks exist and the New value differs; empty operator values mean “no update” and are
+  never written (FR-3.3, FR-5.6).
+
+- **v5.13** — submit is write-and-verify, not conflict detection: the pre-read is for
+  audit and idempotency only and never blocks a write, and a failed submit does not roll
+  back partial writes; it records per-target truth and sends the item to `needs_review`
+  (FR-6.2, FR-6.15).
 
 - **v5.12** — mobile and oversized descriptions use a compact preview + Salt dialog for
   the full text; normal desktop descriptions remain fully visible in columns. The deck

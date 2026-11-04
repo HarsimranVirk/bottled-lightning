@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v3.7 |
-| **Date** | 2026-11-04 |
+| **Version** | v3.9 |
+| **Date** | 2026-11-05 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
 | **Implemented by** | refactor Phase 8 (`frontend/src`); Slice A and the review deck (D) are live |
@@ -102,9 +102,9 @@ accepted/skipped/to-review tallies, then Skip and Accept. The header keeps the
 | State | Card content | Actions |
 |---|---|---|
 | loading | one card skeleton; tallies show the last snapshot | — |
-| ready | record link + status, approval date, *Pages to update* (Opportunity, CL, collateral, LMS2), raw description panel, ROI grid, four prefilled editable values | Skip, Accept |
+| ready | record link + status, approval date, *Pages to update* (Opportunity, CL, collateral, LMS2), raw description panel, ROI grid, four editable values; only values that changed between the description's Old and New blocks are prefilled | Skip, Accept |
 | needs_review | same card + the failure reason above the description | Skip, Accept |
-| partial values | inputs not present in the New block are empty; no warning | Accept allowed (FR-10.10) |
+| partial values | unchanged, missing or equal Old/New values start blank; the current SF value (`lastSynced`) is never shown as a prefill or hint; no warning | Accept allowed (FR-10.10) |
 | description | bordered Salt card: full text in Old/New columns on desktop; compact preview + **Read full description** dialog on mobile or above 1200 chars / 40 lines | decide |
 | editing a value | input shows Indian grouping (amounts) or months; the draft is local until Accept | Skip discards the draft |
 | decision in flight | Skip/Accept disabled until the PATCH + decision finish | — |
@@ -262,9 +262,10 @@ Rules:
 
 ## 6. Interaction spec
 
-1. **Decide** — only the **Skip** and **Accept** buttons decide; both span half the card
-   width. There is no swipe or arrow-key shortcut, so a stray gesture cannot accept a
-   deviation (FR-10.9). Accept sends the card's values first (`PATCH …/field-values`)
+1. **Decide** — the **Skip** and **Accept** buttons decide; both span half the card
+   width and show their shortcut (`Skip (Shift+←)`, `Accept (Shift+→)`). There is no drag
+   or swipe gesture (FR-10.9). Accept sends the card's values first
+   (`PATCH …/field-values`)
    and then the decision, so one accept is two ordered requests; Skip sends only the
    decision. The card slides out after the server confirms. No modal: decisions are
    reversible (FR-10.3), and *Replay skipped* restores every skip when the deck is empty.
@@ -281,9 +282,11 @@ Rules:
    item becomes undecided and re-enters the deck on the next refetch.
 7. **Disabled rules** are derived from `status` + `activeJob`, never from a local
    `isSaving` flag that can desync. A decision in flight disables only the deck actions.
-8. **Keyboard** — deck: `→` accept, `←` reject, `U` undo, `Enter` details. Detail: the
-   whole edit → save → submit path is reachable without a mouse; focus returns to the
-   edited cell after save. Keys are ignored while a text field has focus.
+8. **Keyboard** — deck: `Shift+→` accept, `Shift+←` reject, `U` undo, `Enter` details. The
+   deck shortcuts are ignored while a text field or an open dialog has focus, with another
+   modifier held, and on key auto-repeat, so a stray key cannot accept a deviation.
+   Detail: the whole edit → save → submit path is reachable without a mouse; focus returns
+   to the edited cell after save. Keys are ignored while a text field has focus.
 9. **Confirmations** — submit and "clear session" only. Decisions, editing and undo are
    reversible and do not need a modal.
 

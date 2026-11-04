@@ -6,12 +6,67 @@ URL fields, field labels) stay in the adapter modules.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 
 from playwright.async_api import Locator, Page
 
 logger = logging.getLogger(__name__)
+
+
+async def poll(
+    check: Callable[[], Awaitable[bool]], timeout_ms: int, interval_ms: int = 500
+) -> bool:
+    """
+    Wait until an async predicate is true, or the timeout expires.
+
+    Used for Lightning/LWC updates that do not fire a navigation event: lazy field
+    sections, inline-edit inputs appearing, and values re-rendering after Save. The
+    predicate is retried on a short interval; an exception (a detached locator during a
+    re-render) counts as "not yet" and is logged at debug level.
+
+    Example:
+        ready = await poll(
+            lambda: _count(field.locator(".test-id__field-value")) > 0,
+            timeout_ms,
+        )
+    """
+    waited = 0
+    while waited <= timeout_ms:
+        try:
+            if await check():
+                return True
+        except Exception as exc:  # noqa: BLE001 - detached during a re-render
+            logger.debug("poll check failed: %s", exc)
+        await asyncio.sleep(interval_ms / 1000)
+        waited += interval_ms
+    return False
+
+
+async def click_first_visible(locator: Locator, timeout_ms: int) -> bool:
+    """
+    Click the first visible match, retrying while the list re-renders.
+
+    Classic pages render duplicate Save/Cancel controls at the top and bottom of the
+    page; only one is in the viewport. Returns ``False`` when no match becomes visible
+    before the timeout.
+    """
+    waited = 0
+    while waited <= timeout_ms:
+        count = await locator.count()
+        for index in range(count):
+            candidate = locator.nth(index)
+            try:
+                if await candidate.is_visible():
+                    await candidate.click(timeout=timeout_ms)
+                    return True
+            except Exception as exc:  # noqa: BLE001 - stale handle or overlay
+                logger.debug("click candidate %s failed: %s", index, exc)
+        await asyncio.sleep(0.5)
+        waited += 500
+    return False
 
 
 async def safe_inner_text(locator: Locator, timeout_ms: int = 2000) -> str | None:

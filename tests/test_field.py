@@ -52,13 +52,35 @@ class FieldsForTests(unittest.TestCase):
     """Catalogue slicing: which fields belong to which SF object."""
     def test_slices_by_object(self) -> None:
         """Each object receives exactly the fields it targets."""
-        cl_keys = [f.key for f in fields_for(FIELD_CATALOG, DeviationObject.CL_CONTRACT)]
-        self.assertEqual(cl_keys, ["loan_amount", "tenure", "emi_incl_hffc"])
+        self.assertEqual(
+            [f.key for f in fields_for(FIELD_CATALOG, DeviationObject.CL_CONTRACT)],
+            ["loan_amount", "tenure"],
+        )
         self.assertEqual(
             [f.key for f in fields_for(FIELD_CATALOG, DeviationObject.COLLATERAL)],
             ["property_value"],
         )
-        self.assertEqual(fields_for(FIELD_CATALOG, DeviationObject.OPPORTUNITY), ())
+        self.assertEqual(
+            [
+                f.key
+                for f in fields_for(FIELD_CATALOG, DeviationObject.OPPORTUNITY)
+            ],
+            ["loan_amount", "property_value", "tenure", "emi_incl_hffc"],
+        )
+        self.assertEqual(
+            [
+                f.key
+                for f in fields_for(FIELD_CATALOG, DeviationObject.LMS2_COLLATERAL)
+            ],
+            ["property_value"],
+        )
+        self.assertEqual(
+            [
+                f.key
+                for f in fields_for(FIELD_CATALOG, DeviationObject.LMS2_CL_CONTRACT)
+            ],
+            ["loan_amount", "tenure"],
+        )
 
     def test_multi_target_field_appears_in_every_slice(self) -> None:
         """A value shared by two objects is handled by both adapters."""

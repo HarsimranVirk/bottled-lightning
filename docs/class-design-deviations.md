@@ -3,12 +3,12 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4 |
+| **Version** | v4.2 |
 | **Date** | 2026-11-04 |
 | **Companions** | `docs/FR-deviations.md` (v3), `docs/data-model-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
 | **Change** | Introduced the workflow abstraction; earlier drafts were deviations-only |
-| **Implemented so far** | Phases 1–5 and 7 on `refactor/deviations`: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,adapters}`, `app/jobs/{dispatcher,worker,auth,logger}`, `app/pipeline/{watcher,reconciler,closure}`,
-`app/utils/dom`, `app/workflows/deviations_z02/{catalog,description,product_map,adapters,extraction}` |
+| **Implemented so far** | Phases 1–5, 7 and the apply/validate half of 6: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,adapters}`, `app/jobs/{dispatcher,worker,auth,logger}`, `app/pipeline/{watcher,reconciler,closure}`,
+`app/utils/dom`, `app/workflows/deviations_z02/{catalog,description,product_map,adapters,extraction,submission}` |
 
 This document describes the target class design. It separates the parts that are the
 same for every Salesforce workflow (browser, tabs, queue, leases, refresh, closure) from
@@ -173,6 +173,7 @@ class ExtractOutcome(StrEnum):
 
 class SubmitOutcome(StrEnum):
     COMPLETED = "completed"     # final action performed by us
+    VALIDATED = "validated"     # apply + read-back ok; final action disabled (FR-6.14)
     ALREADY_CLOSED = "already_closed"   # gone in SF; clean terminal, not an error
     FAILED = "failed"           # retryable or needs review, decided by the pipeline
 ```
@@ -433,6 +434,7 @@ class ValueType(StrEnum):
 class FieldTarget:
     object_kind: str         # a key in the workflow's AdapterRegistry
     label: str               # SF field label
+    section: str | None = None   # page area; disambiguates repeated labels
 
 @dataclass(frozen=True, slots=True)
 class EditableField:
@@ -682,8 +684,10 @@ class ObjectAdapter(Protocol):
     kind: str
     async def discover(self, tabs: TabProvider, context: DiscoveryContext) -> Discovery: ...
     async def open(self, tabs: TabProvider, ref: PageRef) -> Page: ...
-    async def read(self, page: Page, fields: Sequence[EditableField]) -> dict[str, str | None]: ...
-    async def write(self, page: Page, values: Mapping[str, str]) -> dict[str, WriteOutcome]: ...
+    async def read(self, page: Page,
+                   targets: Sequence[FieldTarget]) -> dict[FieldTarget, str | None]: ...
+    async def write(self, page: Page,
+                    values: Mapping[FieldTarget, str]) -> dict[FieldTarget, WriteOutcome]: ...
 
 class AdapterRegistry:
     def __init__(self, adapters: Iterable[ObjectAdapter]) -> None: ...
@@ -694,10 +698,15 @@ class AdapterRegistry:
 link, its read-only attributes, any catalogue values it is the source of, or a skip
 reason (FR-3.7). It never persists and never decides item status.
 
-`write()` = open the record → click Edit → fill the catalogue fields → Save → return
-per-field outcomes; `read()` is used for post-save verification (FR-6.4). Both land in
-Phase 6. Adapters depend on `TabProvider` (two async methods), not on the concrete
-`TabGroup`, so pipelines can be tested without a browser.
+`write()` = open the record → enter edit mode (inline pencil/double-click or the page's
+Edit button) → fill the target inputs → Save → return per-target outcomes; `read()` is
+used for the pre-write audit/idempotency snapshot and for post-save verification
+(FR-6.2/6.4). A pre-read difference never blocks the write: the description-derived
+snapshot is not trusted, so the operator's proposal is authoritative.
+Targets carry the page `section`, so the same label (`New value`) can be resolved on the
+LMS 2.0 contract form without workflow-specific branching in the pipeline. Adapters
+depend on `TabProvider` (two async methods), not on the concrete `TabGroup`, so pipelines
+can be tested without a browser.
 
 ---
 
@@ -794,24 +803,36 @@ class DeviationObject(StrEnum):
     LMS2_COLLATERAL = "lms2_collateral"
 
 FIELD_CATALOG: tuple[EditableField, ...] = (
-    EditableField("loan_amount", "Loan Amount", ValueType.AMOUNT,
-                  (FieldTarget(DeviationObject.CL_CONTRACT, "Loan Amount"),),
-                  source="loan_amount"),
-    EditableField("property_value", "Property Value", ValueType.AMOUNT,
-                  (FieldTarget(DeviationObject.COLLATERAL, "Property Value"),),
-                  source="property_value"),
-    EditableField("tenure", "Tenure", ValueType.TENURE_MONTHS,
-                  (FieldTarget(DeviationObject.CL_CONTRACT, "Tenure"),),
-                  source="tenure"),
+    EditableField("loan_amount", "Loan Amount", ValueType.AMOUNT, (
+        FieldTarget(DeviationObject.OPPORTUNITY, "Loan Amount", "LOAN PARAMETERS"),
+        FieldTarget(DeviationObject.CL_CONTRACT, "Loan Amount", "Contract"),
+        FieldTarget(DeviationObject.CL_CONTRACT, "Financed Amount", "Funding"),
+        FieldTarget(DeviationObject.LMS2_CL_CONTRACT, "New value", "Loan amount"),
+    ), source="loan_amount"),
+    EditableField("property_value", "Property Value", ValueType.AMOUNT, (
+        FieldTarget(DeviationObject.OPPORTUNITY,
+                    "Property Value Ex. Reg & ST(Financeable)", "LOAN PARAMETERS"),
+        FieldTarget(DeviationObject.COLLATERAL, "Property Value", "Details"),
+        FieldTarget(DeviationObject.LMS2_COLLATERAL, "Property Value", "Financials"),
+    ), source="property_value"),
+    EditableField("tenure", "Tenure", ValueType.TENURE_MONTHS, (
+        FieldTarget(DeviationObject.OPPORTUNITY, "Tenure (Yrs)", "LOAN PARAMETERS"),
+        FieldTarget(DeviationObject.CL_CONTRACT, "Term", "Contract"),
+        FieldTarget(DeviationObject.LMS2_CL_CONTRACT, "New value", "Tenure"),
+    ), source="tenure"),
     EditableField("emi_incl_hffc", "EMI & other fixed payments incl. HFFC Loan",
-                  ValueType.AMOUNT,
-                  (FieldTarget(DeviationObject.CL_CONTRACT, "EMI"),),
-                  source="emi_incl_hffc"),
+                  ValueType.AMOUNT, (
+        FieldTarget(DeviationObject.OPPORTUNITY,
+                    "EMIs & other fixed pmts inc HFFC Loan",
+                    "BUDGET ANALYSIS & SAVINGS PATTERN"),
+    ), source="emi_incl_hffc"),
 )
 ```
 
-**Targets are placeholders pending O-1** and are the only lines that change when the
-mapping is confirmed.
+O-1 is resolved: the full confirmed table (including the CL-contract `Loan Amount` +
+`Financed Amount` fan-out and the tenure years/months conversion) is in
+`docs/FR-deviations.md`, Appendix B. The catalogue is the only place those labels
+appear; adapters resolve the section/label pair to page-specific locators.
 
 ### 9.2 `DeviationsZ02Extraction`
 
@@ -841,24 +862,55 @@ Order (dependencies only):
 
 ```python
 class DeviationsZ02Submission:
-    async def run(self, item: WorkItem, tabs: TabGroup, log: JobLogger) -> SubmitOutcome: ...
+    def __init__(self, workflow: str, items: WorkItemRepository,
+                 fields: FieldValueRepository, refs: PageRefRepository,
+                 events: EventRepository, adapters: AdapterRegistry,
+                 catalog: Sequence[EditableField], *,
+                 final_action: bool = False) -> None: ...
+    async def run(self, item: WorkItem, tabs: TabProvider,
+                  log: JobLogger) -> SubmitOutcome: ...
+    async def preview(self, item: WorkItem, tabs: TabProvider,
+                      log: JobLogger) -> dict[str, dict[str, str | None]]: ...
 ```
 
 ```
-precheck   → present?                     no → ALREADY_CLOSED            (FR-6.6)
-apply      → group targets by object_kind; per object: read current, compare with
-             the values the edit was based on (FR-6.2), write, collect outcomes
+precheck   → re-read item; absent/terminal? → ALREADY_CLOSED (no writes)   (FR-6.6)
+apply      → group targets by object_kind; open every page and read all current
+             values before the first write for the audit and idempotency
+             (FR-6.2); a difference does NOT block the write; write; persist
+             per-field applied/rejected truth
 validate   → re-read every target: equality + still present                 (FR-6.4)
-execute    → mark execute_attempted → click Implement → modal confirm →
-             observe page state → mark execute_confirmed                   (FR-6.5/6.7)
+execute    → only with final_action=True: mark execute_attempted → click
+             Implement → modal confirm → observe → mark execute_confirmed   (FR-6.5/6.7)
 ```
 
-`ALREADY_CLOSED` is not an error: the worker marks the job succeeded (FR-6.6).
+`final_action=False` is the Phase 6 bring-up mode: the run stops after validation,
+returns `VALIDATED`, and moves the item back to `READY` with
+`reason="validated; final action disabled"` (FR-6.14). `final_action=True` currently
+raises a reviewable failure rather than clicking Implement, because O-2 is still open.
+
+`ALREADY_CLOSED` is not an error: the worker marks the job succeeded (FR-6.6). A retry
+after a crash skips targets whose `applied` value already equals the intended value and
+whose current SF value still matches (FR-6.8), so a failed run can be resumed without
+double-writing. A failed run does **not** roll back values that were already written: it
+records per-target truth, moves the item to `NEEDS_REVIEW`, and notifies the operator
+(FR-6.15). The operator fixes the cause and resubmits.
 
 ### 9.4 Description parser
 
 `parse_description_fields(description) -> dict[str, str | None]` stays pure, moves to
 `workflows/deviations_z02/description.py`, and keeps the bare-`EMI-` exclusion rule.
+
+`parse_description_changes(description, catalog) -> dict[str, str | None]` is the
+extraction-facing function. It parses the Old and New blocks separately and prefills a
+field only when both blocks exist and the New value differs from the Old value. A field
+present only in the New block is prefilled; a field present only in the Old block, or a
+description with no Old/New structure, is left empty because there is not enough
+confidence that it changed. The returned dict always contains every catalogue key with
+`None` for unchanged/missing values, so a previous prefill is cleared. Comparison is
+semantic when the values parse (amounts ignore grouping/currency, tenure uses months);
+otherwise it falls back to trimmed string equality. The prefilled text is the raw New
+value: the parser does not guess units, and the operator handles the details.
 
 ---
 
@@ -964,6 +1016,9 @@ Each should have a test.
 8. **I8** Extraction is skipped when `extracted_at` is set (FR-3.8).
 9. **I9** Core (`core/`, `salesforce/`, `pipeline/`, `jobs/`) imports no workflow module;
    workflows import core, never each other.
+10. **I10** A failed submission does not roll back values that were already written; it
+    records per-target truth, moves the item to `NEEDS_REVIEW`, and notifies the operator
+    (FR-6.15).
 
 ## 13. Test seams
 

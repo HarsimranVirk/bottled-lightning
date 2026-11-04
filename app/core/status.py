@@ -183,12 +183,15 @@ class SubmitOutcome(StrEnum):
     Pipeline result for a submission job.
 
     ``COMPLETED`` — our final action ran (the workflow's word for it, e.g.
-    "Implemented"). ``ALREADY_CLOSED`` — the item was gone before we acted, which
-    is a clean terminal outcome, not an error. ``FAILED`` — needs a human; never
-    retried automatically.
+    "Implemented"). ``VALIDATED`` — apply and read-back succeeded, but the final
+    action is intentionally disabled (Phase 6 bring-up); the item returns to
+    ``READY`` so the operator can inspect the live values. ``ALREADY_CLOSED`` — the
+    item was gone before we acted, which is a clean terminal outcome, not an error.
+    ``FAILED`` — needs a human; never retried automatically.
     """
 
     COMPLETED = "completed"
+    VALIDATED = "validated"
     ALREADY_CLOSED = "already_closed"
     FAILED = "failed"
 

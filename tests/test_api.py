@@ -119,6 +119,14 @@ class ServiceTests(ApiTestCase):
         self.assertEqual(detail.fields["loan_amount"].proposed, "2550000")
         self.assertEqual(detail.status, "editing")
 
+    def test_patch_empty_string_means_no_update(self) -> None:
+        """Clearing an input discards the proposal instead of writing an empty value."""
+        self.make_ready_item()
+        service, _registry, _workflow, _jobs, _edits = self.build()
+        service.patch_fields(WORKFLOW, KEY, {"loan_amount": "25,50,000"})
+        detail = service.patch_fields(WORKFLOW, KEY, {"loan_amount": ""})
+        self.assertIsNone(detail.fields["loan_amount"].proposed)
+
     def test_patch_rejects_unparseable_values(self) -> None:
         self.make_ready_item()
         service, _registry, _workflow, _jobs, _edits = self.build()
@@ -247,6 +255,15 @@ class ServiceTests(ApiTestCase):
     def test_submit_requires_a_proposal(self) -> None:
         self.make_ready_item()
         service, _registry, _workflow, _jobs, _edits = self.build()
+        with self.assertRaises(ApiError) as caught:
+            service.submit(WORKFLOW, KEY)
+        self.assertEqual(caught.exception.code, "nothing_to_submit")
+
+    def test_submit_ignores_empty_proposals(self) -> None:
+        """An empty field is not a proposal, so there is nothing to submit."""
+        self.make_ready_item()
+        service, _registry, _workflow, _jobs, _edits = self.build()
+        service.patch_fields(WORKFLOW, KEY, {"tenure": ""})
         with self.assertRaises(ApiError) as caught:
             service.submit(WORKFLOW, KEY)
         self.assertEqual(caught.exception.code, "nothing_to_submit")

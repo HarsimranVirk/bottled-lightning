@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatDuration, relativeTime, statusLabel, statusTone } from './format'
+import type { ItemRow, WorkflowFieldView } from './api'
+import {
+  changesFor,
+  draftFor,
+  fieldValue,
+  formatDuration,
+  relativeTime,
+  statusLabel,
+  statusTone,
+} from './format'
 
 describe('statusTone', () => {
   it('maps lifecycle states to distinct tones', () => {
@@ -39,5 +48,38 @@ describe('formatDuration', () => {
     expect(formatDuration(42_000)).toBe('42s')
     expect(formatDuration(65_000)).toBe('1m 5s')
     expect(formatDuration(3_900_000)).toBe('1h 5m')
+  })
+})
+
+describe('empty prefill', () => {
+  const field: WorkflowFieldView = {
+    key: 'property_value',
+    label: 'Property Value',
+    required: false,
+    targets: ['collateral'],
+    valueType: 'amount',
+  }
+  const row: ItemRow = {
+    epoch: 1,
+    fields: {
+      property_value: {
+        lastSynced: '22,50,000',
+        status: 'extracted',
+      },
+    },
+    key: 'Deviation-03112026-486382',
+    present: true,
+    status: 'ready',
+  }
+
+  it('never uses the current SF value as a value or draft', () => {
+    expect(fieldValue(row.fields, 'property_value')).toBe('')
+    expect(draftFor(field, row)).toBe('')
+  })
+
+  it('sends null for a field the operator left blank', () => {
+    expect(changesFor([field], { property_value: '' })).toEqual({
+      property_value: null,
+    })
   })
 })

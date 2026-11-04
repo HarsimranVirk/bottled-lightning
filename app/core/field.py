@@ -38,15 +38,20 @@ class FieldTarget:
 
     ``object_kind`` is a key in the workflow's ``AdapterRegistry`` (for Z02:
     ``cl_contract``, ``collateral``, …); ``label`` is the SF field label on that
-    record. A field has several targets when the same value must agree across
-    objects (FR-6.3).
+    record. ``section`` disambiguates labels that repeat on one page (the LMS 2.0
+    contract modification form has a ``New value`` input in both the loan-amount and
+    tenure cards), and is also the page area the adapter scrolls to before editing.
+    A field has several targets when the same value must agree across objects
+    (FR-6.3).
 
     Example:
-        FieldTarget("cl_contract", "Loan Amount")
+        FieldTarget("cl_contract", "Loan Amount", section="Contract")
+        FieldTarget("lms2_cl_contract", "New value", section="Tenure")
     """
 
     object_kind: str
     label: str
+    section: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

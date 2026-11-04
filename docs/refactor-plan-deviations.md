@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v3 |
+| **Version** | v3.2 |
 | **Date** | 2026-11-04 |
 | **Target design** | `docs/class-design-deviations.md` (v3) |
 | **Requirements** | `docs/FR-deviations.md` (v3) |
@@ -73,8 +73,10 @@ the workflow schema, repositories, workflow seam, Z02 catalog + description pars
 runtime, session snapshot/expiry, `ListPage`, login CLI, six Z02 adapters, the
 `DeviationsZ02Extraction` pipeline, the job dispatcher/worker/auth gate, and the
 `ListWatcher`/`Reconciler`/`ClosureResolver` refresh loop, and the `app/api` surface
-wired into `app.main`). Phase 6 (submission) is blocked on O-1/O-2 and Phase 8
-(frontend) is next; Phase 9's backend deletion remains.
+wired into `app.main`). Phase 6's apply/validate half is implemented and live-tested;
+the final Implement action is still blocked on O-2, so the workflow runs with
+`final_action=False` and returns `VALIDATED`. Phase 8 (frontend) is next; Phase 9's
+backend deletion remains.
 
 Live verification so far: list sample valid (7/7), full extraction of one deviation with
 all five refs, one `EXTRACT` job drained through the real dispatcher
@@ -117,7 +119,8 @@ explicit decision rather than a silent corruption.
 Existing behaviours that must survive the port (they encode hard-won facts):
 
 - Session snapshot → SQLite, cookies injected at launch, legacy `auth.json` fallback.
-- Description parsing, including excluding the bare `EMI-` line.
+- Description parsing, including excluding the bare `EMI-` line and the conservative
+  Old/New prefill (only values that changed between the blocks are suggested).
 - CL-contract product matching via `CL_CONTRACT_PRODUCT_MAP`.
 - LMS 2.0 shadow-DOM row scraping (`_scrape_lms_rows`).
 - Ambiguity → skip with reason, never a guess.
@@ -188,7 +191,8 @@ no `sync_playwright` anywhere in the new tree; `ruff`/`mypy` clean.
 - `salesforce/adapters.py`: `ObjectAdapter` protocol, `AdapterRegistry`.
 - `workflows/deviations_z02/adapters/*`: port the six adapters, preserving selectors and skip
   semantics. The LMS 2.0 adapters share the shadow-DOM row scraper.
-- `workflows/deviations_z02/description.py`: move the parser, keep the bare-`EMI-` rule.
+- `workflows/deviations_z02/description.py`: move the parser, keep the bare-`EMI-` rule,
+  and add the conservative Old/New change comparison used for prefill.
 - `workflows/deviations_z02/extraction.py`: implements `ExtractionPipeline` — deviation
   record first, then the opportunity / CL-contract / collateral related lists in parallel
   on one `TabGroup`; persist fields, attributes, refs; return `EXTRACTED` or `SKIPPED`.
@@ -234,24 +238,38 @@ parks jobs as `BLOCKED_AUTH` and resumes after re-login.
 **Gate:** a full add → extract → disappear cycle is driven by the watcher alone, with
 `sync_runs` showing valid/invalid cycles and warnings.
 
-### Phase 6 — Deviations submission (4–5 days) — **blocked on O-1, O-2**
+### Phase 6 — Deviations submission (4–5 days) — **apply/validate done; execute blocked on O-2**
 
 - `workflows/deviations_z02/submission.py`: implements `SubmissionPipeline` —
-  precheck → apply → validate → execute, returning `COMPLETED` / `ALREADY_CLOSED` /
-  `FAILED`.
-- Per-target-object apply using `FieldTarget` groups; read-back verification; presence
-  check twice (start of apply, last validation step).
+  precheck → apply → validate → execute, returning `COMPLETED` / `VALIDATED` /
+  `ALREADY_CLOSED` / `FAILED`.
+- Per-target-object apply using `FieldTarget` groups; every page is opened and every
+  current value read *before* the first write for the audit and idempotency (FR-6.2).
+  A difference does not block the write: the description-derived snapshot is not trusted.
+  Read-back verification; presence check twice (start of apply, last validation step).
+- O-1 is resolved (mapping in `docs/FR-deviations.md`, Appendix B): the adapters now
+  implement `read`/`write` against the real pages — Opportunity inline edit, Collateral
+  double-click inline edit, CL contract Classic Visualforce inline edit, LMS 2.0
+  collateral Edit form, LMS 2.0 contract Contract Modification form.
 - Final action: click `Implement`, modal confirm, observe page state, record
-  `execute_attempted_at` / `execute_confirmed_at`.
-- Idempotency: phase markers, applied values persisted per field, final action guarded.
-- `work_item_edits` audit writes at submit time.
-- Tests with fake adapters/pages: never execute after a failed validation; never execute
-  when absent (→ `ALREADY_CLOSED`); retry after crash does not double-apply; partial
-  failure leaves accurate per-field truth.
+  `execute_attempted_at` / `execute_confirmed_at`. **Not implemented yet**; the pipeline
+  runs with `final_action=False` and returns `VALIDATED` after read-back (FR-6.14).
+- Idempotency: applied values persisted per field; a retry skips targets whose applied
+  and current values already match the intended value.
+- Failure gate: a rejected write or read-back mismatch moves the item to `NEEDS_REVIEW`
+  and fails the job with a per-target reason. There is **no automatic rollback** in this
+  phase (FR-6.15); the operator fixes the cause and resubmits.
+- `work_item_edits` audit writes at submit time (in `WorkItemService.submit`); the actual
+  pre-write values are recorded in the `submit_precheck` event and the job log.
+- Tests with fake adapters/pages: a pre-read difference does not block the write; never
+  execute after a failed validation; never execute when absent (→ `ALREADY_CLOSED`);
+  retry after crash does not double-apply; partial failure leaves accurate per-field
+  truth and does not roll back (FR-6.15).
 
-**Gate:** a deviation with edited values goes apply → validate → implement against SF
-(test deviation only), and the resulting status is `COMPLETED` (rendered as
-"Implemented") with a matching audit trail.
+**Gate (apply/validate):** a deviation with edited values goes apply → validate against
+SF (test deviation only), returns `VALIDATED`, and every target reads back the intended
+value. **Gate (execute, later):** the same run reaches `COMPLETED` (rendered as
+"Implemented") with a matching audit trail once O-2 is resolved.
 
 ### Phase 7 — API rewrite (2 days)
 
@@ -402,15 +420,22 @@ directory until cutover (see O-4):
 .venv/bin/python tools/smoke_list.py            # header == rows, valid=True
 .venv/bin/python tools/smoke_extract.py         # first row
 .venv/bin/python tools/smoke_extract.py Deviation-28102026-484106
+.venv/bin/python tools/smoke_submit.py --dry-run
+.venv/bin/python tools/smoke_submit.py Deviation-28102026-484106 \
+    --loan-amount 14,50,000 --emi 18,585
 ```
 
 - `smoke_list.py` prints the sampled header total, row count and validity.
 - `smoke_extract.py` runs the real `DeviationsZ02Extraction` pipeline against the live org
   and prints the persisted fields, attributes and page refs plus the resulting status.
   Re-running re-extracts by default (`--no-force` respects `extracted_at`).
+- `smoke_submit.py` runs the real apply/validate pipeline. `--dry-run` only reads and
+  prints the live values; without it the proposed values are written to SF, read back,
+  and the run returns `validated`. It never clicks Implement (`final_action=False`).
 
-Extraction only reads Salesforce. Nothing is written to SF before Phase 6, so these runs
-are safe. Both tools are dev-only and are not packaged in the wheel.
+Extraction only reads Salesforce. Submission writes values, so use a test deviation and
+the explicit `--dry-run` first. All three tools are dev-only and are not packaged in the
+wheel.
 
 `smoke_watch.py` runs one real watcher cycle (`header == rows`, added/updated/closed
 counters) without starting the dispatcher, so the sync path can be checked in isolation.
