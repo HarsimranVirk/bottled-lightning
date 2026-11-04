@@ -68,6 +68,15 @@ export function formatTime(iso: string | null | undefined): string {
 }
 
 
+/** Resolve a record href against the Salesforce list URL (old rows stored it relative). */
+export function absoluteUrl(href: string, base: string): string {
+  try {
+    return new URL(href, base).toString()
+  } catch {
+    return href
+  }
+}
+
 /** Digits only; the legacy deck edits amounts as pure digits and formats for display. */
 export function digitsOf(raw: string | null | undefined): string {
   return String(raw ?? '').replace(/[^\d]/g, '')

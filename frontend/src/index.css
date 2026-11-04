@@ -422,21 +422,13 @@
 }
 
 .deck-card-wrap {
-  position: relative;
   width: 100%;
   max-width: 640px;
   margin: 0 auto;
-  touch-action: pan-y;
-  user-select: none;
   transition:
     transform 0.4s ease,
     opacity 0.4s ease;
   will-change: transform, opacity;
-}
-
-.deck-card-wrap[data-dragging='true'] {
-  transition: none;
-  cursor: grabbing;
 }
 
 .deck-card.deck-out-right {
@@ -452,13 +444,6 @@
 .deck-stack {
   max-width: 640px;
   margin: 0 auto;
-}
-
-.deck-description,
-.deck-roi,
-.deck-refs,
-.deck-field {
-  user-select: text;
 }
 
 .deck-description {
@@ -557,31 +542,19 @@
   color: var(--salt-color-gray-200, #4c4c4c);
 }
 
-.deck-skip {
-  min-width: 150px;
+.deck-actions {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
 }
 
-.swipe-stamp {
-  position: absolute;
-  top: 24px;
-  left: 50%;
-  transform: translateX(-50%) rotate(-10deg);
-  padding: 4px 14px;
-  border: 3px solid currentColor;
-  border-radius: 6px;
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: 2px;
-  background: rgba(255, 255, 255, 0.85);
-  pointer-events: none;
-}
-
-.swipe-stamp[data-kind='accept'] {
-  color: #137333;
-}
-
-.swipe-stamp[data-kind='reject'] {
-  color: #a50e0e;
+.deck-actions .saltButton {
+  flex: 1;
+  min-height: 40px;
+  justify-content: center;
+  font-size: 13px;
 }
 
 @media (max-width: 640px) {

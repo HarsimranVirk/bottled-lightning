@@ -1,11 +1,11 @@
 /**
  * The review deck, kept in the legacy deck's shape: one card, tallies, the same four
- * editable parameters and Skip/Accept buttons. Cards leave with the legacy slide
- * animation after the server confirms; swipe and arrow keys are accelerators for the
- * same two actions.
+ * editable parameters and full-width Skip/Accept buttons. Cards leave with the legacy
+ * slide animation after the server confirms. There are deliberately no drag or arrow-key
+ * shortcuts — a decision can only be made with the two explicit buttons.
  */
 
-import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
+import type { JSX } from 'react'
 import {
   Button,
   Card,
@@ -17,7 +17,7 @@ import {
   Text,
 } from '@salt-ds/core'
 import { DoubleChevronRightIcon, SuccessIcon } from '@salt-ds/icons'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
 import type { DecisionKind, ItemDetail, ItemRow, WorkflowFieldView } from '../api'
 import { changesFor, draftFor } from '../format'
@@ -37,8 +37,7 @@ interface Props {
   tally: DeckTally
   error: string | null
   announcement: string
-  /** False while the detail panel is open, so keys do not act behind it. */
-  enabled: boolean
+  listUrl: string
   onDecide: (
     row: ItemRow,
     decision: DecisionKind,
@@ -46,19 +45,8 @@ interface Props {
   ) => Promise<boolean>
   onReplay: () => void
   replaying: boolean
-  onOpen: (key: string) => void
   onRefresh: () => void
   refreshing: boolean
-}
-
-interface DragState {
-  startX: number
-  dx: number
-  width: number
-}
-
-function threshold(width: number): number {
-  return Math.max(88, Math.min(140, width * 0.3))
 }
 
 export function DecisionDeck({
@@ -69,15 +57,13 @@ export function DecisionDeck({
   tally,
   error,
   announcement,
-  enabled,
+  listUrl,
   onDecide,
   onReplay,
   replaying,
-  onOpen,
   onRefresh,
   refreshing,
 }: Props): JSX.Element {
-  const [drag, setDrag] = useState<DragState | null>(null)
   const [pending, setPending] = useState<DecisionKind | null>(null)
   const [leaving, setLeaving] = useState<{ row: ItemRow; decision: DecisionKind } | null>(null)
   const [draft, setDraft] = useState<{ key: string; values: Record<string, string> } | null>(null)
@@ -88,9 +74,7 @@ export function DecisionDeck({
     : Object.fromEntries(fields.map((field) => [field.key, draftFor(field, top)]))
   const values = top !== undefined && draft?.key === top.key ? draft.values : initial
   const busy = pending !== null || leaving !== null
-  const canAct = enabled && top !== undefined && !busy
-
-  const decideRef = useRef<(decision: DecisionKind) => Promise<void>>(async () => {})
+  const canAct = top !== undefined && !busy
 
   async function decide(decision: DecisionKind): Promise<void> {
     if (top === undefined || !canAct) return
@@ -102,74 +86,9 @@ export function DecisionDeck({
     setLeaving({ row: top, decision })
     window.setTimeout(() => setLeaving(null), 420)
   }
-  useEffect(() => {
-    decideRef.current = decide
-  })
 
-  useEffect(() => {
-    if (!enabled) return
-    const onKey = (event: KeyboardEvent): void => {
-      const target = event.target
-      if (
-        target instanceof HTMLElement &&
-        ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(target.tagName)
-      ) {
-        return
-      }
-      if (event.metaKey || event.ctrlKey || event.altKey) return
-      if (event.key === 'ArrowRight') {
-        event.preventDefault()
-        void decideRef.current('accept')
-      } else if (event.key === 'ArrowLeft') {
-        event.preventDefault()
-        void decideRef.current('reject')
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [enabled])
-
-  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
-    if (!canAct || event.button !== 0) return
-    const target = event.target
-    if (
-      target instanceof HTMLElement &&
-      target.closest('button, a, input, [data-no-swipe]')
-    ) {
-      return
-    }
-    event.currentTarget.setPointerCapture(event.pointerId)
-    setDrag({
-      startX: event.clientX,
-      dx: 0,
-      width: event.currentTarget.clientWidth,
-    })
-  }
-
-  function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>): void {
-    if (drag === null) return
-    setDrag({ ...drag, dx: event.clientX - drag.startX })
-  }
-
-  function handlePointerUp(): void {
-    if (drag === null) return
-    const limit = threshold(drag.width)
-    if (Math.abs(drag.dx) >= limit) {
-      void decide(drag.dx > 0 ? 'accept' : 'reject')
-    }
-    setDrag(null)
-  }
-
-  const limit = drag === null ? 1 : threshold(drag.width)
-  const ratio = drag === null ? 0 : Math.min(1, Math.abs(drag.dx) / limit)
-  const direction: DecisionKind | null =
-    drag === null || Math.abs(drag.dx) < 8 ? null : drag.dx > 0 ? 'accept' : 'reject'
   const leavingClass =
     leaving === null ? null : leaving.decision === 'accept' ? 'deck-out-right' : 'deck-out-left'
-  const dragStyle =
-    drag === null
-      ? undefined
-      : { transform: `translateX(${drag.dx}px) rotate(${drag.dx / 24}deg)` }
 
   return (
     <StackLayout gap={1}>
@@ -230,46 +149,25 @@ export function DecisionDeck({
         </Card>
       ) : (
         <>
-          <div
-            className={`deck-card-wrap deck-card ${leavingClass ?? ''}`}
-            data-dragging={drag !== null ? 'true' : undefined}
-            style={dragStyle}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={() => setDrag(null)}
-          >
+          <div className={`deck-card-wrap deck-card ${leavingClass ?? ''}`}>
             <DecisionCard
               row={top}
               fields={fields}
               terminalLabels={terminalLabels}
               detail={detail}
               values={values}
-              offset={0}
-              leavingClass={null}
+              listUrl={listUrl}
               onField={(key, value) => {
                 setDraft({ key: top.key, values: { ...values, [key]: value } })
               }}
-              onDetails={() => onOpen(top.key)}
             />
-            {direction !== null ? (
-              <div
-                className="swipe-stamp"
-                data-kind={direction}
-                style={{ opacity: ratio }}
-                aria-hidden
-              >
-                {direction === 'accept' ? 'ACCEPT' : 'SKIP'}
-              </div>
-            ) : null}
           </div>
 
-          <FlexLayout justify="center" gap={3} align="center">
+          <div className="deck-actions">
             <Button
               appearance="solid"
               disabled={!canAct}
               onClick={() => void decide('reject')}
-              className="deck-skip"
             >
               <DoubleChevronRightIcon aria-hidden /> Skip
             </Button>
@@ -281,7 +179,7 @@ export function DecisionDeck({
             >
               <SuccessIcon aria-hidden /> Accept
             </Button>
-          </FlexLayout>
+          </div>
 
           {rows[1] ? (
             <Text color="secondary" styleAs="label" className="deck-next">

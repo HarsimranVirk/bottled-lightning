@@ -218,11 +218,10 @@ export function DevStates(): JSX.Element {
           tally={{ accept: 2, skip: 1, pending: 3 }}
           error={null}
           announcement=""
-          enabled
+          listUrl="https://example.lightning.force.com/lightning/o/Deviation/list"
           onDecide={async () => true}
           onReplay={() => {}}
           replaying={false}
-          onOpen={() => {}}
           onRefresh={() => {}}
           refreshing={false}
         />
@@ -237,11 +236,10 @@ export function DevStates(): JSX.Element {
           tally={{ accept: 4, skip: 2, pending: 0 }}
           error={null}
           announcement="Accepted Deviation-03112026-486382 · deck complete"
-          enabled
+          listUrl="https://example.lightning.force.com/lightning/o/Deviation/list"
           onDecide={async () => true}
           onReplay={() => {}}
           replaying={false}
-          onOpen={() => {}}
           onRefresh={() => {}}
           refreshing={false}
         />
@@ -256,11 +254,10 @@ export function DevStates(): JSX.Element {
           tally={{ accept: 0, skip: 0, pending: 1 }}
           error="item is submitting and not decidable"
           announcement=""
-          enabled
+          listUrl="https://example.lightning.force.com/lightning/o/Deviation/list"
           onDecide={async () => false}
           onReplay={() => {}}
           replaying={false}
-          onOpen={() => {}}
           onRefresh={() => {}}
           refreshing={false}
         />

@@ -642,6 +642,8 @@ def is_valid_sample(header_total: int | None, rows: Sequence[ListRow]) -> bool:
 ```
 
 `ListPage` wraps one page and one spec: `async def refresh()`, `async def read() -> ListSample`.
+Record hrefs are resolved against the list page URL (`urljoin`) before they are stored, so
+`record_url` is absolute; Lightning renders them root-relative otherwise.
 `open()` and `refresh()` wait for both the rows and the "N items" header before the
 sample is read; Lightning paints rows first, and a header wait is what keeps the first
 cycle after a process start from being recorded as an invalid refresh.

@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 
 from app.core.list_view import ListRow, is_valid_sample
-from app.salesforce.list_page import parse_item_total
+from app.salesforce.list_page import parse_item_total, resolve_href
 
 
 class ItemTotalTests(unittest.TestCase):
@@ -22,6 +22,27 @@ class ItemTotalTests(unittest.TestCase):
         self.assertIsNone(parse_item_total("no rows here"))
         self.assertIsNone(parse_item_total(""))
         self.assertIsNone(parse_item_total("items"))
+
+
+class RecordHrefTests(unittest.TestCase):
+    """Record links are stored as absolute SF URLs, not app-relative paths."""
+
+    LIST_URL = (
+        "https://hffc.lightning.force.com/lightning/o/"
+        "Consumer_Loan_Deviation__c/list?filterName=Z2_Loan_para_pricing1"
+    )
+
+    def test_root_relative_href_becomes_absolute(self) -> None:
+        """Lightning renders '/lightning/r/…'; the UI must not open it on the app host."""
+        self.assertEqual(
+            resolve_href(self.LIST_URL, "/lightning/r/a2fS2000000fR5tIAE/view"),
+            "https://hffc.lightning.force.com/lightning/r/a2fS2000000fR5tIAE/view",
+        )
+
+    def test_absolute_href_is_left_alone(self) -> None:
+        """An already absolute record URL must not be prefixed twice."""
+        href = "https://hffc.lightning.force.com/lightning/r/a2fS2000000fR5tIAE/view"
+        self.assertEqual(resolve_href(self.LIST_URL, href), href)
 
 
 class ValidityRuleTests(unittest.TestCase):

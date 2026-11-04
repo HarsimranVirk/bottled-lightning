@@ -153,6 +153,8 @@ Requests an immediate refresh instead of waiting for the 30 s cycle.
 - `decision` filters by review decision: `accept`, `reject`, or `undecided` (no decision,
   or the latest decision was undone). Omitted means any.
 - `q` matches the key or the reason.
+- `recordUrl` is an absolute Salesforce URL. Rows stored before the sync fix may still
+  hold a root-relative path; the UI resolves it against the workflow's `listUrl`.
 
 ### `GET /api/deviations/{key}`
 

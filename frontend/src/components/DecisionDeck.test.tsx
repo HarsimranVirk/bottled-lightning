@@ -1,6 +1,6 @@
-/** Review deck behaviour: legacy card fields, tallies, buttons, keys and replay. */
+/** Review deck behaviour: legacy card fields, tallies, buttons, replay and links. */
 
-import { fireEvent, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -11,6 +11,8 @@ const FIELDS: WorkflowFieldView[] = [
   { key: 'loan_amount', label: 'Loan Amount', valueType: 'amount', required: false, targets: [] },
   { key: 'tenure', label: 'Tenure', valueType: 'months', required: false, targets: [] },
 ]
+
+const LIST_URL = 'https://hffc.lightning.force.com/lightning/o/Consumer_Loan_Deviation__c/list'
 
 function row(key: string, overrides: Partial<ItemRow> = {}): ItemRow {
   return {
@@ -52,11 +54,10 @@ function deckProps(overrides: Partial<Parameters<typeof DecisionDeck>[0]> = {}) 
     tally: { accept: 1, skip: 2, pending: 2 },
     error: null,
     announcement: '',
-    enabled: true,
+    listUrl: LIST_URL,
     onDecide: vi.fn(async () => true),
     onReplay: vi.fn(),
     replaying: false,
-    onOpen: vi.fn(),
     onRefresh: vi.fn(),
     refreshing: false,
     ...overrides,
@@ -64,14 +65,33 @@ function deckProps(overrides: Partial<Parameters<typeof DecisionDeck>[0]> = {}) 
 }
 
 describe('DecisionDeck', () => {
-  it('renders the legacy tallies and the top card values', () => {
+  it('renders the tallies, approval date and top card values', () => {
     render(<DecisionDeck {...deckProps()} />)
     expect(screen.getByText('1 accepted')).toBeInTheDocument()
     expect(screen.getByText('2 skipped')).toBeInTheDocument()
     expect(screen.getByText('2 to review')).toBeInTheDocument()
+    expect(screen.getByText('SF approval date: 4/11/2026 6:46 pm')).toBeInTheDocument()
     expect(screen.getByText('Deviation-1-1')).toBeInTheDocument()
     expect(screen.getAllByDisplayValue('13,00,000').length).toBeGreaterThan(0)
     expect(screen.getByText('next up: Deviation-2-2')).toBeInTheDocument()
+  })
+
+  it('shows the missing approval date instead of hiding the line', () => {
+    render(<DecisionDeck {...deckProps({ rows: [row('Deviation-1-1', { approvedAt: null })] })} />)
+    expect(screen.getByText('SF approval date: —')).toBeInTheDocument()
+  })
+
+  it('opens the absolute Salesforce record URL and has no Details button', () => {
+    const rows = [
+      row('Deviation-1-1', { recordUrl: '/lightning/r/a2fS2000000fR5tIAE/view' }),
+    ]
+    render(<DecisionDeck {...deckProps({ rows })} />)
+    const link = screen.getByRole('link', { name: /Deviation-1-1/ })
+    expect(link).toHaveAttribute(
+      'href',
+      'https://hffc.lightning.force.com/lightning/r/a2fS2000000fR5tIAE/view',
+    )
+    expect(screen.queryByRole('button', { name: 'Details' })).not.toBeInTheDocument()
   })
 
   it('accepts with the corrected field values', async () => {
@@ -91,34 +111,16 @@ describe('DecisionDeck', () => {
     )
   })
 
-  it('skips with the Skip button and with ArrowLeft', async () => {
+  it('skips with the Skip button', async () => {
     const user = userEvent.setup()
     const onDecide = vi.fn(async () => true)
     render(<DecisionDeck {...deckProps({ onDecide })} />)
 
     await user.click(screen.getByRole('button', { name: /Skip/ }))
-    expect(onDecide).toHaveBeenLastCalledWith(
-      expect.objectContaining({ key: 'Deviation-1-1' }),
-      'reject',
-      {},
-    )
-
-    fireEvent.keyDown(window, { key: 'ArrowLeft' })
-    expect(onDecide).toHaveBeenLastCalledWith(
-      expect.objectContaining({ key: 'Deviation-1-1' }),
-      'reject',
-      {},
-    )
-  })
-
-  it('accepts with ArrowRight', () => {
-    const onDecide = vi.fn(async () => true)
-    render(<DecisionDeck {...deckProps({ onDecide })} />)
-    fireEvent.keyDown(window, { key: 'ArrowRight' })
     expect(onDecide).toHaveBeenCalledWith(
       expect.objectContaining({ key: 'Deviation-1-1' }),
-      'accept',
-      expect.objectContaining({ loan_amount: '13,00,000' }),
+      'reject',
+      {},
     )
   })
 
@@ -165,12 +167,5 @@ describe('DecisionDeck', () => {
     expect(screen.getByText('Deck complete 🎉')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Replay skipped \(2\)/ }))
     expect(onReplay).toHaveBeenCalled()
-  })
-
-  it('ignores keyboard decisions while disabled (detail panel open)', () => {
-    const onDecide = vi.fn(async () => true)
-    render(<DecisionDeck {...deckProps({ onDecide, enabled: false })} />)
-    fireEvent.keyDown(window, { key: 'ArrowRight' })
-    expect(onDecide).not.toHaveBeenCalled()
   })
 })

@@ -55,7 +55,7 @@ change that alters the code (see AGENTS.md, plan-mode rules).
 |---|---|---|---|
 | `workflow` | TEXT | no | Workflow name (`deviations_z02`) |
 | `item_key` | TEXT | no | Deviation number (`Deviation-28102026-484106`) |
-| `record_url` | TEXT | yes | Record path from the list row; lets an EXTRACT job start |
+| `record_url` | TEXT | yes | Absolute SF record URL from the list row; lets an EXTRACT job start |
 | `status` | TEXT | no | `WorkItemStatus` |
 | `source` | TEXT | yes | `ClosureSource` (`system` / `external`) |
 | `reason` | TEXT | yes | Skip or closure reason |

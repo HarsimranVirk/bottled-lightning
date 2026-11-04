@@ -6,10 +6,10 @@
  */
 
 import type { JSX } from 'react'
-import { Button, Card, CardContent, FlexLayout, Input, Link, StackLayout, Text } from '@salt-ds/core'
+import { Card, CardContent, FlexLayout, Input, Link, StackLayout, Text } from '@salt-ds/core'
 
 import type { ItemDetail, ItemRow, WorkflowFieldView } from '../api'
-import { draftDisplay, orderedFields } from '../format'
+import { absoluteUrl, draftDisplay, orderedFields } from '../format'
 import { StatusChip } from './StatusChip'
 
 const REF_LABELS: Record<string, string> = {
@@ -35,11 +35,9 @@ interface Props {
   terminalLabels: Record<string, string>
   detail: ItemDetail | null
   values: Record<string, string>
-  /** 0 is the top card; 1-2 are the peeks behind it. */
-  offset: number
-  leavingClass: string | null
+  /** Used to turn a legacy relative record href into an absolute Salesforce URL. */
+  listUrl: string
   onField: (key: string, value: string) => void
-  onDetails: () => void
 }
 
 export function DecisionCard({
@@ -48,14 +46,13 @@ export function DecisionCard({
   terminalLabels,
   detail,
   values,
-  offset,
-  leavingClass,
+  listUrl,
   onField,
-  onDetails,
 }: Props): JSX.Element {
   const ordered = orderedFields(fields)
   const missing = ordered.filter((field) => (values[field.key] ?? '').trim() === '').length
   const description = detail?.attributes.description ?? null
+  const recordHref = row.recordUrl ? absoluteUrl(row.recordUrl, listUrl) : null
   const refRank = (kind: string): number => {
     const index = REF_ORDER.indexOf(kind)
     return index === -1 ? REF_ORDER.length : index
@@ -65,30 +62,23 @@ export function DecisionCard({
   )
 
   return (
-    <Card elevation="raised" className={`deck-stack deck-card ${leavingClass ?? ''}`}>
+    <Card elevation="raised" className="deck-stack deck-card">
       <CardContent>
         <StackLayout gap={1}>
-          <FlexLayout justify="space-between" align="center">
-            <FlexLayout gap={2} align="center">
-              {row.recordUrl ? (
-                <Link href={row.recordUrl} target="_blank" className="deck-title-link">
-                  {row.key}
-                </Link>
-              ) : (
-                <Text className="deck-title-link">{row.key}</Text>
-              )}
-              <StatusChip status={row.status} labels={terminalLabels} />
-            </FlexLayout>
-            <Button appearance="transparent" onClick={onDetails}>
-              Details
-            </Button>
+          <FlexLayout gap={2} align="center">
+            {recordHref ? (
+              <Link href={recordHref} target="_blank" className="deck-title-link">
+                {row.key}
+              </Link>
+            ) : (
+              <Text className="deck-title-link">{row.key}</Text>
+            )}
+            <StatusChip status={row.status} labels={terminalLabels} />
           </FlexLayout>
 
-          {row.approvedAt ? (
-            <Text color="secondary" styleAs="label">
-              SF approval date: {row.approvedAt}
-            </Text>
-          ) : null}
+          <Text color="secondary" styleAs="label">
+            SF approval date: {row.approvedAt ?? '—'}
+          </Text>
 
           {row.reason ? (
             <Text color="error" styleAs="label">
@@ -101,7 +91,7 @@ export function DecisionCard({
               <Text color="secondary" styleAs="label">
                 Pages to update
               </Text>
-              <StackLayout gap={0.5} className="deck-refs" data-no-swipe>
+              <StackLayout gap={0.5} className="deck-refs">
                 {refs.map((ref) => (
                   <FlexLayout key={ref.kind} gap={1} align="center">
                     <Text styleAs="label" color="secondary" className="deck-ref-label">
@@ -119,7 +109,7 @@ export function DecisionCard({
           <Text color="secondary" styleAs="label">
             Loan Deviation Description — read it, raw is truth
           </Text>
-          <div className="deck-description" data-no-swipe>
+          <div className="deck-description">
             {detail === null ? (
               <Text color="secondary">loading description…</Text>
             ) : description ? (
@@ -134,7 +124,7 @@ export function DecisionCard({
           <Text color="secondary" styleAs="label">
             Housing Loan Deviation Details
           </Text>
-          <div className="deck-roi" data-no-swipe>
+          <div className="deck-roi">
             {ROI_FIELDS.map((field) => (
               <StackLayout gap={0} key={field.key}>
                 <Text color="secondary" styleAs="label">
@@ -177,12 +167,6 @@ export function DecisionCard({
             <Text styleAs="label" className="deck-warning">
               {missing} {missing === 1 ? 'value is' : 'values are'} missing — check the
               description before accepting.
-            </Text>
-          ) : null}
-
-          {offset === 0 ? (
-            <Text color="secondary" styleAs="label">
-              ← skip · → accept · swipe the card or use the buttons
             </Text>
           ) : null}
         </StackLayout>

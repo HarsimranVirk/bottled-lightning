@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.3 |
+| **Version** | v5.4 |
 | **Date** | 2026-11-04 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -295,8 +295,7 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-9.13** No screen requires horizontal scrolling at 390, 768 or 1280 px. The list
   hides columns and the filters wrap instead of widening the page. All data text (the
   deck description, ROI values, page refs and detail fields) is selectable so the
-  operator can copy values; a drag gesture must never be the only way to interact, and
-  it must not run on a text panel the operator is selecting.
+  operator can copy values. The deck has no drag gesture (FR-10.9).
 
 ### FR-10 Review decisions (accept / reject)
 
@@ -320,9 +319,10 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   status, and the item keeps syncing from Salesforce.
 - **FR-10.8** Every decision is audited with its kind, reason and timestamp, and is shown
   in the item detail history.
-- **FR-10.9** Swiping is an accelerator, never the only path: accept/reject buttons and
-  the `←` / `→` keys perform the same action, and the result is announced through
-  `aria-live`.
+- **FR-10.9** Decisions are made with two explicit buttons, **Skip** and **Accept**, that
+  span the card width. There are no swipe or arrow-key shortcuts: an accidental gesture
+  must never be able to accept a deviation. The buttons are keyboard reachable through
+  the normal tab order, and the result is announced through `aria-live`.
 - **FR-10.10** The card shows every editable value, prefilled from the extracted value,
   so missing or unparsed values are visible and correctable before a decision. A missing
   value is a warning on the card, not a block: the single operator decides whether the
@@ -388,6 +388,11 @@ absence while a `SUBMIT` lease was held.
 
 ## Appendix C — Change log
 
+- **v5.4** — decision gestures are removed: Skip/Accept are the only paths and they span
+  the card width. The card shows the SF approval date (dash when SF has none), the
+  deviation number is an absolute Salesforce record link, and the separate *Details*
+  button is gone because the card already carries everything.
+
 - **v5.3** — responsive requirement (FR-9.13): no horizontal page scrolling at any
   review width, and all data text stays selectable; the deck omits its drag on the
   description/ROI/ref panels so values can be copied.
@@ -396,7 +401,7 @@ absence while a `SUBMIT` lease was held.
   date, pages to update, raw description, ROI details, four editable prefilled parameters,
   accepted/skipped/to-review tallies, next-up and *Replay skipped*. Accept stores the
   card's corrected values as proposals before recording the decision; skip stores no
-  values. Swipe and arrow keys remain accelerators for the same two buttons.
+  values.
 
 - **v5.1** — the sync banner no longer sticks: polling retries after a failed request
 (a server restart used to freeze the last snapshot), and an untrusted refresh states how

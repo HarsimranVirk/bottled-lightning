@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v3.2 |
+| **Version** | v3.3 |
 | **Date** | 2026-11-04 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
@@ -33,7 +33,7 @@ second workflow later means adding a second tab deliberately, not genericising t
 | Visual/E2E | Playwright (already a dependency) | screenshots per state; the review mechanism for agents and humans |
 | Language | TypeScript `strict`, no `any` | matches AGENTS.md |
 | Review decisions | local, append-only SQLite rows (`accept`/`reject`/undo) | one operator, reversible, no SF write; see FR-10 |
-| Deck input | pointer events + buttons + `←`/`→` keys | swipe is an accelerator, never the only path |
+| Deck input | **Skip / Accept buttons only** | gestures could accept by mistake; the buttons span the card width |
 
 Rejected: Redux (server state dominates), Storybook (a `/dev/states` harness gives most of
 the value), client-side business rules (the backend owns them).
@@ -45,8 +45,8 @@ the value), client-side business rules (the backend owns them).
 ```
 open app
   └─ session valid ──► review deck (undecided, decidable items)
-        ├─ accept (swipe right / → / button) ──► POST decision ──► next card
-        ├─ reject (swipe left / ← / button)  ──► POST decision ──► next card
+        ├─ Accept button ──► PATCH values + POST decision ──► next card
+        ├─ Skip button   ──► POST decision ────────────────► next card
         ├─ undo (U) ──► DELETE decision ──► the card returns
         └─ details ──► item panel: values, attributes, refs, history
               └─ edit 2 fields ──► "Save changes" ──► PATCH
@@ -101,16 +101,15 @@ accepted/skipped/to-review tallies, then Skip and Accept. The header keeps the
 | State | Card content | Actions |
 |---|---|---|
 | loading | one card skeleton; tallies show the last snapshot | — |
-| ready | record link + status, approval date, *Pages to update* (Opportunity, CL, collateral, LMS2), raw description panel, ROI grid, four prefilled editable values | Skip, Accept, Details |
-| needs_review | same card + the failure reason above the description | Skip, Accept, Details |
+| ready | record link + status, approval date, *Pages to update* (Opportunity, CL, collateral, LMS2), raw description panel, ROI grid, four prefilled editable values | Skip, Accept |
+| needs_review | same card + the failure reason above the description | Skip, Accept |
 | missing values | the input is empty and the card says "2 values missing" | Accept still allowed (FR-10.10) |
 | editing a value | input shows Indian grouping (amounts) or months; the draft is local until Accept | Skip discards the draft |
-| dragging | card follows the pointer; ACCEPT/SKIP stamp fades in past the threshold | release to decide |
 | decision in flight | Skip/Accept disabled until the PATCH + decision finish | — |
-| decision failed | card stays, the server message appears above it | Retry, Details |
+| decision failed | card stays, the server message appears above it | Retry |
 | leaving | card slides out right (accept) or left (skip) for 420 ms | — |
 | complete | `Deck complete 🎉`, accepted/skipped counts, **Replay skipped**, Refresh | undo all skips |
-| paused session | deck still usable (decisions + proposals are local) + global auth banner | Skip, Accept, Details |
+| paused session | deck still usable (decisions + proposals are local) + global auth banner | Skip, Accept |
 
 Card order: newest `last_seen` first, the same order as the list. "next up: <key>" names
 the card behind the top one. **Accept** PATCHes the card's cleaned values as proposals
@@ -173,9 +172,8 @@ App
     ├── AuthCard                 replaces content when session is none/expired
     ├── DeviationsPage          route "/deviations-z02" (the Z02 tab)
     │   ├── ViewToggle          Deck (default) / List
-    │   ├── DecisionDeck         one card, tallies, gestures, keyboard, replay, exit animation
-    │   │   ├── DecisionCard      legacy card: refs, description, ROI grid, editable values
-    │   │   └── SwipeStamp        ACCEPT / SKIP overlay (decorative)
+    │   ├── DecisionDeck         one card, tallies, replay, exit animation
+    │   └── DecisionCard         legacy card: refs, description, ROI grid, editable values
     │   ├── FilterBar            status + decision selects, search, refresh (List)
     │   ├── ItemsGrid            table; owns row rendering only (List)
     │   │   └── ItemRow          cells + StatusChip + DecisionChip
@@ -232,12 +230,12 @@ Rules:
 
 ## 6. Interaction spec
 
-1. **Decide** — the top card accepts/skips via: drag past 96 px (or 30 % of the card
-   width) and release; the Skip/Accept buttons; `→` / `←`. Accept sends the card's values
-   first (`PATCH …/field-values`) and then the decision, so one accept is two ordered
-   requests; Skip sends only the decision. The card slides out after the server confirms.
-   No modal: decisions are reversible (FR-10.3), and *Replay skipped* restores every skip
-   when the deck is empty.
+1. **Decide** — only the **Skip** and **Accept** buttons decide; both span half the card
+   width. There is no swipe or arrow-key shortcut, so a stray gesture cannot accept a
+   deviation (FR-10.9). Accept sends the card's values first (`PATCH …/field-values`)
+   and then the decision, so one accept is two ordered requests; Skip sends only the
+   decision. The card slides out after the server confirms. No modal: decisions are
+   reversible (FR-10.3), and *Replay skipped* restores every skip when the deck is empty.
 2. **Edit** — click a cell (or focus + Enter) → input with the current value; `Esc` cancels
    that cell, `Enter`/blur stages the change. Staged changes are shown in the footer
    ("2 unsaved changes").
@@ -273,10 +271,10 @@ Rules:
   Long values wrap (`overflow-wrap: anywhere`), never widen the page.
 - Deck card: Salt `Card elevation="raised"`, max-width 640 px, centred (the legacy
   width). One card at a time; the next item is named below it, not stacked behind it.
-  The accept stamp is success-toned, the skip stamp danger-toned; both are text
-  (`ACCEPT`/`SKIP`), not colour alone.
-- Drag motion is transform-only (translate + ≤6° rotate) and disabled under
-  `prefers-reduced-motion`, where cards simply fade after the response.
+  Skip and Accept are full-width halves of the card (40 px tall) so they are the obvious
+  action and cannot be confused with a gesture.
+- The exit animation is transform-only (slide left/right + ≤14° rotate) and disabled
+  under `prefers-reduced-motion`, where the card simply disappears after the response.
 - Amounts are edited as digits and shown with Indian grouping; tenure is shown in months.
   The client never rounds or guesses units: a bare `10.0` stays 10 months (legacy rule).
 - Timestamps are shown in local time with a relative hint ("12:46 pm · 3 min ago").
@@ -288,9 +286,8 @@ Rules:
 - The deck is fully operable with buttons and keys; swiping is additive. The action
   buttons are always in the tab order. Decision results go to an `aria-live="polite"`
   line ("Accepted … · deck complete"), never to a modal.
-- **All data text is selectable.** The card suppresses its drag over buttons, links,
-  inputs and the description/ROI/ref panels, so selecting text to copy never moves the
-  card. The description panel carries `data-no-swipe` and `user-select: text`.
+- **All data text is selectable.** There is no drag gesture, so selecting the
+  description, ROI values or refs never moves the card.
 - The drawer traps focus and returns it on close; `Esc` closes it.
 - Job/status changes announced through `aria-live="polite"` (no per-second spam: only
   status changes, not elapsed time).
@@ -343,8 +340,11 @@ saving a valid value updates the row without a manual refresh.
 `login_required` and disables submission. *Blocked on O-1/O-2.*
 
 **Slice D — review deck** (done). Default deck view in the legacy card shape, accept/reject
-decisions, editable prefilled values saved as proposals on accept, swipe + buttons + keys,
-tallies, replay skipped, decision chips/filters in the list, decision history in the detail.
+decisions, editable prefilled values saved as proposals on accept, full-width Skip/Accept
+buttons only, tallies, replay skipped, decision chips/filters in the list, decision history
+in the detail. The card carries everything: no separate *Details* button, the SF approval
+date is always shown (dash when empty), and the deviation number is an absolute Salesforce
+record link.
 Acceptance: a real 7-row list is decidable card by card; an edited value is stored as a
 proposal before the decision; deciding removes the card and survives a reload; replay
 restores every skipped card; a failed decision leaves the card in place.

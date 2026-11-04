@@ -189,11 +189,10 @@ export function DeviationsPage(): JSX.Element {
           tally={tally}
           error={actionError ?? (deck.error ? deck.error.message : null)}
           announcement={announcement}
-          enabled={key === undefined}
+          listUrl={workflow.listUrl}
           onDecide={handleDecide}
           onReplay={() => void replaySkipped()}
           replaying={replaying}
-          onOpen={(itemKey) => navigate(`/deviations-z02/${encodeURIComponent(itemKey)}`)}
           onRefresh={() => void deck.refetch()}
           refreshing={deck.isFetching}
         />

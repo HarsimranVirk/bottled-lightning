@@ -11,6 +11,7 @@ import asyncio
 import logging
 import re
 from contextlib import suppress
+from urllib.parse import urljoin
 
 from playwright.async_api import BrowserContext, Page
 
@@ -24,6 +25,15 @@ _HEADER_TEXT = re.compile(r"\d[\d,]*\s+items?\b")
 _SHOW_MORE = re.compile(r"^\s*Show more\s*$", re.IGNORECASE)
 _APPROVAL_DATE_COLUMN = 6
 _ROW_KEY_COLUMN = 1
+
+
+def resolve_href(current_url: str, href: str) -> str:
+    """Absolute URL for a list link; Lightning renders root-relative hrefs.
+
+    The stored ``record_url`` is opened directly by the UI, so a bare
+    ``/lightning/r/…`` would resolve against the local app host instead of Salesforce.
+    """
+    return urljoin(current_url, href)
 
 
 def parse_item_total(text: str) -> int | None:
@@ -235,7 +245,9 @@ class ListPage:
                 continue
             href = await locator.get_attribute("href")
             if href and "/lightning/r/" in href:
-                found.setdefault(match.group(0).strip(), href)
+                found.setdefault(
+                    match.group(0).strip(), resolve_href(self._page.url, href)
+                )
 
     async def _show_more(self) -> bool:
         """Click Show more once; returns whether anything was clicked."""
