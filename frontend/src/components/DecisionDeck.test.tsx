@@ -125,6 +125,74 @@ describe('DecisionDeck', () => {
     )
   })
 
+  it('shows the shortcuts on the buttons and advertises them to assistive tech', () => {
+    render(<DecisionDeck {...deckProps()} />)
+    const skip = screen.getByRole('button', { name: /Skip/ })
+    const accept = screen.getByRole('button', { name: /Accept/ })
+    expect(skip).toHaveTextContent('Shift+←')
+    expect(accept).toHaveTextContent('Shift+→')
+    expect(skip).toHaveAttribute('aria-keyshortcuts', 'Shift+ArrowLeft')
+    expect(accept).toHaveAttribute('aria-keyshortcuts', 'Shift+ArrowRight')
+  })
+
+  it('accepts with Shift+ArrowRight', async () => {
+    const user = userEvent.setup()
+    const onDecide = vi.fn(async () => true)
+    render(<DecisionDeck {...deckProps({ onDecide })} />)
+
+    await user.keyboard('{Shift>}{ArrowRight}{/Shift}')
+    expect(onDecide).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'Deviation-1-1' }),
+      'accept',
+      expect.objectContaining({ loan_amount: '13,00,000' }),
+    )
+  })
+
+  it('skips with Shift+ArrowLeft', async () => {
+    const user = userEvent.setup()
+    const onDecide = vi.fn(async () => true)
+    render(<DecisionDeck {...deckProps({ onDecide })} />)
+
+    await user.keyboard('{Shift>}{ArrowLeft}{/Shift}')
+    expect(onDecide).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'Deviation-1-1' }),
+      'reject',
+      {},
+    )
+  })
+
+  it('ignores plain arrow keys so a stray key cannot decide', async () => {
+    const user = userEvent.setup()
+    const onDecide = vi.fn(async () => true)
+    render(<DecisionDeck {...deckProps({ onDecide })} />)
+
+    await user.keyboard('{ArrowLeft}{ArrowRight}')
+    expect(onDecide).not.toHaveBeenCalled()
+  })
+
+  it('ignores the shortcuts while a card field has focus', async () => {
+    const user = userEvent.setup()
+    const onDecide = vi.fn(async () => true)
+    render(<DecisionDeck {...deckProps({ onDecide })} />)
+
+    await user.click(screen.getByLabelText('Loan Amount'))
+    await user.keyboard('{Shift>}{ArrowRight}{/Shift}')
+    expect(onDecide).not.toHaveBeenCalled()
+  })
+
+  it('ignores the shortcuts once the deck is complete', async () => {
+    const user = userEvent.setup()
+    const onDecide = vi.fn(async () => true)
+    render(
+      <DecisionDeck
+        {...deckProps({ rows: [], tally: { accept: 4, skip: 2, pending: 0 }, onDecide })}
+      />,
+    )
+
+    await user.keyboard('{Shift>}{ArrowRight}{/Shift}')
+    expect(onDecide).not.toHaveBeenCalled()
+  })
+
   it('allows a decision when only some values are present', () => {
     const rows = [
       row('Deviation-1-1', {
