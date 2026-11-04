@@ -125,7 +125,7 @@ describe('DecisionDeck', () => {
     )
   })
 
-  it('warns about missing values without blocking the decision', () => {
+  it('allows a decision when only some values are present', () => {
     const rows = [
       row('Deviation-1-1', {
         fields: {
@@ -147,8 +147,9 @@ describe('DecisionDeck', () => {
       }),
     ]
     render(<DecisionDeck {...deckProps({ rows })} />)
-    expect(screen.getByText(/2 values are missing/)).toBeInTheDocument()
+    expect(screen.queryByText(/values are missing/)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Accept/ })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /Skip/ })).toBeEnabled()
   })
 
   it('keeps the card when a decision fails', () => {

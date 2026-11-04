@@ -104,7 +104,7 @@ accepted/skipped/to-review tallies, then Skip and Accept. The header keeps the
 | loading | one card skeleton; tallies show the last snapshot | — |
 | ready | record link + status, approval date, *Pages to update* (Opportunity, CL, collateral, LMS2), raw description panel, ROI grid, four prefilled editable values | Skip, Accept |
 | needs_review | same card + the failure reason above the description | Skip, Accept |
-| missing values | the input is empty and the card says "2 values missing" | Accept still allowed (FR-10.10) |
+| partial values | inputs not present in the New block are empty; no warning | Accept allowed (FR-10.10) |
 | editing a value | input shows Indian grouping (amounts) or months; the draft is local until Accept | Skip discards the draft |
 | decision in flight | Skip/Accept disabled until the PATCH + decision finish | — |
 | decision failed | card stays, the server message appears above it | Retry |

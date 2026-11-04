@@ -7,8 +7,6 @@
 
 import type { JSX } from 'react'
 import {
-  Banner,
-  BannerContent,
   Card,
   CardContent,
   FlexLayout,
@@ -64,7 +62,6 @@ export function DecisionCard({
   onField,
 }: Props): JSX.Element {
   const ordered = orderedFields(fields)
-  const missing = ordered.filter((field) => (values[field.key] ?? '').trim() === '').length
   const description = detail?.attributes.description ?? null
   const recordHref = row.recordUrl ? absoluteUrl(row.recordUrl, listUrl) : null
   const refRank = (kind: string): number => {
@@ -174,15 +171,6 @@ export function DecisionCard({
               </FormField>
             ))}
           </StackLayout>
-
-          {missing > 0 ? (
-            <Banner status="warning">
-              <BannerContent>
-                {missing} {missing === 1 ? 'value is' : 'values are'} missing — check the
-                description before accepting.
-              </BannerContent>
-            </Banner>
-          ) : null}
         </StackLayout>
       </CardContent>
     </Card>

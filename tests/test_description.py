@@ -92,6 +92,63 @@ class DescriptionTests(unittest.TestCase):
         self.assertEqual(parsed["property_value"], "22,50,000")
         self.assertEqual(parsed["emi_incl_hffc"], "16,256")
 
+    def test_new_parameter_block_wins_over_old(self) -> None:
+        """Only the New block is authoritative; the Old block is never parsed (FR-3.3)."""
+        text = (
+            "Old Paramaters\n"
+            "LA-13,00,000\n"
+            "PP-22,50,000\n"
+            "LTV-57.78%\n"
+            "EMI-16,663\n"
+            "FOIR-40.64%\n"
+            "EMIs & other fixed pmts inc HFFC Loan-16,256\n"
+            "\n"
+            "New Paramater\n"
+            "LA-14,50,000\n"
+            "PP-22,50,000\n"
+            "LTV-64.44%\n"
+            "EMI-18585\n"
+            "FOIR-46.46\n"
+            "EMIs & other fixed pmts inc HFFC Loan-18585\n"
+        )
+        parsed = parse_description_fields(text)
+        self.assertEqual(parsed["loan_amount"], "14,50,000")
+        self.assertEqual(parsed["property_value"], "22,50,000")
+        self.assertEqual(parsed["emi_incl_hffc"], "18585")
+
+    def test_verbose_new_block_aliases(self) -> None:
+        """New loan amount / PP Value lines in the New block parse."""
+        text = (
+            "OLD PARAMETER\n"
+            "Old loan amount - 6,00,000\n"
+            "Tenure-10.0\n"
+            "PP Value-₹12,00,000\n"
+            "\n"
+            "NEW PARAMETER\n"
+            "New loan amount-5,00,000\n"
+            "Tenure-10.0\n"
+            "PP Value-₹10,00,000\n"
+        )
+        parsed = parse_description_fields(text)
+        self.assertEqual(parsed["loan_amount"], "5,00,000")
+        self.assertEqual(parsed["property_value"], "₹10,00,000")
+        self.assertEqual(parsed["tenure"], "10.0")
+
+    def test_new_parameter_section_does_not_fall_back_to_old(self) -> None:
+        """A field absent from the New block stays empty; old values are not resurrected."""
+        text = (
+            "OLD PARAMETER:-\n"
+            "Property Value Ex. Reg & ST(Financeable):- 22,00,000/-\n"
+            "Loan Amount:- 9,80,000/-\n"
+            "NEW PARAMETER:-\n"
+            "Property Value Ex. Reg & ST(Financeable):- 13,00,000/-\n"
+            "Loan Amount:- 9,80,000/-\n"
+        )
+        parsed = parse_description_fields(text)
+        self.assertEqual(parsed["property_value"], "13,00,000/-")
+        self.assertEqual(parsed["loan_amount"], "9,80,000/-")
+        self.assertIsNone(parsed["tenure"])
+
     def test_compact_emi_line_is_not_the_precalculated_emi(self) -> None:
         """In the compact shape, only the EMIs & line is captured."""
         text = "EMI-16,663\nEMIs & other fixed pmts inc HFFC Loan-16,256\n"

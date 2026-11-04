@@ -12,7 +12,7 @@ import re
 # are tried in order and the first matching line wins.
 _FIELD_LABELS: dict[str, tuple[str, ...]] = {
     "property_value": ("Property Value", "New PP", "PP"),
-    "loan_amount": ("Loan Amount","LA"),
+    "loan_amount": ("New Loan Amount", "Loan Amount", "LA"),
     "tenure": ("Tenure",),
     "emi_incl_hffc": ("EMIs &", "EMI &"),
 }
@@ -31,6 +31,9 @@ _FIELD_PATTERNS: dict[str, tuple[str, ...]] = {
     key: tuple(_label_pattern(label) for label in labels)
     for key, labels in _FIELD_LABELS.items()
 }
+
+_NEW_SECTION = re.compile(r"^\s*New\s+Param", re.IGNORECASE | re.MULTILINE)
+_OLD_SECTION = re.compile(r"^\s*Old\s+Param", re.IGNORECASE | re.MULTILINE)
 
 _DROP_LINES = (
     r"^\s*(Help |Edit |)?Loan Deviation Description\s*$",
@@ -60,10 +63,16 @@ def parse_description_fields(description: str) -> dict[str, str | None]:
             'tenure': None, 'emi_incl_hffc': None}
     """
 
+    # Descriptions with an Old/New block describe what the loan *should* be in the
+    # New block. Only that block is authoritative; the Old block is the starting point
+    # and must never win (FR-3.3).
+    new_section = _new_section(description)
+    source = new_section if new_section is not None else description
+
     def grab(patterns: tuple[str, ...]) -> str | None:
         """First non-empty value across a set of label patterns."""
         for pattern in patterns:
-            match = re.search(pattern, description)
+            match = re.search(pattern, source)
             if match is None:
                 continue
             value = match.group(1).strip()
@@ -72,6 +81,21 @@ def parse_description_fields(description: str) -> dict[str, str | None]:
         return None
 
     return {key: grab(patterns) for key, patterns in _FIELD_PATTERNS.items()}
+
+
+def _new_section(description: str) -> str | None:
+    """The text after a ``New Parameter`` heading, up to an ``Old`` heading.
+
+    Both spellings seen in production (``New Paramater``) and ``NEW PARAMETER:-``
+    match. Returns ``None`` when the description has no New block, so an old/only
+    description still parses as before.
+    """
+    new = _NEW_SECTION.search(description)
+    if new is None:
+        return None
+    start = new.end()
+    old = _OLD_SECTION.search(description, start)
+    return description[start : old.start()] if old is not None else description[start:]
 
 
 def clean_description(raw: str) -> str:

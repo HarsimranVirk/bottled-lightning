@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.7 |
+| **Version** | v5.8 |
 | **Date** | 2026-11-04 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -132,10 +132,12 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   `requested_roi`, `ideal_roi`, `updated_roi`, `requested_variance`, record id, record
   URL and the Opportunity link.
 - **FR-3.3** From the description the system parses `property_value`, `loan_amount`,
-  `tenure` and `emi_incl_hffc`. The bare `EMI-` pre-calculated line must never be
-  captured; only the `EMIs & other …` line is. Parsing is best-effort: a value the parser
-  cannot find is left empty, which is neither a failure nor a skip — the operator can
-  supply it in the unified view.
+  `tenure` and `emi_incl_hffc`. When the description contains Old and New parameter
+  blocks, only the **New** block is authoritative; old values are never extracted. If
+  the New block omits a field, that field stays empty rather than inheriting the old
+  value. The bare `EMI-` pre-calculated line must never be captured; only the
+  `EMIs & other …` line is. Parsing is best-effort: a value the parser cannot find is
+  left empty, which is neither a failure nor a skip — the operator can supply it.
 - **FR-3.4** From the Opportunity page the system captures the product type and maps it
   to the CL-contract product using the existing product mapping.
 - **FR-3.5** The system discovers and records page refs for the Opportunity, the matching
@@ -342,9 +344,9 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   must never be able to accept a deviation. The buttons are keyboard reachable through
   the normal tab order, and the result is announced through `aria-live`.
 - **FR-10.10** The card shows every editable value, prefilled from the extracted value,
-  so missing or unparsed values are visible and correctable before a decision. A missing
-  value is a warning on the card, not a block: the single operator decides whether the
-  deviation is decidable. Accept persists the card's values as proposals (FR-10.2).
+  so missing or unparsed values are visible and correctable before a decision. Missing
+  values are not an error and carry no warning: only one or two values may need an
+  update. Accept persists the card's values as proposals (FR-10.2).
 - **FR-10.11** Decisions never gate sync or extraction. An accepted or rejected item is
   still reconciled with the list view like any other.
 
@@ -405,6 +407,10 @@ absence while a `SUBMIT` lease was held.
   submit action? (Default: explicit action; acceptance only queues.) | FR-10.6 |
 
 ## Appendix C — Change log
+
+- **v5.8** — description parsing prefers the New parameter block and never falls back
+  to the Old block for a missing field; the card no longer warns about missing values
+  (partial updates are normal).
 
 - **v5.7** — the List view is replaced by an accepted-deviations **History** table
   (paginated, newest decision first); jobs filters moved into the column headers; every
