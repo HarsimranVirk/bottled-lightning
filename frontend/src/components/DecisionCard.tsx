@@ -6,7 +6,6 @@
  */
 
 import type { JSX } from 'react'
-import { useState } from 'react'
 import {
   Card,
   CardContent,
@@ -15,7 +14,6 @@ import {
   FormFieldLabel,
   GridLayout,
   Input,
-  Button,
   Link,
   StackLayout,
   Text,
@@ -42,10 +40,12 @@ const ROI_FIELDS: { key: string; label: string }[] = [
   { key: 'requested_variance', label: 'Requested Variance' },
 ]
 
-function splitParameters(text: string): { visible: string; hasOld: boolean } {
+function splitParameters(text: string): { old: string; new: string } | null {
   const match = text.match(/(^|\n)(\s*New\s+Param[\s\S]*)$/i)
-  if (match === null) return { visible: text, hasOld: false }
-  return { visible: match[2].trim(), hasOld: text.slice(0, match.index).trim().length > 0 }
+  if (match === null) return null
+  const old = text.slice(0, match.index).trim()
+  if (!old) return null
+  return { old, new: match[2].trim() }
 }
 
 interface Props {
@@ -69,7 +69,6 @@ export function DecisionCard({
   onField,
 }: Props): JSX.Element {
   const ordered = orderedFields(fields)
-  const [showFullDescription, setShowFullDescription] = useState(false)
   const description = detail?.attributes.description ?? null
   const descriptionParts = description === null ? null : splitParameters(description)
   const recordHref = row.recordUrl ? absoluteUrl(row.recordUrl, listUrl) : null
@@ -106,57 +105,32 @@ export function DecisionCard({
             </Text>
           ) : null}
 
-          {refs.length > 0 ? (
-            <StackLayout gap={0.5}>
-              <Text color="secondary" styleAs="label">
-                Pages to update
-              </Text>
-              <GridLayout columns={{ xs: 1, sm: 2 }} gap={0.5}>
-                {refs.map((ref) => (
-                  <FlexLayout key={ref.kind} gap={1} align="center">
-                    <Text styleAs="label" color="secondary">
-                      {REF_LABELS[ref.kind] ?? ref.kind}
-                    </Text>
-                    <Link href={ref.url} target="_blank">
-                      {ref.name}
-                    </Link>
-                  </FlexLayout>
-                ))}
+          <Text color="secondary" styleAs="label">
+            Loan Deviation Description — read it, raw is truth
+          </Text>
+          <Card variant="secondary" elevation="flat" className="deck-description">
+            {detail === null ? (
+              <Text color="secondary">loading description…</Text>
+            ) : description === null ? (
+              <Text color="secondary">no description picked yet — run an extraction first</Text>
+            ) : descriptionParts ? (
+              <GridLayout columns={{ xs: 1, md: 2 }} gap={2}>
+                <Text styleAs="code" className="deck-description-text">
+                  {descriptionParts.old}
+                </Text>
+                <Text styleAs="code" className="deck-description-text">
+                  {descriptionParts.new}
+                </Text>
               </GridLayout>
-            </StackLayout>
-          ) : null}
+            ) : (
+              <Text styleAs="code" className="deck-description-text">
+                {description}
+              </Text>
+            )}
+          </Card>
 
           <GridLayout columns={{ xs: 1, lg: 2 }} gap={2}>
             <StackLayout gap={1}>
-              <FlexLayout justify="space-between" align="center" gap={1} wrap>
-                <Text color="secondary" styleAs="label">
-                  Loan Deviation Description — read it, raw is truth
-                </Text>
-                {descriptionParts?.hasOld ? (
-                  <Button
-                    appearance="transparent"
-                    onClick={() => setShowFullDescription((current) => !current)}
-                  >
-                    {showFullDescription ? 'Show new only' : 'Show old parameters'}
-                  </Button>
-                ) : null}
-              </FlexLayout>
-              <Card
-                variant="secondary"
-                elevation="flat"
-                className={`deck-description${showFullDescription ? ' deck-description-full' : ''}`}
-              >
-                {detail === null ? (
-                  <Text color="secondary">loading description…</Text>
-                ) : description && descriptionParts ? (
-                  <Text styleAs="code" className="deck-description-text">
-                    {showFullDescription ? description : descriptionParts.visible}
-                  </Text>
-                ) : (
-                  <Text color="secondary">no description picked yet — run an extraction first</Text>
-                )}
-              </Card>
-
               <Text color="secondary" styleAs="label">
                 New loan parameters to populate — prefilled where the parser could read the
                 description; correct anything it got wrong:
@@ -184,20 +158,42 @@ export function DecisionCard({
               </StackLayout>
             </StackLayout>
 
-            <StackLayout gap={1}>
-              <Text color="secondary" styleAs="label">
-                Housing Loan Deviation Details
-              </Text>
-              <GridLayout columns={{ xs: 1, sm: 2 }} gap={1}>
-                {ROI_FIELDS.map((field) => (
-                  <StackLayout gap={0} key={field.key}>
-                    <Text color="secondary" styleAs="label">
-                      {field.label}
-                    </Text>
-                    <Text>{detail?.attributes[field.key] ?? '—'}</Text>
-                  </StackLayout>
-                ))}
-              </GridLayout>
+            <StackLayout gap={2}>
+              {refs.length > 0 ? (
+                <StackLayout gap={0.5}>
+                  <Text color="secondary" styleAs="label">
+                    Pages to update
+                  </Text>
+                  <GridLayout columns={{ xs: 1, sm: 2 }} gap={0.5}>
+                    {refs.map((ref) => (
+                      <FlexLayout key={ref.kind} gap={1} align="center">
+                        <Text styleAs="label" color="secondary">
+                          {REF_LABELS[ref.kind] ?? ref.kind}
+                        </Text>
+                        <Link href={ref.url} target="_blank">
+                          {ref.name}
+                        </Link>
+                      </FlexLayout>
+                    ))}
+                  </GridLayout>
+                </StackLayout>
+              ) : null}
+
+              <StackLayout gap={1}>
+                <Text color="secondary" styleAs="label">
+                  Housing Loan Deviation Details
+                </Text>
+                <GridLayout columns={{ xs: 1, sm: 2 }} gap={1}>
+                  {ROI_FIELDS.map((field) => (
+                    <StackLayout gap={0} key={field.key}>
+                      <Text color="secondary" styleAs="label">
+                        {field.label}
+                      </Text>
+                      <Text>{detail?.attributes[field.key] ?? '—'}</Text>
+                    </StackLayout>
+                  ))}
+                </GridLayout>
+              </StackLayout>
             </StackLayout>
           </GridLayout>
         </StackLayout>
