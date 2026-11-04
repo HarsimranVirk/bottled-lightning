@@ -15,8 +15,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.config import load_settings  # noqa: E402
-from app.main import Stack  # noqa: E402
+from app.config import load_settings
+from app.main import Stack
 
 OUTPUT = Path(__file__).resolve().parent.parent / "frontend" / "openapi.json"
 

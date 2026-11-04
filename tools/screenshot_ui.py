@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from playwright.sync_api import sync_playwright  # noqa: E402
+from playwright.sync_api import sync_playwright
 
 OUT_DIR = Path(__file__).resolve().parent.parent / "docs" / "screenshots"
 

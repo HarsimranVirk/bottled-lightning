@@ -7,13 +7,12 @@ API + SPA. Tests build the API with :func:`app.api.create_app`, which needs no b
 from __future__ import annotations
 
 import argparse
-import os
 import socket
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__, config, updater
@@ -48,16 +47,14 @@ DEV_WEB_DIR = config.BASE_DIR / "frontend" / "dist"
 
 
 def _web_dir() -> Path | None:
-    """The SPA directory to serve, if a current build exists.
+    """The SPA directory to serve, if a build exists.
 
-    The wheel-packaged copy is always served. A source checkout's ``frontend/dist`` is
-    only used when ``SF_SERVE_DEV_WEB=1``, because until the frontend rewrite (Phase 8)
-    it still calls the pre-refactor endpoints and would render a broken page.
+    The wheel-packaged copy wins (that is what an installed build uses); a source
+    checkout falls back to ``frontend/dist`` so ``npm run build`` is enough to see the UI.
     """
-    if (PACKAGED_WEB_DIR / "index.html").exists():
-        return PACKAGED_WEB_DIR
-    if os.environ.get("SF_SERVE_DEV_WEB") == "1" and (DEV_WEB_DIR / "index.html").exists():
-        return DEV_WEB_DIR
+    for candidate in (PACKAGED_WEB_DIR, DEV_WEB_DIR):
+        if (candidate / "index.html").exists():
+            return candidate
     return None
 
 
@@ -182,9 +179,7 @@ class Stack:
         """Build the HTTP app around this stack."""
         app = create_app(self.registry, self.items_service, self.admin)
         web = _web_dir()
-        if web is not None:
-            app.mount("/", StaticFiles(directory=str(web), html=True), name="web")
-        else:
+        if web is None:
 
             @app.get("/", response_class=HTMLResponse)
             def index() -> str:
@@ -194,6 +189,23 @@ class Stack:
                     "<p>API is running. Build the frontend with "
                     "<code>npm --prefix frontend run build</code>.</p>"
                 )
+
+            return app
+
+        root = web.resolve()
+        assets = root / "assets"
+        if assets.is_dir():
+            app.mount("/assets", StaticFiles(directory=str(assets)), name="assets")
+
+        @app.get("/{path:path}", response_class=FileResponse)
+        def spa(path: str) -> FileResponse:
+            """Serve the SPA for client-side routes; real files win over index.html."""
+            if path.startswith("api/"):
+                raise HTTPException(status_code=404)
+            candidate = (root / path).resolve() if path else root
+            if path and root in candidate.parents and candidate.is_file():
+                return FileResponse(candidate)
+            return FileResponse(root / "index.html")
 
         return app
 
