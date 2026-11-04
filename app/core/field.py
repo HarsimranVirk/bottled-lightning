@@ -33,7 +33,9 @@ class EditableField:
     label: str
     value_type: ValueType
     targets: tuple[FieldTarget, ...]
-    required: bool = True
+    #: Must be supplied by the operator before submit. Parsing is best-effort: a value
+    #: that could not be extracted simply has no extracted value and is not an error.
+    required: bool = False
     source: str | None = None
 
 

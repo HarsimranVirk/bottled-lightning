@@ -419,7 +419,7 @@ class EditableField:
     label: str
     value_type: ValueType
     targets: tuple[FieldTarget, ...]   # one or many  (FR-6.3)
-    required: bool = True
+    required: bool = False             # must be supplied before submit, not parsed
     source: str | None = None          # where extraction reads it from, if parsed
 
 def normalise(value: str, value_type: ValueType) -> str: ...

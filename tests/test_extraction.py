@@ -189,6 +189,48 @@ class ExtractionTests(DbTestCase):
         self.assertEqual(contract.contexts[0].product_type, "Home Loan")
         self.assertEqual(contract.contexts[0].opportunity_url, OPP_URL)
 
+    def test_unparsed_values_are_not_a_skip(self) -> None:
+        """Parsing is best-effort (FR-4.3): no value is not a reason to stop."""
+        record = FakeAdapter(
+            DeviationObject.DEVIATION.value,
+            Discovery(
+                refs=(
+                    DiscoveredRef(
+                        kind=DeviationObject.OPPORTUNITY.value,
+                        name="Opp",
+                        url=OPP_URL,
+                    ),
+                ),
+                fields={
+                    "property_value": None,
+                    "loan_amount": None,
+                    "tenure": None,
+                    "emi_incl_hffc": None,
+                },
+            ),
+        )
+        opportunity = FakeAdapter(
+            DeviationObject.OPPORTUNITY.value,
+            Discovery(attributes={"product_type": "Home Loan"}),
+        )
+        others = [
+            FakeAdapter(kind, Discovery())
+            for kind in (
+                DeviationObject.CL_CONTRACT.value,
+                DeviationObject.COLLATERAL.value,
+                DeviationObject.LMS2_CL_CONTRACT.value,
+                DeviationObject.LMS2_COLLATERAL.value,
+            )
+        ]
+        pipeline = self._pipeline([record, opportunity, *others])
+
+        outcome = self._run(pipeline, self._item())
+        self.assertIs(outcome, ExtractOutcome.EXTRACTED)
+        item = self.deps().items.require("deviations_z02", KEY)
+        self.assertIs(item.status, WorkItemStatus.READY)
+        fields = self.deps().fields.for_item("deviations_z02", KEY)
+        self.assertIsNone(fields["tenure"].extracted)
+
     def test_ambiguity_skips_the_whole_item(self) -> None:
         record = FakeAdapter(
             DeviationObject.DEVIATION.value,

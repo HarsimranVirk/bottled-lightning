@@ -129,7 +129,9 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   URL and the Opportunity link.
 - **FR-3.3** From the description the system parses `property_value`, `loan_amount`,
   `tenure` and `emi_incl_hffc`. The bare `EMI-` pre-calculated line must never be
-  captured; only the `EMIs & other …` line is.
+  captured; only the `EMIs & other …` line is. Parsing is best-effort: a value the parser
+  cannot find is left empty, which is neither a failure nor a skip — the operator can
+  supply it in the unified view.
 - **FR-3.4** From the Opportunity page the system captures the product type and maps it
   to the CL-contract product using the existing product mapping.
 - **FR-3.5** The system discovers and records page refs for the Opportunity, the matching
