@@ -43,6 +43,7 @@ class ListPage:
         spec: ListViewSpec,
         timeout_ms: int,
     ) -> None:
+        """Wrap one always-open page for one list view."""
         self._context = context
         self._page = page
         self._spec = spec
@@ -51,9 +52,11 @@ class ListPage:
 
     @property
     def page(self) -> Page:
+        """The underlying Playwright page."""
         return self._page
 
     async def open(self) -> None:
+        """Navigate to the list view and wait for rows."""
         await self._page.goto(
             self._spec.url, wait_until="domcontentloaded", timeout=self._timeout_ms
         )
@@ -61,6 +64,7 @@ class ListPage:
         await self._wait_for_rows()
 
     async def refresh(self) -> None:
+        """Reload the list view for the next sample."""
         await self._page.reload(
             wait_until="domcontentloaded", timeout=self._timeout_ms
         )
@@ -90,11 +94,13 @@ class ListPage:
         )
 
     async def close(self) -> None:
+        """Close the page."""
         with suppress(Exception):
             await self._page.close()
 
     # -- header ------------------------------------------------------------
     async def _read_total(self) -> int | None:
+        """Read the header total; ``None`` when it never renders."""
         locator = self._page.get_by_text(
             re.compile(r"\d[\d,]*\s+items?\b")
         ).first
@@ -106,6 +112,7 @@ class ListPage:
 
     # -- rows --------------------------------------------------------------
     async def _wait_for_rows(self, timeout_s: float = 60.0) -> None:
+        """Wait until at least one row matches the key pattern."""
         deadline = asyncio.get_running_loop().time() + timeout_s
         while asyncio.get_running_loop().time() < deadline:
             await asyncio.sleep(1.5)
@@ -116,6 +123,7 @@ class ListPage:
                 logger.debug("list view not ready yet: %s", exc)
 
     async def _printable_rows(self) -> dict[str, ListRow]:
+        """Read all rows from the Printable View popup."""
         button = self._page.get_by_role("button", name="Printable View")
         waited = 0
         while waited < self._timeout_ms:
@@ -156,6 +164,7 @@ class ListPage:
 
     # -- links -------------------------------------------------------------
     async def _collect_links(self, target: int | None) -> dict[str, str]:
+        """Collect record hrefs from the virtualised list page."""
         found: dict[str, str] = {}
         idle = 0
         while idle < 4:
@@ -175,6 +184,7 @@ class ListPage:
         return found
 
     async def _scan_links(self, found: dict[str, str]) -> None:
+        """One scan of the visible links into ``found``."""
         links = self._page.get_by_role("link")
         count = await links.count()
         for index in range(count):
@@ -192,6 +202,7 @@ class ListPage:
                 found.setdefault(match.group(0).strip(), href)
 
     async def _show_more(self) -> bool:
+        """Click Show more once; returns whether anything was clicked."""
         locator = self._page.get_by_role("button", name=_SHOW_MORE)
         try:
             if await locator.count() == 0:
@@ -204,6 +215,7 @@ class ListPage:
 
 
 async def _parse_table(page: Page, pattern: re.Pattern[str]) -> dict[str, ListRow]:
+    """Parse data rows out of the printable-view table."""
     rows: dict[str, ListRow] = {}
     tables = page.locator("table")
     if await tables.count() == 0:

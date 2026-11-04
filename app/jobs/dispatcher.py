@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 
 class Dispatcher:
+    """Claims jobs and runs them on N slots; pauses on auth."""
+
     def __init__(
         self,
         jobs: JobRepository,
@@ -31,6 +33,7 @@ class Dispatcher:
         poll_s: float = 2.0,
         lease_ttl_s: float = 300.0,
     ) -> None:
+        """Wire queue, worker and gate; nothing starts until ``run_forever``."""
         self._jobs = jobs
         self._worker = worker
         self._auth = auth
@@ -43,13 +46,16 @@ class Dispatcher:
 
     @property
     def concurrency(self) -> int:
+        """Desired number of concurrent slots."""
         return self._desired
 
     @property
     def in_flight(self) -> int:
+        """Number of loop tasks currently alive."""
         return len(self._loops)
 
     async def run_forever(self) -> None:
+        """Run claim loops until ``stop()``; cancels them on exit."""
         self._running = True
         self._sync_loops()
         try:
@@ -64,13 +70,16 @@ class Dispatcher:
             self._loops.clear()
 
     def stop(self) -> None:
+        """Ask the loops to finish; in-flight jobs are not interrupted."""
         self._running = False
 
     def set_concurrency(self, count: int) -> None:
+        """Grow or shrink the pool; shrinking lets current jobs finish."""
         self._desired = max(1, count)
         self._sync_loops()
 
     def _sync_loops(self) -> None:
+        """Spawn missing slots; surplus slots exit after their current job."""
         for index in range(self._desired):
             if index in self._loops:
                 continue
@@ -79,9 +88,11 @@ class Dispatcher:
             task.add_done_callback(partial(self._forget, index))
 
     def _forget(self, index: int, _task: asyncio.Task[None]) -> None:
+        """Drop a finished loop from the registry."""
         self._loops.pop(index, None)
 
     async def _loop(self, index: int) -> None:
+        """One slot: claim, execute, repeat until stopped or shrunk."""
         owner = f"{self._owner_prefix}:w{index}"
         while self._running and index < self._desired:
             await self._auth.wait()

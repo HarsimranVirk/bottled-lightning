@@ -29,10 +29,16 @@ _MAX_ATTEMPTS = 2
 
 
 class TabSessionFactory(Protocol):
-    def new_tab_group(self) -> TabSessions: ...
+    """Anything that can hand out a fresh tab group."""
+
+    def new_tab_group(self) -> TabSessions:
+        """Open a fresh tab group for one job."""
+        ...
 
 
 class Worker:
+    """Executes one claimed job and owns its lease and tabs."""
+
     def __init__(
         self,
         name: str,
@@ -44,6 +50,7 @@ class Worker:
         tabs: TabSessionFactory,
         lease_ttl_s: float = 300.0,
     ) -> None:
+        """Wire dependencies; ``name`` identifies this slot in logs."""
         self.name = name
         self._registry = registry
         self._items = items
@@ -54,6 +61,7 @@ class Worker:
         self._lease_ttl_s = lease_ttl_s
 
     async def execute(self, job: Job) -> None:
+        """Run one job to completion, recording its outcome."""
         log = RepositoryLogger(job.id, self._jobs)
         try:
             workflow = self._registry.get(job.workflow)
@@ -95,6 +103,7 @@ class Worker:
     def _finish_extract(
         self, job: Job, outcome: ExtractOutcome, log: RepositoryLogger
     ) -> None:
+        """Map an extraction outcome to job status."""
         if outcome in {ExtractOutcome.EXTRACTED, ExtractOutcome.SKIPPED}:
             self._jobs.complete(job.id)
             self._events.emit(
@@ -113,6 +122,7 @@ class Worker:
     def _finish_submit(
         self, job: Job, outcome: SubmitOutcome, log: RepositoryLogger
     ) -> None:
+        """Map a submission outcome to job status."""
         if outcome in {SubmitOutcome.COMPLETED, SubmitOutcome.ALREADY_CLOSED}:
             self._jobs.complete(job.id)
             self._events.emit(
@@ -130,6 +140,7 @@ class Worker:
         log(f"submission {outcome.value}")
 
     async def _heartbeat(self, job_id: int) -> None:
+        """Keep renewing the lease while the job runs."""
         interval = max(1.0, self._lease_ttl_s / 3)
         while True:
             await asyncio.sleep(interval)

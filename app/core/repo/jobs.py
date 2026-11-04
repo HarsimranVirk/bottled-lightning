@@ -18,6 +18,7 @@ _COLUMNS = (
 
 
 def _to_job(row: sqlite3.Row) -> Job:
+    """Map a row to a ``Job``."""
     created = opt_time(row["created_at"])
     if created is None:
         raise ValueError("missing created_at")
@@ -39,7 +40,10 @@ def _to_job(row: sqlite3.Row) -> Job:
 
 
 class JobRepository:
+    """Persistent job queue: enqueue, lease, complete, recover."""
+
     def __init__(self, db: Database) -> None:
+        """Bind to the database handle."""
         self._db = db
 
     # -- queue -------------------------------------------------------------
@@ -69,6 +73,7 @@ class JobRepository:
         return self.require(int(job_id))
 
     def active_for(self, workflow: str, key: str) -> Job | None:
+        """The item's active job, if any (invariant I2)."""
         row = (
             self._db.connect()
             .execute(
@@ -111,6 +116,7 @@ class JobRepository:
         return self.require(int(str(row[0])))
 
     def heartbeat(self, job_id: int, ttl_s: float) -> None:
+        """Extend a running job's lease."""
         expires = utcnow() + timedelta(seconds=ttl_s)
         with self._db.transaction() as conn:
             conn.execute(
@@ -119,12 +125,14 @@ class JobRepository:
             )
 
     def set_phase(self, job_id: int, phase: Phase) -> None:
+        """Record which phase a job is executing."""
         with self._db.transaction() as conn:
             conn.execute(
                 "UPDATE jobs SET phase = ? WHERE id = ?", [phase.value, job_id]
             )
 
     def complete(self, job_id: int) -> None:
+        """Mark a job succeeded and release its lease."""
         with self._db.transaction() as conn:
             conn.execute(
                 """
@@ -137,6 +145,7 @@ class JobRepository:
             )
 
     def fail(self, job_id: int, error: str, *, retryable: bool = False) -> None:
+        """Fail a job, or requeue it when the failure is retryable."""
         now = to_iso(utcnow())
         with self._db.transaction() as conn:
             if retryable:
@@ -161,6 +170,7 @@ class JobRepository:
                 )
 
     def release_blocked(self, job_id: int) -> None:
+        """Park a job until authentication is restored."""
         with self._db.transaction() as conn:
             conn.execute(
                 """
@@ -172,6 +182,7 @@ class JobRepository:
             )
 
     def cancel_active_for(self, workflow: str, key: str) -> int:
+        """Cancel queued/blocked jobs for an item (closure)."""
         with self._db.transaction() as conn:
             cursor = conn.execute(
                 """
@@ -186,6 +197,7 @@ class JobRepository:
         return cursor.rowcount
 
     def cancel(self, job_id: int) -> bool:
+        """Cancel one queued job; returns whether it changed."""
         with self._db.transaction() as conn:
             cursor = conn.execute(
                 """
@@ -203,6 +215,7 @@ class JobRepository:
         return cursor.rowcount > 0
 
     def requeue_stale(self) -> int:
+        """Return expired running leases to the queue."""
         with self._db.transaction() as conn:
             cursor = conn.execute(
                 """
@@ -223,6 +236,7 @@ class JobRepository:
         status: JobStatus | None = None,
         limit: int = 100,
     ) -> list[Job]:
+        """List jobs, newest first, with optional filters."""
         where: list[str] = []
         params: list[object] = []
         if workflow is not None:
@@ -246,6 +260,7 @@ class JobRepository:
         return [_to_job(row) for row in rows]
 
     def get(self, job_id: int) -> Job | None:
+        """One job, or ``None``."""
         row = (
             self._db.connect()
             .execute(f"SELECT {_COLUMNS} FROM jobs WHERE id = ?", [job_id])
@@ -254,6 +269,7 @@ class JobRepository:
         return None if row is None else _to_job(row)
 
     def require(self, job_id: int) -> Job:
+        """One job or raise ``LookupError``."""
         job = self.get(job_id)
         if job is None:
             raise LookupError(f"unknown job {job_id}")
@@ -261,6 +277,7 @@ class JobRepository:
 
     # -- logs --------------------------------------------------------------
     def log(self, job_id: int, line: str) -> None:
+        """Append a log line to a job."""
         with self._db.transaction() as conn:
             conn.execute(
                 """
@@ -272,6 +289,7 @@ class JobRepository:
             )
 
     def logs(self, job_id: int, limit: int = 5000) -> list[str]:
+        """Ordered log lines for a job."""
         rows = (
             self._db.connect()
             .execute(
@@ -283,6 +301,7 @@ class JobRepository:
         return [str(row["line"]) for row in rows]
 
     def counts(self) -> dict[str, int]:
+        """Job count per status."""
         rows = (
             self._db.connect()
             .execute("SELECT status, COUNT(*) AS n FROM jobs GROUP BY status")

@@ -9,10 +9,14 @@ from app.db.connection import Database
 
 
 class PageRefRepository:
+    """Typed links from an item to the SF objects involved in it."""
+
     def __init__(self, db: Database) -> None:
+        """Bind to the database handle."""
         self._db = db
 
     def for_item(self, workflow: str, key: str) -> dict[str, PageRef]:
+        """Refs for one item, keyed by object kind."""
         rows = (
             self._db.connect()
             .execute(
@@ -34,6 +38,7 @@ class PageRefRepository:
         }
 
     def replace(self, workflow: str, key: str, refs: Sequence[PageRef]) -> None:
+        """Replace all refs for an item atomically."""
         with self._db.transaction() as conn:
             conn.execute(
                 "DELETE FROM work_item_refs WHERE workflow = ? AND item_key = ?",

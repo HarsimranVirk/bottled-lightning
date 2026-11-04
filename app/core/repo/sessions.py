@@ -11,10 +11,14 @@ from ._util import opt_str
 
 
 class SessionRepository:
+    """The persisted SF auth snapshot and session events."""
+
     def __init__(self, db: Database) -> None:
+        """Bind to the database handle."""
         self._db = db
 
     def snapshot(self) -> SessionSnapshot | None:
+        """Latest snapshot, or ``None`` when nobody has logged in."""
         row = (
             self._db.connect()
             .execute(
@@ -36,6 +40,7 @@ class SessionRepository:
         )
 
     def save(self, storage_state: str, cookie_count: int, org: str | None) -> None:
+        """Persist a storage-state snapshot."""
         with self._db.transaction() as conn:
             conn.execute(
                 """
@@ -46,10 +51,12 @@ class SessionRepository:
             )
 
     def clear(self) -> None:
+        """Forget every saved snapshot."""
         with self._db.transaction() as conn:
             conn.execute("DELETE FROM sessions")
 
     def event(self, event: str, detail: str = "") -> None:
+        """Record an auth event."""
         with self._db.transaction() as conn:
             conn.execute(
                 "INSERT INTO session_events (event, detail, created_at) VALUES (?, ?, ?)",
@@ -57,6 +64,7 @@ class SessionRepository:
             )
 
     def last_event(self) -> tuple[str, str, datetime] | None:
+        """Most recent auth event."""
         row = (
             self._db.connect()
             .execute(

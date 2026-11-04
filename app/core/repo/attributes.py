@@ -8,10 +8,14 @@ from app.db.connection import Database
 
 
 class AttributeRepository:
+    """Read-only extracted values, keyed by name."""
+
     def __init__(self, db: Database) -> None:
+        """Bind to the database handle."""
         self._db = db
 
     def for_item(self, workflow: str, key: str) -> dict[str, str | None]:
+        """All attributes for one item."""
         rows = (
             self._db.connect()
             .execute(
@@ -27,6 +31,7 @@ class AttributeRepository:
         }
 
     def upsert(self, workflow: str, key: str, values: Mapping[str, str | None]) -> None:
+        """Insert or overwrite attributes for one item."""
         with self._db.transaction() as conn:
             for name, value in values.items():
                 conn.execute(
@@ -40,6 +45,7 @@ class AttributeRepository:
                 )
 
     def clear(self, workflow: str, key: str) -> None:
+        """Drop every attribute for one item."""
         with self._db.transaction() as conn:
             conn.execute(
                 "DELETE FROM work_item_attributes WHERE workflow = ? AND item_key = ?",

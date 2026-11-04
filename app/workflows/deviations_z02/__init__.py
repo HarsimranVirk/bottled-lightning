@@ -23,9 +23,12 @@ WORKFLOW_NAME = "deviations_z02"
 
 
 class _PendingSubmission:
+    """Placeholder until the submission pipeline lands (Phase 6)."""
+
     async def run(
         self, item: WorkItem, tabs: TabProvider, log: JobLogger
     ) -> SubmitOutcome:
+        """Always raises: submission is not implemented yet."""
         raise NotImplementedError("DeviationsZ02Submission lands in refactor Phase 6")
 
 
@@ -42,6 +45,7 @@ def build_workflow(
     *,
     force: bool = False,
 ) -> Workflow:
+    """Build the Z02 workflow from settings, repositories and adapters."""
     extraction = DeviationsZ02Extraction(
         WORKFLOW_NAME,
         deps.items,

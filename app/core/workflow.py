@@ -25,19 +25,31 @@ from .status import ExtractOutcome, SubmitOutcome, WorkItemStatus
 
 
 class JobLogger(Protocol):
-    def __call__(self, message: str) -> None: ...
+    """Callable that records one job progress line."""
+
+    def __call__(self, message: str) -> None:
+        """Append one line to the job log."""
+        ...
 
 
 class ExtractionPipeline(Protocol):
+    """What a workflow must implement to extract data (FR-3)."""
+
     async def run(
         self, item: WorkItem, tabs: TabProvider, log: JobLogger
-    ) -> ExtractOutcome: ...
+    ) -> ExtractOutcome:
+        """Discover and persist one item's data."""
+        ...
 
 
 class SubmissionPipeline(Protocol):
+    """What a workflow must implement to submit changes (FR-6)."""
+
     async def run(
         self, item: WorkItem, tabs: TabProvider, log: JobLogger
-    ) -> SubmitOutcome: ...
+    ) -> SubmitOutcome:
+        """Apply, validate and complete one item."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +65,8 @@ class WorkflowDeps:
 
 @dataclass(frozen=True, slots=True)
 class Workflow:
+    """One registered workflow: list view, catalogue, adapters and pipelines."""
+
     name: str
     route: str
     list_view: ListViewSpec

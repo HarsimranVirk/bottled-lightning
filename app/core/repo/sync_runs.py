@@ -16,6 +16,7 @@ _COLUMNS = (
 
 
 def _to_run(row: sqlite3.Row) -> SyncRun:
+    """Map a row to a ``SyncRun``."""
     captured = from_iso(opt_str(row["captured_at"]))
     if captured is None:
         raise ValueError("missing captured_at")
@@ -34,10 +35,14 @@ def _to_run(row: sqlite3.Row) -> SyncRun:
 
 
 class SyncRunRepository:
+    """History of list-view samples, valid and invalid."""
+
     def __init__(self, db: Database) -> None:
+        """Bind to the database handle."""
         self._db = db
 
     def record(self, run: SyncRun) -> int:
+        """Append a sample result; returns its id."""
         with self._db.transaction() as conn:
             cursor = conn.execute(
                 """
@@ -64,6 +69,7 @@ class SyncRunRepository:
         return int(run_id)
 
     def latest(self, workflow: str) -> SyncRun | None:
+        """Most recent sample for a workflow."""
         row = (
             self._db.connect()
             .execute(
@@ -76,6 +82,7 @@ class SyncRunRepository:
         return None if row is None else _to_run(row)
 
     def recent(self, workflow: str, limit: int = 20) -> list[SyncRun]:
+        """The last ``limit`` samples for a workflow."""
         rows = (
             self._db.connect()
             .execute(

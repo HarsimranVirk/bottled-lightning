@@ -22,6 +22,7 @@ __all__ = [
 
 
 def is_login_url(url: str) -> bool:
+    """Heuristic: does this URL mean not authenticated?"""
     lowered = url.lower()
     if "login" in lowered or "idp" in lowered:
         return True
@@ -30,6 +31,7 @@ def is_login_url(url: str) -> bool:
 
 
 def is_lightning_url(url: str) -> bool:
+    """True for an authenticated Lightning page."""
     return "/lightning/" in url and not is_login_url(url)
 
 
@@ -98,24 +100,29 @@ class SessionProvider:
     """Owns the auth snapshot and the "are we still logged in?" decision (FR-1.4)."""
 
     def __init__(self, repo: SessionRepository, settings: Settings) -> None:
+        """Bind the snapshot repository and settings."""
         self._repo = repo
         self._settings = settings
         self._expired = False
 
     @property
     def expired(self) -> bool:
+        """Whether the last interaction found an expired session."""
         return self._expired
 
     @property
     def snapshot(self) -> SessionSnapshot | None:
+        """The stored snapshot, if any."""
         return self._repo.snapshot()
 
     def mark_expired(self) -> None:
+        """Record expiry once and emit an event."""
         if not self._expired:
             self._expired = True
             self._repo.event("expired", "Salesforce returned the login page")
 
     def mark_restored(self) -> None:
+        """Clear the expired flag after a successful login."""
         self._expired = False
 
     async def inject(self, context: BrowserContext) -> int:
@@ -134,6 +141,7 @@ class SessionProvider:
         return await self.inject(context)
 
     async def save(self, context: BrowserContext) -> int:
+        """Persist the context's storage state."""
         state = await context.storage_state()
         cookies = state.get("cookies", [])
         count = len(cookies) if isinstance(cookies, list) else 0
@@ -167,12 +175,15 @@ class SessionProvider:
 
 
 def profile_dir_for(settings: Settings, name: str) -> Path:
+    """Per-purpose browser profile directory."""
     return settings.data_dir / f"sf_profile_{name}"
 
 
 def snapshot_age_seconds(snapshot: SessionSnapshot) -> float:
+    """Age of a snapshot in seconds."""
     return (utcnow() - snapshot.created_at).total_seconds()
 
 
 def describe_snapshot(snapshot: SessionSnapshot) -> str:
+    """Human-readable snapshot summary for logs and the API."""
     return f"{snapshot.cookie_count} cookies @ {to_iso(snapshot.created_at)}"

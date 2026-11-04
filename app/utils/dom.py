@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 async def safe_inner_text(locator: Locator, timeout_ms: int = 2000) -> str | None:
+    """Element text, or ``None`` when the element detached."""
     try:
         text = await locator.inner_text(timeout=timeout_ms)
     except Exception as exc:  # noqa: BLE001 - detached or still rendering
@@ -24,6 +25,7 @@ async def safe_inner_text(locator: Locator, timeout_ms: int = 2000) -> str | Non
 
 
 async def safe_body_text(page: Page, timeout_ms: int = 10_000) -> str | None:
+    """Page body text, or ``None``."""
     return await safe_inner_text(page.locator("body"), timeout_ms)
 
 
@@ -36,6 +38,7 @@ async def dismiss_banner(page: Page) -> None:
 
 
 def absolute_url(href: str, org_base: str) -> str:
+    """Join an href against the org base when it is relative."""
     if href.startswith("http"):
         return href
     return f"{org_base}{href}"

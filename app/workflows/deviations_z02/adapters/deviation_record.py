@@ -33,13 +33,17 @@ logger = logging.getLogger(__name__)
 
 
 class DeviationRecordAdapter(AdapterBase):
+    """Deviation record: description, ROI values, ids and opportunity link."""
+
     kind = DeviationObject.DEVIATION.value
 
     def __init__(self, org_base: str, timeout_ms: int) -> None:
+        """Store org base and page timeout."""
         self._org_base = org_base
         self._timeout_ms = timeout_ms
 
     async def discover(self, tabs: TabProvider, context: DiscoveryContext) -> Discovery:
+        """Read the record page and everything only it can provide."""
         url = absolute_url(context.record_url, self._org_base)
         page = await tabs.new_page(url)
         try:
@@ -85,6 +89,7 @@ async def _description(page: Page, label: Locator) -> str:
 
 
 async def _opportunity_ref(page: Page, org_base: str) -> DiscoveredRef | None:
+    """Find the Opportunity link rendered on the record page."""
     for _ in range(10):
         if await page.get_by_role("link").count() >= 3:
             break
@@ -107,6 +112,7 @@ async def _opportunity_ref(page: Page, org_base: str) -> DiscoveredRef | None:
 
 
 async def _housing_values(page: Page) -> dict[str, str | None]:
+    """Read the four ROI fields from the Housing section."""
     section = page.get_by_role("button", name="Housing Loan Deviation Details")
     if await section.count() > 0:
         try:
@@ -132,6 +138,7 @@ async def _housing_values(page: Page) -> dict[str, str | None]:
 
 
 async def _housing_value(page: Page, selection_name: str) -> str | None:
+    """Read one labelled field, or ``None``."""
     locator = page.locator(f'[data-target-selection-name="{selection_name}"]')
     if await locator.count() == 0:
         return None

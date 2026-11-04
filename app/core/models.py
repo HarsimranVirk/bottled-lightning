@@ -16,14 +16,17 @@ from .status import (
 
 
 def utcnow() -> datetime:
+    """Timezone-aware current time; every stored timestamp uses it."""
     return datetime.now(UTC)
 
 
 def to_iso(value: datetime) -> str:
+    """Serialise a timestamp for SQLite."""
     return value.isoformat()
 
 
 def from_iso(value: str | None) -> datetime | None:
+    """Parse a stored timestamp, or ``None``."""
     if value is None:
         return None
     return datetime.fromisoformat(value)
@@ -79,6 +82,8 @@ class Attribute:
 
 @dataclass(frozen=True, slots=True)
 class PageRef:
+    """Link to one SF object involved in an item."""
+
     workflow: str
     item: str
     kind: str
@@ -88,6 +93,8 @@ class PageRef:
 
 @dataclass(frozen=True, slots=True)
 class Job:
+    """One unit of queued work for one item."""
+
     id: int
     workflow: str
     kind: JobKind

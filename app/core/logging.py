@@ -22,6 +22,7 @@ _FORMAT = "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
 
 
 def log_level_from_env() -> int:
+    """Root level from ``SF_LOG_LEVEL`` (default INFO)."""
     return _LEVELS.get(os.environ.get("SF_LOG_LEVEL", "INFO").upper(), logging.INFO)
 
 

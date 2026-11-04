@@ -9,7 +9,10 @@ from app.db.connection import Database
 
 
 class EditRepository:
+    """Audit trail of operator edits (old value to new value)."""
+
     def __init__(self, db: Database) -> None:
+        """Bind to the database handle."""
         self._db = db
 
     def record(
@@ -22,6 +25,7 @@ class EditRepository:
         at: datetime,
         job_id: int | None = None,
     ) -> None:
+        """Append one edit."""
         with self._db.transaction() as conn:
             conn.execute(
                 """
@@ -34,6 +38,7 @@ class EditRepository:
             )
 
     def count(self, workflow: str, key: str) -> int:
+        """How many edits are recorded for an item."""
         row = (
             self._db.connect()
             .execute(

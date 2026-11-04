@@ -32,6 +32,7 @@ ON CONFLICT(workflow, item_key, field_key) DO UPDATE SET
 
 
 def _to_field(row: sqlite3.Row) -> FieldValue:
+    """Map a row to a ``FieldValue``."""
     updated = opt_time(row["updated_at"])
     if updated is None:
         raise ValueError("missing updated_at")
@@ -49,10 +50,14 @@ def _to_field(row: sqlite3.Row) -> FieldValue:
 
 
 class FieldValueRepository:
+    """Editable value state: extracted, synced, proposed, applied."""
+
     def __init__(self, db: Database) -> None:
+        """Bind to the database handle."""
         self._db = db
 
     def for_item(self, workflow: str, key: str) -> dict[str, FieldValue]:
+        """All editable values for one item."""
         rows = (
             self._db.connect()
             .execute(
@@ -65,6 +70,7 @@ class FieldValueRepository:
         return {str(row["field_key"]): _to_field(row) for row in rows}
 
     def get(self, workflow: str, key: str, field_key: str) -> FieldValue | None:
+        """One editable value, or ``None``."""
         row = (
             self._db.connect()
             .execute(
@@ -190,6 +196,7 @@ class FieldValueRepository:
                 )
 
     def discard_proposed(self, workflow: str, key: str) -> None:
+        """Clear every pending edit and fall back to applied/extracted."""
         with self._db.transaction() as conn:
             conn.execute(
                 """
@@ -212,6 +219,7 @@ class FieldValueRepository:
             )
 
     def mark_applied(self, workflow: str, key: str, field_key: str, value: str) -> None:
+        """Record the value SF accepted for a field."""
         with self._db.transaction() as conn:
             conn.execute(
                 """
@@ -230,6 +238,7 @@ class FieldValueRepository:
             )
 
     def mark_rejected(self, workflow: str, key: str, field_key: str) -> None:
+        """Flag a field whose write was rejected."""
         with self._db.transaction() as conn:
             conn.execute(
                 """

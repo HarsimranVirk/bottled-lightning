@@ -7,6 +7,8 @@ from enum import StrEnum
 
 
 class WorkItemStatus(StrEnum):
+    """Shared item lifecycle across every workflow."""
+
     PRESENT = "present"
     EXTRACTING = "extracting"
     READY = "ready"
@@ -28,11 +30,15 @@ TERMINAL_STATUSES: frozenset[WorkItemStatus] = frozenset(
 
 
 class JobKind(StrEnum):
+    """What a job does: extract data or submit changes."""
+
     EXTRACT = "extract"
     SUBMIT = "submit"
 
 
 class JobStatus(StrEnum):
+    """Job lifecycle, including the parked-on-auth state."""
+
     QUEUED = "queued"
     RUNNING = "running"
     BLOCKED_AUTH = "blocked_auth"
@@ -47,6 +53,8 @@ ACTIVE_JOB_STATUSES: frozenset[JobStatus] = frozenset(
 
 
 class Phase(StrEnum):
+    """Ordered stage a job is executing; submission uses all four."""
+
     EXTRACT = "extract"
     APPLY = "apply"
     VALIDATE = "validate"
@@ -54,11 +62,15 @@ class Phase(StrEnum):
 
 
 class ClosureSource(StrEnum):
+    """Who caused a closure: this system or Salesforce."""
+
     SYSTEM = "system"
     EXTERNAL = "external"
 
 
 class FieldStatus(StrEnum):
+    """Lifecycle of one editable value."""
+
     EXTRACTED = "extracted"
     PROPOSED = "proposed"
     APPLIED = "applied"
@@ -66,18 +78,24 @@ class FieldStatus(StrEnum):
 
 
 class WriteOutcome(StrEnum):
+    """Per-field result of a write attempt."""
+
     SAVED = "saved"
     REJECTED = "rejected"
     UNKNOWN = "unknown"
 
 
 class ExtractOutcome(StrEnum):
+    """Pipeline result for an extraction job."""
+
     EXTRACTED = "extracted"
     SKIPPED = "skipped"
     FAILED = "failed"
 
 
 class SubmitOutcome(StrEnum):
+    """Pipeline result for a submission job."""
+
     COMPLETED = "completed"
     ALREADY_CLOSED = "already_closed"
     FAILED = "failed"

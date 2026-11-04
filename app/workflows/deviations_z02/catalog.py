@@ -12,6 +12,8 @@ from app.core.field import EditableField, FieldTarget, ValueType
 
 
 class DeviationObject(StrEnum):
+    """SF object kinds the Z02 workflow links to."""
+
     DEVIATION = "deviation"
     OPPORTUNITY = "opportunity"
     CL_CONTRACT = "cl_contract"

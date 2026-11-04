@@ -26,6 +26,7 @@ _COLUMNS = (
 
 
 def _to_item(row: sqlite3.Row) -> WorkItem:
+    """Map a row to a ``WorkItem``."""
     return WorkItem(
         workflow=str(row["workflow"]),
         key=str(row["item_key"]),
@@ -47,6 +48,7 @@ def _to_item(row: sqlite3.Row) -> WorkItem:
 
 
 def _time(value: object) -> datetime:
+    """Parse a required stored timestamp."""
     parsed = from_iso(opt_str(value))
     if parsed is None:
         raise ValueError("missing timestamp")
@@ -54,10 +56,14 @@ def _time(value: object) -> datetime:
 
 
 class WorkItemRepository:
+    """Item lifecycle: presence, transitions, epochs."""
+
     def __init__(self, db: Database) -> None:
+        """Bind to the database handle."""
         self._db = db
 
     def get(self, workflow: str, key: str) -> WorkItem | None:
+        """One item, or ``None``."""
         row = (
             self._db.connect()
             .execute(
@@ -69,12 +75,14 @@ class WorkItemRepository:
         return None if row is None else _to_item(row)
 
     def require(self, workflow: str, key: str) -> WorkItem:
+        """One item or raise ``LookupError``."""
         item = self.get(workflow, key)
         if item is None:
             raise LookupError(f"unknown work item {workflow}/{key}")
         return item
 
     def create_present(self, workflow: str, row: ListRow, at: datetime) -> WorkItem:
+        """Create the item from a list row if new; idempotent."""
         stamp = to_iso(at)
         with self._db.transaction() as conn:
             conn.execute(
@@ -103,6 +111,7 @@ class WorkItemRepository:
         at: datetime,
         href: str | None = None,
     ) -> None:
+        """Refresh presence (and the record URL) on a valid refresh."""
         with self._db.transaction() as conn:
             if href:
                 conn.execute(
@@ -134,6 +143,7 @@ class WorkItemRepository:
         present: bool | None = None,
         extracted_at: datetime | None = None,
     ) -> WorkItem:
+        """Apply a state-machine move, refusing terminal status under a lease."""
         current = self.require(workflow, key)
         if current.status is not to and not can_transition(current.status, to):
             raise InvalidTransition(f"{workflow}/{key}: {current.status} -> {to}")
@@ -167,6 +177,7 @@ class WorkItemRepository:
         return self.require(workflow, key)
 
     def set_absent(self, workflow: str, key: str, at: datetime) -> None:
+        """Record that a valid refresh no longer shows the item."""
         stamp = to_iso(at)
         with self._db.transaction() as conn:
             conn.execute(
@@ -179,6 +190,7 @@ class WorkItemRepository:
             )
 
     def begin_epoch(self, workflow: str, key: str) -> WorkItem:
+        """Re-enter after a closure, clearing terminal and extraction state."""
         with self._db.transaction() as conn:
             conn.execute(
                 """
@@ -200,9 +212,11 @@ class WorkItemRepository:
         return self.require(workflow, key)
 
     def mark_execute_attempted(self, workflow: str, key: str, at: datetime) -> None:
+        """Record that the final SF action was clicked."""
         self._set_time(workflow, key, "execute_attempted_at", at)
 
     def mark_execute_confirmed(self, workflow: str, key: str, at: datetime) -> None:
+        """Record that the final action was observed to succeed."""
         self._set_time(workflow, key, "execute_confirmed_at", at)
 
     def list(
@@ -213,6 +227,7 @@ class WorkItemRepository:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[WorkItem], int]:
+        """Page the items, newest-seen first."""
         where = ["workflow = ?"]
         params: list[object] = [workflow]
         if status is not None:
@@ -236,6 +251,7 @@ class WorkItemRepository:
         return [_to_item(row) for row in rows], total
 
     def _set_time(self, workflow: str, key: str, column: str, at: datetime) -> None:
+        """Write one timestamp column."""
         with self._db.transaction() as conn:
             conn.execute(
                 f"UPDATE work_items SET {column} = ? WHERE workflow = ? AND item_key = ?",
@@ -243,6 +259,7 @@ class WorkItemRepository:
             )
 
     def _has_active_lease(self, workflow: str, key: str) -> bool:
+        """Whether a running job holds a live lease on the item."""
         row = (
             self._db.connect()
             .execute(

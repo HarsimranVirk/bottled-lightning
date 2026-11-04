@@ -27,16 +27,20 @@ _LMS_TAB = 'a[data-tab-value="flexipage_tab2"]'
 
 
 class _Lms2Adapter(AdapterBase):
+    """Shared discovery for the LMS 2.0 panels on the opportunity page."""
+
     host_tag: str = ""
     detail_path: str = ""
     uuid_param: str = ""
     object_kind: str = ""
 
     def __init__(self, org_base: str, timeout_ms: int) -> None:
+        """Store org base and page timeout."""
         self._org_base = org_base
         self._timeout_ms = timeout_ms
 
     async def discover(self, tabs: TabProvider, context: DiscoveryContext) -> Discovery:
+        """Open the LMS tab on the opportunity and read its row."""
         if not context.opportunity_url:
             return Discovery()
         page = await tabs.new_page(
@@ -75,6 +79,8 @@ class _Lms2Adapter(AdapterBase):
 
 
 class Lms2ClContractAdapter(_Lms2Adapter):
+    """LMS 2.0 CL contract link."""
+
     kind = DeviationObject.LMS2_CL_CONTRACT.value
     object_kind = DeviationObject.LMS2_CL_CONTRACT.value
     host_tag = "c-lms-cl-contract-related-list"
@@ -83,6 +89,8 @@ class Lms2ClContractAdapter(_Lms2Adapter):
 
 
 class Lms2CollateralAdapter(_Lms2Adapter):
+    """LMS 2.0 collateral link."""
+
     kind = DeviationObject.LMS2_COLLATERAL.value
     object_kind = DeviationObject.LMS2_COLLATERAL.value
     host_tag = "c-lms-collateral-related-list"
@@ -91,6 +99,7 @@ class Lms2CollateralAdapter(_Lms2Adapter):
 
 
 async def _open_lms_tab(page: Page, timeout_ms: int) -> None:
+    """Wait for and click the LMS tab on the opportunity page."""
     tab = page.locator(_LMS_TAB)
     waited = 0
     while waited < timeout_ms:
@@ -160,6 +169,7 @@ async def _await_lms_rows(
 
 
 async def _scrape_lms_rows(page: Page, host_tag: str) -> list[dict[str, str]]:
+    """Read rows from the component's shadow root."""
     try:
         raw: object = await page.evaluate(_LMS_ROWS_JS, host_tag)
     except Exception as exc:  # noqa: BLE001 - component not rendered

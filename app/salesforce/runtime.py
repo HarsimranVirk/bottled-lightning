@@ -22,7 +22,10 @@ from .tabs import TabGroup
 
 
 class BrowserRuntime:
+    """Owns the Playwright loop; the only place browser objects live."""
+
     def __init__(self, settings: Settings, session: SessionProvider) -> None:
+        """Hold configuration; nothing launches until ``start()``."""
         self._settings = settings
         self._session = session
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -35,6 +38,7 @@ class BrowserRuntime:
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> None:
+        """Launch the loop thread and warm browser, blocking until ready."""
         if self._thread is not None:
             return
         self._ready.clear()
@@ -50,6 +54,7 @@ class BrowserRuntime:
             raise RuntimeError(f"browser runtime failed to start: {self._error}")
 
     def stop(self) -> None:
+        """Stop the loop and close the browser."""
         loop, thread = self._loop, self._thread
         if loop is None or thread is None:
             return
@@ -62,16 +67,19 @@ class BrowserRuntime:
 
     @property
     def started(self) -> bool:
+        """Whether the runtime thread is running."""
         return self._loop is not None and self._thread is not None
 
     @property
     def context(self) -> BrowserContext:
+        """The warm browser context (raises before ``start()``)."""
         context = self._context
         if context is None:
             raise RuntimeError("browser runtime not started")
         return context
 
     def new_tab_group(self) -> TabGroup:
+        """Create a per-job tab group on the browser loop."""
         return TabGroup(self.context, self._settings.request_timeout_ms)
 
     # -- bridges -----------------------------------------------------------
@@ -96,6 +104,7 @@ class BrowserRuntime:
         future.add_done_callback(_report_failure)
 
     def _require_loop(self) -> asyncio.AbstractEventLoop:
+        """The runtime loop or a clear error."""
         loop = self._loop
         if loop is None or self._thread is None:
             raise RuntimeError("browser runtime not started — call start() first")
@@ -103,6 +112,7 @@ class BrowserRuntime:
 
     # -- loop thread -------------------------------------------------------
     def _run_loop(self) -> None:
+        """Thread body: bootstrap, run forever, then shut down."""
         loop = asyncio.new_event_loop()
         self._loop = loop
         asyncio.set_event_loop(loop)
@@ -125,6 +135,7 @@ class BrowserRuntime:
                 loop.close()
 
     async def _bootstrap(self) -> None:
+        """Start Playwright, launch the persistent context, inject cookies."""
         self._playwright = await async_playwright().start()
         args = ["--disable-blink-features=AutomationControlled"]
         if not self._settings.headless:
@@ -139,6 +150,7 @@ class BrowserRuntime:
         self._context = context
 
     async def _shutdown(self) -> None:
+        """Close the context and stop Playwright."""
         context, playwright = self._context, self._playwright
         self._context = None
         self._playwright = None
@@ -151,6 +163,7 @@ class BrowserRuntime:
 
 
 def _report_failure(future: Future[object]) -> None:
+    """Log a background task's exception."""
     with suppress(Exception):
         error = future.exception()
         if error is not None:

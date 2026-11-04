@@ -18,13 +18,17 @@ _RELATED_LIST = "Collateral__r"
 
 
 class CollateralAdapter(AdapterBase):
+    """Collateral link for the opportunity."""
+
     kind = DeviationObject.COLLATERAL.value
 
     def __init__(self, org_base: str, timeout_ms: int) -> None:
+        """Store org base and page timeout."""
         self._org_base = org_base
         self._timeout_ms = timeout_ms
 
     async def discover(self, tabs: TabProvider, context: DiscoveryContext) -> Discovery:
+        """Find the single collateral attached to the opportunity."""
         if not context.opportunity_url:
             return Discovery()
         url = related_list_url(
@@ -51,6 +55,7 @@ class CollateralAdapter(AdapterBase):
 
 
 async def _first_collateral(row: Locator, org_base: str) -> DiscoveredRef | None:
+    """Extract the ref from one related-list row."""
     cid = ""
     href = ""
     links = row.get_by_role("link")

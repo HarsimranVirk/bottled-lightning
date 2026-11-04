@@ -12,6 +12,7 @@ from .opportunity import OpportunityAdapter
 
 
 def build_adapters(org_base: str, timeout_ms: int) -> AdapterRegistry:
+    """Construct the six Z02 adapters."""
     return AdapterRegistry(
         [
             DeviationRecordAdapter(org_base, timeout_ms),

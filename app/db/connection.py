@@ -12,6 +12,8 @@ from .schema import SCHEMA, SCHEMA_VERSION
 
 
 class _Local(threading.local):
+    """Thread-local storage for this thread's connection."""
+
     conn: sqlite3.Connection | None = None
 
 
@@ -19,14 +21,17 @@ class Database:
     """Owns the SQLite file and hands out per-thread connections."""
 
     def __init__(self, path: Path) -> None:
+        """Point the handle at ``path``; connections are opened lazily."""
         self._path = path
         self._local = _Local()
 
     @property
     def path(self) -> Path:
+        """Path of the SQLite file."""
         return self._path
 
     def connect(self) -> sqlite3.Connection:
+        """Return this thread's connection, opening and configuring it once."""
         conn = self._local.conn
         if conn is not None:
             return conn
@@ -41,6 +46,7 @@ class Database:
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
+        """Run a unit of work; commit on success, roll back on any exception."""
         conn = self.connect()
         try:
             yield conn
@@ -50,6 +56,7 @@ class Database:
             raise
 
     def migrate(self) -> None:
+        """Create the v2 schema if needed; refuse a pre-v2 database."""
         conn = self.connect()
         if self._is_legacy(conn):
             raise RuntimeError(

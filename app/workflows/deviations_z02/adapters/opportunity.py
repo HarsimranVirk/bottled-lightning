@@ -22,13 +22,17 @@ def product_type_from(body: str) -> str | None:
 
 
 class OpportunityAdapter(AdapterBase):
+    """Opportunity page: product type."""
+
     kind = DeviationObject.OPPORTUNITY.value
 
     def __init__(self, org_base: str, timeout_ms: int) -> None:
+        """Store org base and page timeout."""
         self._org_base = org_base
         self._timeout_ms = timeout_ms
 
     async def discover(self, tabs: TabProvider, context: DiscoveryContext) -> Discovery:
+        """Read the product type shown on the opportunity."""
         if not context.opportunity_url:
             return Discovery()
         page = await tabs.new_page(absolute_url(context.opportunity_url, self._org_base))

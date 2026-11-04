@@ -25,6 +25,7 @@ from app.salesforce.session import is_lightning_url, profile_dir_for
 
 
 async def _wait_logged_in(page: Page, timeout_s: float) -> bool:
+    """Poll until Salesforce lands on a Lightning page."""
     deadline = asyncio.get_running_loop().time() + timeout_s
     while asyncio.get_running_loop().time() < deadline:
         await asyncio.sleep(2)
@@ -36,6 +37,7 @@ async def _wait_logged_in(page: Page, timeout_s: float) -> bool:
 async def run_login(
     settings: Settings, repo: SessionRepository, *, reset: bool
 ) -> bool:
+    """Open a headed browser, wait for the operator, persist the snapshot."""
     profile = profile_dir_for(settings, "login")
     if reset:
         repo.clear()
@@ -83,6 +85,7 @@ async def run_login(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI entry point (``python -m app.salesforce.login``)."""
     from app.core.logging import configure_logging
 
     configure_logging()

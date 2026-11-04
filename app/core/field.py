@@ -14,6 +14,8 @@ from enum import StrEnum
 
 
 class ValueType(StrEnum):
+    """How a field's text is parsed, canonicalised and compared."""
+
     AMOUNT = "amount"
     TENURE_MONTHS = "months"
     TEXT = "text"
@@ -29,6 +31,8 @@ class FieldTarget:
 
 @dataclass(frozen=True, slots=True)
 class EditableField:
+    """One editable value: label, type, and the SF fields it is written to."""
+
     key: str
     label: str
     value_type: ValueType
@@ -58,6 +62,7 @@ def normalise(value: str, value_type: ValueType) -> str:
 
 
 def _normalise_amount(value: str) -> str:
+    """Strip currency decoration and return a plain decimal string."""
     cleaned = _AMOUNT_STRIP.sub("", value)
     if not cleaned:
         raise ValueError("empty amount")
@@ -72,6 +77,7 @@ def _normalise_amount(value: str) -> str:
 
 
 def _normalise_months(value: str) -> str:
+    """Parse a tenure into whole months."""
     match = _MONTHS.match(value.strip())
     if match is None:
         raise ValueError(f"not a tenure in months: {value!r}")
@@ -79,6 +85,7 @@ def _normalise_months(value: str) -> str:
 
 
 def _normalise_text(value: str) -> str:
+    """Trim and collapse internal whitespace."""
     return " ".join(value.split())
 
 

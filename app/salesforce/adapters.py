@@ -52,19 +52,29 @@ class Discovery:
 
 @runtime_checkable
 class ObjectAdapter(Protocol):
+    """One SF object kind: discovery, reading and writing its fields."""
+
     kind: str
 
-    async def discover(self, tabs: TabProvider, context: DiscoveryContext) -> Discovery: ...
+    async def discover(self, tabs: TabProvider, context: DiscoveryContext) -> Discovery:
+        """Find this object for an item (extraction)."""
+        ...
 
-    async def open(self, tabs: TabProvider, ref: PageRef) -> Page: ...
+    async def open(self, tabs: TabProvider, ref: PageRef) -> Page:
+        """Open this object's record page for reading or writing."""
+        ...
 
     async def read(
         self, page: Page, fields: Sequence[EditableField]
-    ) -> dict[str, str | None]: ...
+    ) -> dict[str, str | None]:
+        """Read the catalogue values that live on this object."""
+        ...
 
     async def write(
         self, page: Page, values: Mapping[str, str]
-    ) -> dict[str, WriteOutcome]: ...
+    ) -> dict[str, WriteOutcome]:
+        """Write values to this object; returns per-field outcomes."""
+        ...
 
 
 class AdapterBase:
@@ -77,29 +87,37 @@ class AdapterBase:
     kind: str = ""
 
     async def discover(self, tabs: TabProvider, context: DiscoveryContext) -> Discovery:
+        """Not implemented for base adapters."""
         raise NotImplementedError(f"{type(self).__name__}.discover")
 
     async def open(self, tabs: TabProvider, ref: PageRef) -> Page:
+        """Open the ref's URL in a new tab."""
         return await tabs.new_page(ref.url)
 
     async def read(
         self, page: Page, fields: Sequence[EditableField]
     ) -> dict[str, str | None]:
+        """Not implemented until the submission pipeline (Phase 6)."""
         raise NotImplementedError(f"{type(self).__name__}.read (submission Phase 6)")
 
     async def write(
         self, page: Page, values: Mapping[str, str]
     ) -> dict[str, WriteOutcome]:
+        """Not implemented until the submission pipeline (Phase 6)."""
         raise NotImplementedError(f"{type(self).__name__}.write (submission Phase 6)")
 
 
 class AdapterRegistry:
+    """Adapters by object kind for one workflow."""
+
     def __init__(self, adapters: Iterable[ObjectAdapter]) -> None:
+        """Index adapters by ``kind``."""
         self._adapters: dict[str, ObjectAdapter] = {
             adapter.kind: adapter for adapter in adapters
         }
 
     def get(self, kind: str) -> ObjectAdapter:
+        """Adapter for an object kind or raise ``UnknownAdapter``."""
         adapter = self._adapters.get(kind)
         if adapter is None:
             raise UnknownAdapter(kind)
@@ -107,4 +125,5 @@ class AdapterRegistry:
 
     @property
     def kinds(self) -> tuple[str, ...]:
+        """Registered object kinds."""
         return tuple(self._adapters)

@@ -18,6 +18,7 @@ class AuthGate:
     """
 
     def __init__(self, jobs: JobRepository, events: EventRepository) -> None:
+        """Start un-paused."""
         self._jobs = jobs
         self._events = events
         self._paused = False
@@ -26,6 +27,7 @@ class AuthGate:
 
     @property
     def paused(self) -> bool:
+        """Whether claiming is currently suspended."""
         return self._paused
 
     async def wait(self) -> None:
@@ -33,6 +35,7 @@ class AuthGate:
         await self._resumed.wait()
 
     def pause(self, reason: str) -> None:
+        """Suspend claiming once; safe to call repeatedly."""
         if self._paused:
             return
         self._paused = True
@@ -40,6 +43,7 @@ class AuthGate:
         self._events.emit("auth_paused", detail=reason)
 
     def resume(self) -> None:
+        """Resume claiming after a fresh login."""
         if not self._paused:
             return
         self._paused = False

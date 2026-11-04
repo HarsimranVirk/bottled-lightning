@@ -7,7 +7,10 @@ from app.db.connection import Database
 
 
 class EventRepository:
+    """Lifecycle audit trail for items and jobs."""
+
     def __init__(self, db: Database) -> None:
+        """Bind to the database handle."""
         self._db = db
 
     def emit(
@@ -19,6 +22,7 @@ class EventRepository:
         job_id: int | None = None,
         detail: str | None = None,
     ) -> None:
+        """Append one event."""
         with self._db.transaction() as conn:
             conn.execute(
                 """
@@ -32,6 +36,7 @@ class EventRepository:
     def recent(
         self, workflow: str | None = None, item: str | None = None, limit: int = 50
     ) -> list[tuple[str, str | None, str, str | None]]:
+        """Most recent events, optionally filtered by workflow and item."""
         where: list[str] = []
         params: list[object] = []
         if workflow is not None:

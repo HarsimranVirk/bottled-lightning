@@ -42,6 +42,7 @@ def parse_description_fields(description: str) -> dict[str, str | None]:
     """Extract the catalogue-sourced values from a deviation description."""
 
     def grab(patterns: tuple[str, ...]) -> str | None:
+        """First non-empty value across a set of label patterns."""
         for pattern in patterns:
             match = re.search(pattern, description)
             if match is None:

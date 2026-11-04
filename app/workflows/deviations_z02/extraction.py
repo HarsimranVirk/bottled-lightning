@@ -42,6 +42,8 @@ _PARALLEL_KINDS: tuple[str, ...] = (
 
 
 class DeviationsZ02Extraction:
+    """Extraction pipeline for Z02 (class design, section 9.2)."""
+
     def __init__(
         self,
         workflow: str,
@@ -54,6 +56,7 @@ class DeviationsZ02Extraction:
         *,
         force: bool = False,
     ) -> None:
+        """Wire repositories and adapters; ``force`` re-extracts."""
         self._workflow = workflow
         self._items = items
         self._fields = fields
@@ -66,6 +69,7 @@ class DeviationsZ02Extraction:
     async def run(
         self, item: WorkItem, tabs: TabProvider, log: JobLogger
     ) -> ExtractOutcome:
+        """Extract one deviation and persist everything it found."""
         if item.extracted_at is not None and not self._force:
             log(f"{item.key}: already extracted; nothing to do")
             return ExtractOutcome.EXTRACTED
@@ -111,6 +115,7 @@ class DeviationsZ02Extraction:
     async def _discover_all(
         self, item: WorkItem, tabs: TabProvider, log: JobLogger
     ) -> list[Discovery]:
+        """Run the record, opportunity and parallel object discoveries."""
         context = DiscoveryContext(item_key=item.key, record_url=item.record_url or "")
 
         record = await self._discover(
@@ -151,6 +156,7 @@ class DeviationsZ02Extraction:
         context: DiscoveryContext,
         log: JobLogger,
     ) -> Discovery:
+        """Run one adapter, turning unexpected errors into a skip."""
         adapter: ObjectAdapter = self._adapters.get(kind)
         try:
             return await adapter.discover(tabs, context)
@@ -162,6 +168,7 @@ class DeviationsZ02Extraction:
             return Discovery(skip_reason=f"internal error in {kind}: {exc}")
 
     def _persist(self, item: WorkItem, discoveries: list[Discovery]) -> None:
+        """Write merged discoveries: fields, attributes and refs."""
         fields: dict[str, str | None] = {}
         attributes: dict[str, str | None] = {}
         refs: dict[str, DiscoveredRef] = {}
@@ -190,6 +197,7 @@ class DeviationsZ02Extraction:
         )
 
     def _skip(self, item: WorkItem, reason: str, log: JobLogger) -> ExtractOutcome:
+        """Move the item to SKIPPED and record why."""
         self._items.transition(
             self._workflow, item.key, WorkItemStatus.SKIPPED, reason=reason
         )
@@ -201,10 +209,12 @@ class DeviationsZ02Extraction:
 
 
 def _ref(discovery: Discovery, kind: str) -> DiscoveredRef | None:
+    """Pick a ref of one kind out of a discovery."""
     return next((ref for ref in discovery.refs if ref.kind == kind), None)
 
 
 def _first_skip(discoveries: list[Discovery]) -> str | None:
+    """First skip reason across discoveries, if any."""
     for discovery in discoveries:
         if discovery.skip_reason is not None:
             return discovery.skip_reason

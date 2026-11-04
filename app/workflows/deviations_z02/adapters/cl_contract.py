@@ -20,13 +20,17 @@ _CONTRACT_PREFIX = "LAI-"
 
 
 class ClContractAdapter(AdapterBase):
+    """CL contract link for the opportunity's matching product."""
+
     kind = DeviationObject.CL_CONTRACT.value
 
     def __init__(self, org_base: str, timeout_ms: int) -> None:
+        """Store org base and page timeout."""
         self._org_base = org_base
         self._timeout_ms = timeout_ms
 
     async def discover(self, tabs: TabProvider, context: DiscoveryContext) -> Discovery:
+        """Find the single CL contract matching the opportunity product."""
         if not context.opportunity_url:
             return Discovery()
         url = related_list_url(
@@ -71,6 +75,7 @@ class ClContractAdapter(AdapterBase):
 
 
 async def _contracts(page: Page) -> list[tuple[str, str, str | None]]:
+    """Parse (href, id, product) triples from the related list."""
     rows = page.locator("tr.slds-hint-parent")
     found: list[tuple[str, str, str | None]] = []
     for index in range(await rows.count()):
