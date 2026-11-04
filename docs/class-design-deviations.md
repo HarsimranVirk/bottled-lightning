@@ -7,7 +7,7 @@
 | **Date** | 2026-11-04 |
 | **Companion** | `docs/FR-deviations-v2.md` (v2.1), `docs/refactor-plan-deviations.md` |
 | **Change** | v2 introduces the workflow abstraction; v1 was deviations-only |
-| **Implemented so far** | Phase 1 on `refactor/deviations-v2`: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{tabs,adapters}`, `app/workflows/deviations_z02/{catalog,description}` |
+| **Implemented so far** | Phases 1–2 on `refactor/deviations-v2`: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,adapters}`, `app/workflows/deviations_z02/{catalog,description}` |
 
 This document describes the target class design. It separates the parts that are the
 same for every Salesforce workflow (browser, tabs, queue, leases, refresh, closure) from
@@ -84,7 +84,8 @@ app/
       events.py                   EventRepository
   salesforce/
     runtime.py                    BrowserRuntime
-    session.py                    SessionProvider
+    session.py                    SessionProvider (+ is_login_page, cookie decoding)
+    login.py                      `python -m app.salesforce.login` (headed, --reset)
     tabs.py                       TabGroup
     list_page.py                  ListPage (refresh/read for one ListViewSpec)
     adapters.py                   ObjectAdapter protocol, AdapterRegistry

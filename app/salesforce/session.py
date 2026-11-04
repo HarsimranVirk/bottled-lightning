@@ -1,0 +1,178 @@
+"""Session state: snapshot injection, expiry detection, refresh after manual login."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from playwright._impl._api_structures import SetCookieParam
+from playwright.async_api import BrowserContext, Page
+
+from app.config import Settings
+from app.core.errors import SessionExpired
+from app.core.models import SessionSnapshot, to_iso, utcnow
+from app.core.repo.sessions import SessionRepository
+
+__all__ = [
+    "SessionProvider",
+    "cookie_params_from_state",
+    "is_lightning_url",
+    "is_login_url",
+]
+
+
+def is_login_url(url: str) -> bool:
+    lowered = url.lower()
+    if "login" in lowered or "idp" in lowered:
+        return True
+    # Salesforce bounces an unauthenticated Lightning request to the classic host.
+    return "ec=302" in lowered or "starturl=" in lowered
+
+
+def is_lightning_url(url: str) -> bool:
+    return "/lightning/" in url and not is_login_url(url)
+
+
+async def is_login_page(page: Page) -> bool:
+    """Reliable detection: URL heuristics plus the password input Salesforce renders."""
+    if is_login_url(page.url):
+        return True
+    try:
+        return await page.locator("input[type=password]").count() > 0
+    except Exception:  # noqa: BLE001 - detached page counts as "cannot verify"
+        return False
+
+
+def cookie_params_from_state(storage_state: str) -> list[SetCookieParam]:
+    """Convert a Playwright storage-state JSON string into ``add_cookies`` arguments.
+
+    Each cookie is rebuilt field by field with explicit types — no ``cast`` and no
+    ``Any`` leaking out of ``json.loads``. ``SetCookieParam`` is the exact type in
+    ``BrowserContext.add_cookies``'s signature (Playwright only exports it from its
+    implementation module).
+    """
+    try:
+        raw: object = json.loads(storage_state)
+    except ValueError:
+        return []
+    if not isinstance(raw, dict):
+        return []
+    cookies = raw.get("cookies")
+    if not isinstance(cookies, list):
+        return []
+
+    params: list[SetCookieParam] = []
+    for item in cookies:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        value = item.get("value")
+        domain = item.get("domain")
+        path = item.get("path")
+        if not isinstance(name, str) or not isinstance(value, str):
+            continue
+        if not isinstance(domain, str) or not isinstance(path, str):
+            continue
+        expires = item.get("expires")
+        http_only = item.get("httpOnly")
+        secure = item.get("secure")
+        same_site = item.get("sameSite")
+        params.append(
+            SetCookieParam(
+                name=name,
+                value=value,
+                domain=domain,
+                path=path,
+                expires=float(expires) if isinstance(expires, int | float) else -1.0,
+                httpOnly=http_only if isinstance(http_only, bool) else False,
+                secure=secure if isinstance(secure, bool) else False,
+                sameSite=(
+                    same_site if same_site in {"Strict", "Lax", "None"} else "Lax"
+                ),
+            )
+        )
+    return params
+
+
+class SessionProvider:
+    """Owns the auth snapshot and the "are we still logged in?" decision (FR-1.4)."""
+
+    def __init__(self, repo: SessionRepository, settings: Settings) -> None:
+        self._repo = repo
+        self._settings = settings
+        self._expired = False
+
+    @property
+    def expired(self) -> bool:
+        return self._expired
+
+    @property
+    def snapshot(self) -> SessionSnapshot | None:
+        return self._repo.snapshot()
+
+    def mark_expired(self) -> None:
+        if not self._expired:
+            self._expired = True
+            self._repo.event("expired", "Salesforce returned the login page")
+
+    def mark_restored(self) -> None:
+        self._expired = False
+
+    async def inject(self, context: BrowserContext) -> int:
+        """Apply the stored snapshot to a fresh context. Returns the cookie count."""
+        snapshot = self._repo.snapshot()
+        if snapshot is None:
+            return 0
+        params = cookie_params_from_state(snapshot.storage_state)
+        if params:
+            await context.add_cookies(params)
+        return len(params)
+
+    async def reload(self, context: BrowserContext) -> int:
+        """Re-apply the snapshot after a manual login, without restarting the browser."""
+        self.mark_restored()
+        return await self.inject(context)
+
+    async def save(self, context: BrowserContext) -> int:
+        state = await context.storage_state()
+        cookies = state.get("cookies", [])
+        count = len(cookies) if isinstance(cookies, list) else 0
+        self._repo.save(json.dumps(state), count, self._settings.org_base)
+        self._repo.event("snapshot", f"{count} cookies")
+        self.mark_restored()
+        return count
+
+    async def ensure(self, page: Page) -> None:
+        """Verify the page is authenticated, navigating once if needed.
+
+        Raises ``SessionExpired`` so the worker can park the job (FR-1.4) instead of
+        treating it as a failure.
+        """
+        if is_lightning_url(page.url) and not await is_login_page(page):
+            return
+        target = f"{self._settings.org_base}/lightning/"
+        try:
+            await page.goto(
+                target,
+                wait_until="domcontentloaded",
+                timeout=self._settings.request_timeout_ms,
+            )
+        except Exception as exc:  # navigation failure is an auth signal
+            self.mark_expired()
+            raise SessionExpired(f"cannot reach {target}: {exc}") from exc
+        if is_lightning_url(page.url) and not await is_login_page(page):
+            return
+        self.mark_expired()
+        raise SessionExpired(f"not logged in (landed on {page.url})")
+
+
+def profile_dir_for(settings: Settings, name: str) -> Path:
+    return settings.data_dir / f"sf_profile_{name}"
+
+
+def snapshot_age_seconds(snapshot: SessionSnapshot) -> float:
+    return (utcnow() - snapshot.created_at).total_seconds()
+
+
+def describe_snapshot(snapshot: SessionSnapshot) -> str:
+    return f"{snapshot.cookie_count} cookies @ {to_iso(snapshot.created_at)}"

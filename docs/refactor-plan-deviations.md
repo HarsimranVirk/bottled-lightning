@@ -43,9 +43,18 @@ Rules for the whole effort:
 Rough sizing assumes one focused developer: **~22–27 working days**, of which Phases 3 and
 6 (adapters, submit) are the long poles because they are UI-selector work.
 
-**Progress:** Phase 0 and Phase 1 are done on branch `refactor/deviations-v2` (core domain,
-schema v2, repositories, workflow seam, Z02 catalog + description parser, tests).
-Phases 2–9 are not started.
+**Progress:** Phases 0–2 are done on branch `refactor/deviations-v2` (core domain,
+schema v2, repositories, workflow seam, Z02 catalog + description parser, async browser
+runtime, session snapshot/expiry, `ListPage`, login CLI). Phases 3–9 are not started.
+
+Phase 2's live gate is only half-verified: the runtime boots, injects cookies, navigates
+and correctly reports an expired session, and `ListPage` was verified end-to-end against a
+local fake list page (header total, links, printable-view popup, validity rule). A real
+run needs `python -m app.salesforce.login` first.
+
+Also landed in Phase 1/2: `Database.migrate()` refuses a pre-v2 database instead of
+half-migrating it (`legacy schema detected … needs a fresh database`), which makes O-4 an
+explicit decision rather than a silent corruption.
 
 ---
 

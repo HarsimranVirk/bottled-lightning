@@ -8,11 +8,28 @@ from __future__ import annotations
 
 import re
 
-_FIELD_PATTERNS: dict[str, str] = {
-    "property_value": r"(?m)^\s*Property Value[^-\n]*-\s?(.+)$",
-    "loan_amount": r"(?m)^\s*Loan Amount[^-\n]*-\s?(.+)$",
-    "tenure": r"(?m)^\s*Tenure[^-\n]*-\s?(.+)$",
-    "emi_incl_hffc": r"(?m)^\s*EMIs?\s*&[^-\n]*-\s?(.+)$",
+# Plain phrases only: add an alias by appending the label text, no regex needed. Labels
+# are tried in order and the first matching line wins.
+_FIELD_LABELS: dict[str, tuple[str, ...]] = {
+    "property_value": ("Property Value", "New PP"),
+    "loan_amount": ("Loan Amount","LA"),
+    "tenure": ("Tenure",),
+    "emi_incl_hffc": ("EMIs &", "EMI &"),
+}
+
+
+def _label_pattern(label: str) -> str:
+    """Build the matcher for one label: ``<label> … - <value>`` on a single line.
+
+    The label is escaped, so it is matched literally. Percentage values are ignored
+    (``New PP - 50%`` is a ratio, not an amount).
+    """
+    return rf"(?mi)^\s*{re.escape(label)}[^-\n]*-\s*([^%\n]+?)\s*$"
+
+
+_FIELD_PATTERNS: dict[str, tuple[str, ...]] = {
+    key: tuple(_label_pattern(label) for label in labels)
+    for key, labels in _FIELD_LABELS.items()
 }
 
 _DROP_LINES = (
@@ -24,14 +41,17 @@ _DROP_LINES = (
 def parse_description_fields(description: str) -> dict[str, str | None]:
     """Extract the catalogue-sourced values from a deviation description."""
 
-    def grab(pattern: str) -> str | None:
-        match = re.search(pattern, description)
-        if match is None:
-            return None
-        value = match.group(1).strip()
-        return value or None
+    def grab(patterns: tuple[str, ...]) -> str | None:
+        for pattern in patterns:
+            match = re.search(pattern, description)
+            if match is None:
+                continue
+            value = match.group(1).strip()
+            if value:
+                return value
+        return None
 
-    return {key: grab(pattern) for key, pattern in _FIELD_PATTERNS.items()}
+    return {key: grab(patterns) for key, patterns in _FIELD_PATTERNS.items()}
 
 
 def clean_description(raw: str) -> str:

@@ -51,9 +51,25 @@ class Database:
 
     def migrate(self) -> None:
         conn = self.connect()
+        if self._is_legacy(conn):
+            raise RuntimeError(
+                "legacy schema detected in "
+                f"{self._path} (pre-v2 tables). Schema v2 needs a fresh database: "
+                "point SF_DATA_DIR at a new directory or delete the existing app.db "
+                "(refactor plan, open item O-4)."
+            )
         conn.executescript(SCHEMA)
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         conn.commit()
+
+    def _is_legacy(self, conn: sqlite3.Connection) -> bool:
+        """True when the file holds the pre-refactor schema (its ``jobs`` table has no
+        ``kind`` column). Detected before creating anything so a legacy DB is untouched."""
+        rows = conn.execute("PRAGMA table_info(jobs)").fetchall()
+        if not rows:
+            return False
+        columns = {str(row["name"]) for row in rows}
+        return "kind" not in columns
 
     def close(self) -> None:
         """Close this thread's connection (tests, shutdown)."""

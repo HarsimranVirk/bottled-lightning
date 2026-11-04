@@ -40,6 +40,18 @@ class DescriptionTests(unittest.TestCase):
         parsed = parse_description_fields("EMIs & other HFFC Loan- 18,000\n")
         self.assertEqual(parsed["emi_incl_hffc"], "18,000")
 
+    def test_alternate_property_value_shape(self) -> None:
+        parsed = parse_description_fields("New PP - 3840000\n")
+        self.assertEqual(parsed["property_value"], "3840000")
+
+    def test_alternate_property_value_ignores_percentage(self) -> None:
+        parsed = parse_description_fields("New PP - 50%\n")
+        self.assertIsNone(parsed["property_value"])
+
+    def test_primary_property_value_pattern_wins(self) -> None:
+        parsed = parse_description_fields("New PP - 38,40,000\nProperty Value - 45,00,000\n")
+        self.assertEqual(parsed["property_value"], "45,00,000")
+
     def test_missing_fields_are_none(self) -> None:
         self.assertEqual(
             parse_description_fields("Just some text\n"),
