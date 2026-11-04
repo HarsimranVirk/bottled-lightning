@@ -118,6 +118,15 @@ export const api = {
     request(`/api/${route}${itemsQuery(params)}`),
   item: (route: string, key: string): Promise<ItemDetail> =>
     request(`/api/${route}/${encodeURIComponent(key)}`),
+  patchFields: (
+    route: string,
+    key: string,
+    changes: Record<string, string | null>,
+  ): Promise<ItemDetail> =>
+    request(`/api/${route}/${encodeURIComponent(key)}/field-values`, {
+      method: 'PATCH',
+      body: JSON.stringify(changes),
+    }),
   decide: (
     route: string,
     key: string,

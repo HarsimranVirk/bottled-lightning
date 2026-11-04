@@ -5,10 +5,12 @@
 
 import type { JSX } from 'react'
 import { Button, FlexLayout, H1, Input, Spinner, Text } from '@salt-ds/core'
-import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
-import type { DecisionKind } from '../api'
+import { api } from '../api'
+import type { DecisionKind, ItemRow } from '../api'
 import { DecisionDeck } from '../components/DecisionDeck'
 import { ItemDrawer } from '../components/ItemDrawer'
 import { ItemsGrid } from '../components/ItemsGrid'
@@ -16,6 +18,7 @@ import {
   useDecideDecision,
   useItem,
   useItems,
+  usePatchFields,
   useSync,
   useUndoDecision,
   useWorkflows,
@@ -38,6 +41,7 @@ const STATUSES = [
 export function DeviationsPage(): JSX.Element {
   const { key } = useParams()
   const navigate = useNavigate()
+  const client = useQueryClient()
   const workflows = useWorkflows()
   // The Z02 tab is concrete; the registry only supplies labels and fields.
   const workflow = workflows.data?.find((item) => item.name === Z02_WORKFLOW) ?? workflows.data?.[0]
@@ -47,12 +51,13 @@ export function DeviationsPage(): JSX.Element {
   const [status, setStatus] = useState('')
   const [decisionFilter, setDecisionFilter] = useState('')
   const [query, setQuery] = useState('')
-  const [lastDecision, setLastDecision] = useState<{ key: string } | null>(null)
   const [announcement, setAnnouncement] = useState('')
   const [actionError, setActionError] = useState<string | null>(null)
+  const [replaying, setReplaying] = useState(false)
 
   const sync = useSync(workflow?.name ?? null)
-  const deck = useItems(route, { statuses: DECIDABLE, decision: 'undecided' }, 200, view === 'deck')
+  // One unfiltered page powers the deck and the tallies, like the legacy deck.
+  const deck = useItems(route, {}, 500, view === 'deck')
   const list = useItems(
     route,
     {
@@ -65,26 +70,53 @@ export function DeviationsPage(): JSX.Element {
   )
   const detail = useItem(route, key ?? null)
 
-  const decide = useDecideDecision(route)
-  const undo = useUndoDecision(route)
-  const busyKey = decide.isPending ? (decide.variables?.key ?? null) : null
+  const allRows = useMemo(() => deck.data?.rows ?? [], [deck.data])
+  const deckRows = useMemo(
+    () => allRows.filter((row) => DECIDABLE.includes(row.status) && row.decision === null),
+    [allRows],
+  )
+  const tally = useMemo(
+    () => ({
+      accept: allRows.filter((row) => row.decision?.decision === 'accept').length,
+      skip: allRows.filter((row) => row.decision?.decision === 'reject').length,
+      pending: deckRows.length,
+    }),
+    [allRows, deckRows],
+  )
 
-  function handleDecide(itemKey: string, decision: DecisionKind, reason?: string): void {
+  const topKey = deckRows[0]?.key ?? null
+  const cardDetail = useItem(route, view === 'deck' ? topKey : null)
+
+  const decide = useDecideDecision(route)
+  const patch = usePatchFields(route)
+  const undo = useUndoDecision(route)
+
+  /**
+   * Accept stores the card's edited values as proposals first, then records the
+   * decision — the legacy deck's behaviour on the new API (FR-10.6). Skip records the
+   * decision only. Returns false on failure so the deck keeps the card.
+   */
+  async function handleDecide(
+    row: ItemRow,
+    decision: DecisionKind,
+    values: Record<string, string | null>,
+  ): Promise<boolean> {
     setActionError(null)
-    const before = deck.data?.rows.length ?? 1
-    decide.mutate(
-      { key: itemKey, decision, reason },
-      {
-        onSuccess: () => {
-          setLastDecision({ key: itemKey })
-          setAnnouncement(
-            `${decision === 'accept' ? 'Accepted' : 'Rejected'} ${itemKey}` +
-              (before > 1 ? ` · ${before - 1} to review` : ' · nothing left to review'),
-          )
-        },
-        onError: (error) => setActionError(error.message),
-      },
-    )
+    try {
+      if (decision === 'accept') {
+        await patch.mutateAsync({ key: row.key, changes: values })
+      }
+      await decide.mutateAsync({ key: row.key, decision })
+      const left = Math.max(0, deckRows.length - 1)
+      setAnnouncement(
+        `${decision === 'accept' ? 'Accepted' : 'Skipped'} ${row.key}` +
+          (left === 0 ? ' · deck complete' : ` · ${left} to review`),
+      )
+      return true
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'decision failed')
+      return false
+    }
   }
 
   function handleUndo(itemKey: string): void {
@@ -92,18 +124,30 @@ export function DeviationsPage(): JSX.Element {
     undo.mutate(
       { key: itemKey },
       {
-        onSuccess: () => {
-          if (lastDecision?.key === itemKey) setLastDecision(null)
-          setAnnouncement(`Restored ${itemKey} to the deck`)
-        },
+        onSuccess: () => setAnnouncement(`Restored ${itemKey}`),
         onError: (error) => setActionError(error.message),
       },
     )
   }
 
-  function showList(decision: string): void {
-    setDecisionFilter(decision)
-    setView('list')
+  /** Undo every skipped decision and put those cards back in the deck. */
+  async function replaySkipped(): Promise<void> {
+    if (route === null) return
+    const skipped = allRows.filter(
+      (row) => row.decision?.decision === 'reject' && DECIDABLE.includes(row.status),
+    )
+    if (skipped.length === 0) return
+    setReplaying(true)
+    setActionError(null)
+    try {
+      await Promise.all(skipped.map((row) => api.undoDecision(route, row.key)))
+      setAnnouncement(`Restored ${skipped.length} skipped to the deck`)
+      await client.invalidateQueries({ queryKey: ['items', route] })
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'replay failed')
+    } finally {
+      setReplaying(false)
+    }
   }
 
   if (workflows.isLoading) return <Spinner />
@@ -137,23 +181,20 @@ export function DeviationsPage(): JSX.Element {
 
       {view === 'deck' ? (
         <DecisionDeck
-          rows={deck.data?.rows ?? []}
+          rows={deckRows}
           fields={workflow.fields}
           terminalLabels={workflow.terminalLabels}
-          busyKey={busyKey}
-          undoBusy={undo.isPending}
-          canUndo={lastDecision !== null}
+          detail={cardDetail.data ?? null}
+          tally={tally}
           error={actionError ?? (deck.error ? deck.error.message : null)}
           announcement={announcement}
           enabled={key === undefined}
           onDecide={handleDecide}
-          onUndo={() => {
-            if (lastDecision) handleUndo(lastDecision.key)
-          }}
+          onReplay={() => void replaySkipped()}
+          replaying={replaying}
           onOpen={(itemKey) => navigate(`/deviations-z02/${encodeURIComponent(itemKey)}`)}
-          onShowList={showList}
-          onReload={() => void deck.refetch()}
-          reloading={deck.isFetching}
+          onRefresh={() => void deck.refetch()}
+          refreshing={deck.isFetching}
         />
       ) : (
         <>

@@ -139,6 +139,21 @@ export function useDecideDecision(
   })
 }
 
+/** Propose edited values; the authoritative detail comes back in the response. */
+export function usePatchFields(
+  route: string | null,
+): ReturnType<typeof useMutation<ItemDetail, Error, { key: string; changes: Record<string, string | null> }>> {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ key, changes }) => api.patchFields(route ?? '', key, changes),
+    onSuccess: (_detail, { key }) => {
+      if (route === null) return
+      void client.invalidateQueries({ queryKey: ['items', route] })
+      void client.invalidateQueries({ queryKey: keys.item(route, key) })
+    },
+  })
+}
+
 /** Undo the current decision: the item becomes undecided and re-enters the deck. */
 export function useUndoDecision(
   route: string | null,

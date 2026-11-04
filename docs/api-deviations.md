@@ -221,7 +221,9 @@ Statuses: `200` with the updated detail; `404` unknown item; `409` item not edit
 (`submitting`, `implementing`, terminal); `422` value fails `normalise()`
 (`{ "detail": { "code": "invalid_value", "field": "loan_amount", "message": "not an amount" } }`).
 
-Changing any field moves the item to `editing`.
+Changing any field moves the item to `editing`. A `needs_review` item is first returned
+to `ready` (the state machine has no direct `needs_review → editing` edge), then to
+`editing`; its values stay editable so a failed submission can be corrected.
 
 ### `DELETE /api/deviations/{key}/field-values` → `200`
 

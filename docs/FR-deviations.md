@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.1 |
+| **Version** | v5.2 |
 | **Date** | 2026-11-04 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -298,9 +298,10 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-10.1** Every deviation awaiting a decision is presented one card at a time. The
   operator accepts it (the values are right, it should be implemented) or rejects it
   (it should not be implemented as-is).
-- **FR-10.2** Accept records an `accepted` decision. Reject records a `rejected` decision
-  with an optional reason. Neither writes to Salesforce and neither changes the item's
-  pipeline status.
+- **FR-10.2** Accept records an `accepted` decision and first stores the card's corrected
+  field values as proposals. Reject records a `rejected` decision with an optional reason
+  and no values. Neither writes to Salesforce; the proposals are local edits awaiting the
+  submitter.
 - **FR-10.3** Decisions are reversible. Undoing a decision returns the item to undecided
   and it re-enters the deck.
 - **FR-10.4** A decided item leaves the deck immediately and stays out of it until it is
@@ -317,9 +318,10 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-10.9** Swiping is an accelerator, never the only path: accept/reject buttons and
   the `←` / `→` keys perform the same action, and the result is announced through
   `aria-live`.
-- **FR-10.10** The card shows every editable value, so missing or unparsed values are
-  visible before a decision. A missing value is a warning on the card, not a block:
-  the single operator decides whether the deviation is decidable.
+- **FR-10.10** The card shows every editable value, prefilled from the extracted value,
+  so missing or unparsed values are visible and correctable before a decision. A missing
+  value is a warning on the card, not a block: the single operator decides whether the
+  deviation is decidable. Accept persists the card's values as proposals (FR-10.2).
 - **FR-10.11** Decisions never gate sync or extraction. An accepted or rejected item is
   still reconciled with the list view like any other.
 
@@ -380,6 +382,12 @@ absence while a `SUBMIT` lease was held.
   submit action? (Default: explicit action; acceptance only queues.) | FR-10.6 |
 
 ## Appendix C — Change log
+
+- **v5.2** — the review deck is restored to the legacy card shape: record link, approval
+  date, pages to update, raw description, ROI details, four editable prefilled parameters,
+  accepted/skipped/to-review tallies, next-up and *Replay skipped*. Accept stores the
+  card's corrected values as proposals before recording the decision; skip stores no
+  values. Swipe and arrow keys remain accelerators for the same two buttons.
 
 - **v5.1** — the sync banner no longer sticks: polling retries after a failed request
 (a server restart used to freeze the last snapshot), and an untrusted refresh states how

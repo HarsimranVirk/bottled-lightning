@@ -1,4 +1,4 @@
-/** Review deck behaviour: buttons, keys, reason, undo and the empty/error states. */
+/** Review deck behaviour: legacy card fields, tallies, buttons, keys and replay. */
 
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -48,72 +48,78 @@ function deckProps(overrides: Partial<Parameters<typeof DecisionDeck>[0]> = {}) 
     rows: [row('Deviation-1-1'), row('Deviation-2-2')],
     fields: FIELDS,
     terminalLabels: {},
-    busyKey: null,
-    undoBusy: false,
-    canUndo: false,
+    detail: null,
+    tally: { accept: 1, skip: 2, pending: 2 },
     error: null,
     announcement: '',
     enabled: true,
-    onDecide: vi.fn(),
-    onUndo: vi.fn(),
+    onDecide: vi.fn(async () => true),
+    onReplay: vi.fn(),
+    replaying: false,
     onOpen: vi.fn(),
-    onShowList: vi.fn(),
-    onReload: vi.fn(),
-    reloading: false,
+    onRefresh: vi.fn(),
+    refreshing: false,
     ...overrides,
   }
 }
 
 describe('DecisionDeck', () => {
-  it('shows the top card and the remaining count', () => {
+  it('renders the legacy tallies and the top card values', () => {
     render(<DecisionDeck {...deckProps()} />)
+    expect(screen.getByText('1 accepted')).toBeInTheDocument()
+    expect(screen.getByText('2 skipped')).toBeInTheDocument()
     expect(screen.getByText('2 to review')).toBeInTheDocument()
     expect(screen.getByText('Deviation-1-1')).toBeInTheDocument()
-    expect(screen.getAllByText('13,00,000').length).toBeGreaterThan(0)
+    expect(screen.getAllByDisplayValue('13,00,000').length).toBeGreaterThan(0)
+    expect(screen.getByText('next up: Deviation-2-2')).toBeInTheDocument()
   })
 
-  it('accepts with the button and rejects with the other button', async () => {
+  it('accepts with the corrected field values', async () => {
     const user = userEvent.setup()
-    const onDecide = vi.fn()
+    const onDecide = vi.fn(async () => true)
     render(<DecisionDeck {...deckProps({ onDecide })} />)
 
-    await user.click(screen.getByRole('button', { name: 'Accept Deviation-1-1' }))
-    expect(onDecide).toHaveBeenCalledWith('Deviation-1-1', 'accept')
+    const amount = screen.getByLabelText('Loan Amount')
+    await user.clear(amount)
+    await user.type(amount, '1500000')
+    await user.click(screen.getByRole('button', { name: /Accept/ }))
 
-    await user.click(screen.getByRole('button', { name: 'Reject Deviation-1-1' }))
-    await user.click(screen.getByRole('button', { name: 'Reject without reason' }))
-    expect(onDecide).toHaveBeenLastCalledWith('Deviation-1-1', 'reject')
+    expect(onDecide).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'Deviation-1-1' }),
+      'accept',
+      expect.objectContaining({ loan_amount: '15,00,000', tenure: '240' }),
+    )
   })
 
-  it('accepts with ArrowRight and rejects with ArrowLeft', () => {
-    const onDecide = vi.fn()
+  it('skips with the Skip button and with ArrowLeft', async () => {
+    const user = userEvent.setup()
+    const onDecide = vi.fn(async () => true)
     render(<DecisionDeck {...deckProps({ onDecide })} />)
 
-    fireEvent.keyDown(window, { key: 'ArrowRight' })
-    expect(onDecide).toHaveBeenCalledWith('Deviation-1-1', 'accept')
+    await user.click(screen.getByRole('button', { name: /Skip/ }))
+    expect(onDecide).toHaveBeenLastCalledWith(
+      expect.objectContaining({ key: 'Deviation-1-1' }),
+      'reject',
+      {},
+    )
 
     fireEvent.keyDown(window, { key: 'ArrowLeft' })
-    expect(onDecide).toHaveBeenCalledWith('Deviation-1-1', 'reject')
+    expect(onDecide).toHaveBeenLastCalledWith(
+      expect.objectContaining({ key: 'Deviation-1-1' }),
+      'reject',
+      {},
+    )
   })
 
-  it('collects an optional reason before rejecting', async () => {
-    const user = userEvent.setup()
-    const onDecide = vi.fn()
+  it('accepts with ArrowRight', () => {
+    const onDecide = vi.fn(async () => true)
     render(<DecisionDeck {...deckProps({ onDecide })} />)
-
-    await user.click(screen.getByRole('button', { name: 'Reject Deviation-1-1' }))
-    const input = screen.getByLabelText('Reject reason')
-    await user.type(input, 'EMI mismatch')
-    await user.click(screen.getByRole('button', { name: 'Reject' }))
-    expect(onDecide).toHaveBeenCalledWith('Deviation-1-1', 'reject', 'EMI mismatch')
-  })
-
-  it('undoes the last decision', async () => {
-    const user = userEvent.setup()
-    const onUndo = vi.fn()
-    render(<DecisionDeck {...deckProps({ canUndo: true, onUndo })} />)
-    await user.click(screen.getByRole('button', { name: 'Undo last' }))
-    expect(onUndo).toHaveBeenCalled()
+    fireEvent.keyDown(window, { key: 'ArrowRight' })
+    expect(onDecide).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'Deviation-1-1' }),
+      'accept',
+      expect.objectContaining({ loan_amount: '13,00,000' }),
+    )
   })
 
   it('warns about missing values without blocking the decision', () => {
@@ -139,28 +145,30 @@ describe('DecisionDeck', () => {
     ]
     render(<DecisionDeck {...deckProps({ rows })} />)
     expect(screen.getByText(/2 values are missing/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Accept Deviation-1-1' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /Accept/ })).toBeEnabled()
   })
 
   it('keeps the card when a decision fails', () => {
     render(<DecisionDeck {...deckProps({ error: 'item is submitting and not decidable' })} />)
-    expect(screen.getByRole('alert')).toHaveTextContent('item is submitting and not decidable')
-    expect(screen.getByTestId('top-card')).toBeInTheDocument()
+    expect(screen.getByText('item is submitting and not decidable')).toBeInTheDocument()
+    expect(screen.getByText('Deviation-1-1')).toBeInTheDocument()
   })
 
-  it('shows the empty state with links to the decided lists', async () => {
+  it('shows the completion card and replays skipped decisions', async () => {
     const user = userEvent.setup()
-    const onShowList = vi.fn()
-    render(<DecisionDeck {...deckProps({ rows: [], onShowList })} />)
-    expect(screen.getByText('All caught up')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'View accepted' }))
-    expect(onShowList).toHaveBeenCalledWith('accept')
-    await user.click(screen.getByRole('button', { name: 'View rejected' }))
-    expect(onShowList).toHaveBeenCalledWith('reject')
+    const onReplay = vi.fn()
+    render(
+      <DecisionDeck
+        {...deckProps({ rows: [], tally: { accept: 4, skip: 2, pending: 0 }, onReplay })}
+      />,
+    )
+    expect(screen.getByText('Deck complete 🎉')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Replay skipped \(2\)/ }))
+    expect(onReplay).toHaveBeenCalled()
   })
 
   it('ignores keyboard decisions while disabled (detail panel open)', () => {
-    const onDecide = vi.fn()
+    const onDecide = vi.fn(async () => true)
     render(<DecisionDeck {...deckProps({ onDecide, enabled: false })} />)
     fireEvent.keyDown(window, { key: 'ArrowRight' })
     expect(onDecide).not.toHaveBeenCalled()

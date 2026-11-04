@@ -205,7 +205,7 @@ export function DevStates(): JSX.Element {
         <ItemDrawer detail={detail('completed')} fields={FIELDS} refKinds={REF_KINDS} terminalLabels={TERMINAL_LABELS} onClose={() => {}} />
       </Section>
 
-      <Section title="Review deck: stack">
+      <Section title="Review deck: card">
         <DecisionDeck
           rows={[
             row('ready', 'Deviation-03112026-486382'),
@@ -214,38 +214,36 @@ export function DevStates(): JSX.Element {
           ]}
           fields={FIELDS}
           terminalLabels={{ completed: 'Implemented' }}
-          busyKey={null}
-          undoBusy={false}
-          canUndo
+          detail={detail('ready')}
+          tally={{ accept: 2, skip: 1, pending: 3 }}
           error={null}
           announcement=""
           enabled
-          onDecide={() => {}}
-          onUndo={() => {}}
+          onDecide={async () => true}
+          onReplay={() => {}}
+          replaying={false}
           onOpen={() => {}}
-          onShowList={() => {}}
-          onReload={() => {}}
-          reloading={false}
+          onRefresh={() => {}}
+          refreshing={false}
         />
       </Section>
 
-      <Section title="Review deck: empty">
+      <Section title="Review deck: complete">
         <DecisionDeck
           rows={[]}
           fields={FIELDS}
           terminalLabels={{}}
-          busyKey={null}
-          undoBusy={false}
-          canUndo={false}
+          detail={null}
+          tally={{ accept: 4, skip: 2, pending: 0 }}
           error={null}
-          announcement="Accepted Deviation-03112026-486382 · nothing left to review"
+          announcement="Accepted Deviation-03112026-486382 · deck complete"
           enabled
-          onDecide={() => {}}
-          onUndo={() => {}}
+          onDecide={async () => true}
+          onReplay={() => {}}
+          replaying={false}
           onOpen={() => {}}
-          onShowList={() => {}}
-          onReload={() => {}}
-          reloading={false}
+          onRefresh={() => {}}
+          refreshing={false}
         />
       </Section>
 
@@ -254,18 +252,17 @@ export function DevStates(): JSX.Element {
           rows={[row('ready', 'Deviation-03112026-486382')]}
           fields={FIELDS}
           terminalLabels={{}}
-          busyKey={null}
-          undoBusy={false}
-          canUndo={false}
+          detail={detail('ready')}
+          tally={{ accept: 0, skip: 0, pending: 1 }}
           error="item is submitting and not decidable"
           announcement=""
           enabled
-          onDecide={() => {}}
-          onUndo={() => {}}
+          onDecide={async () => false}
+          onReplay={() => {}}
+          replaying={false}
           onOpen={() => {}}
-          onShowList={() => {}}
-          onReload={() => {}}
-          reloading={false}
+          onRefresh={() => {}}
+          refreshing={false}
         />
       </Section>
 

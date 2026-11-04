@@ -146,6 +146,15 @@ class ServiceTests(ApiTestCase):
             service.patch_fields(WORKFLOW, KEY, {"tenure": "240"})
         self.assertEqual(caught.exception.status_code, 409)
 
+    def test_patch_recovers_a_needs_review_item(self) -> None:
+        """A failed submission can be corrected: needs_review -> ready -> editing."""
+        self.make_ready_item()
+        service, _registry, _workflow, _jobs, _edits = self.build()
+        self.deps().items.transition(WORKFLOW, KEY, WorkItemStatus.NEEDS_REVIEW)
+        detail = service.patch_fields(WORKFLOW, KEY, {"tenure": "240"})
+        self.assertEqual(detail.status, "editing")
+        self.assertEqual(detail.fields["tenure"].proposed, "240")
+
     def test_discard_returns_to_ready(self) -> None:
         self.make_ready_item()
         service, _registry, _workflow, _jobs, _edits = self.build()

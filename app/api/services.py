@@ -228,6 +228,9 @@ class WorkItemService:
 
         self._fields.propose(workflow.name, key, normalised)
         if item.status is not WorkItemStatus.EDITING:
+            # NEEDS_REVIEW cannot go straight to EDITING; it recovers through READY.
+            if item.status is WorkItemStatus.NEEDS_REVIEW:
+                self._items.transition(workflow.name, key, WorkItemStatus.READY)
             self._items.transition(workflow.name, key, WorkItemStatus.EDITING)
             self._events.emit("edited", workflow=workflow.name, item=key)
         return self._detail_view(workflow, self._item(workflow, key))
