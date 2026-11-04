@@ -107,6 +107,11 @@
   padding: 10px 12px;
 }
 
+.deck-description-dialog {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
 /* Long prose descriptions use newspaper columns so the whole text is visible
    without scrolling; Old/New blocks already render side by side. */
 .deck-description-columns {

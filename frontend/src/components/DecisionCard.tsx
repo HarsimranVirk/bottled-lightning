@@ -6,9 +6,15 @@
  */
 
 import type { JSX } from 'react'
+import { useState } from 'react'
 import {
+  Button,
   Card,
   CardContent,
+  Dialog,
+  DialogCloseButton,
+  DialogContent,
+  DialogHeader,
   FlexLayout,
   FormField,
   FormFieldLabel,
@@ -21,6 +27,7 @@ import {
 
 import type { ItemDetail, ItemRow, WorkflowFieldView } from '../api'
 import { absoluteUrl, draftDisplay, orderedFields } from '../format'
+import { useIsNarrow } from '../useIsNarrow'
 import { StatusChip } from './StatusChip'
 
 const REF_LABELS: Record<string, string> = {
@@ -76,6 +83,22 @@ export function DecisionCard({
   const descriptionInColumns = description !== null && description.length > 500
   const descriptionLines = description === null ? 0 : description.split('\n').length
   const descriptionInFourColumns = descriptionInColumns && descriptionLines > 30
+  const narrow = useIsNarrow()
+  const [openDescription, setOpenDescription] = useState(false)
+  // Above these limits the card cannot fit the viewport; show the compact form
+  // (New block or a preview) and open the full raw text in a Salt dialog.
+  const oversized = description !== null && (description.length > 1200 || descriptionLines > 40)
+  const compactDescription = oversized || narrow
+  const previewBody =
+    description === null
+      ? ''
+      : descriptionParts !== null
+        ? descriptionParts.new
+        : description
+  const previewText = previewBody.slice(0, narrow ? 220 : 240)
+  const previewCut = previewBody.length > previewText.length
+  const needsDialog =
+    compactDescription && description !== null && (descriptionParts !== null || previewCut)
   const recordHref = row.recordUrl ? absoluteUrl(row.recordUrl, listUrl) : null
   const refRank = (kind: string): number => {
     const index = REF_ORDER.indexOf(kind)
@@ -86,6 +109,7 @@ export function DecisionCard({
   )
 
   return (
+    <>
     <Card elevation="raised" className="deck-card">
       <CardContent>
         <StackLayout gap={1}>
@@ -118,6 +142,18 @@ export function DecisionCard({
               <Text color="secondary">loading description…</Text>
             ) : description === null ? (
               <Text color="secondary">no description picked yet — run an extraction first</Text>
+            ) : compactDescription ? (
+              <StackLayout gap={0.5}>
+                <Text styleAs="code" className="deck-description-text">
+                  {previewText}
+                  {previewCut ? '…' : ''}
+                </Text>
+                {needsDialog ? (
+                  <Button appearance="transparent" onClick={() => setOpenDescription(true)}>
+                    Read full description
+                  </Button>
+                ) : null}
+              </StackLayout>
             ) : descriptionInColumns ? (
               <Text
                 styleAs="code"
@@ -213,5 +249,21 @@ export function DecisionCard({
         </StackLayout>
       </CardContent>
     </Card>
+    {needsDialog ? (
+      <Dialog open={openDescription} onOpenChange={setOpenDescription} size="large">
+        <DialogHeader
+          header="Loan Deviation Description"
+          actions={<DialogCloseButton onClick={() => setOpenDescription(false)} />}
+        />
+        <DialogContent>
+          <div className="deck-description-dialog">
+            <Text styleAs="code" className="deck-description-text">
+              {description}
+            </Text>
+          </div>
+        </DialogContent>
+      </Dialog>
+    ) : null}
+    </>
   )
 }

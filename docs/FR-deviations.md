@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.11 |
+| **Version** | v5.12 |
 | **Date** | 2026-11-04 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -232,6 +232,11 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   `source=system` and carries an `implement_unconfirmed` flag for operator review.
 - **FR-6.13** A deviation that reappears after being closed starts a new presence epoch
   and returns to `present`, with its prior history intact.
+- **FR-6.14** During Phase 6 bring-up the submission pipeline may run with the final
+  action disabled. In that mode it performs apply and validate only, returns
+  `validated`, and returns the item to `ready` with the reason `validated; final action
+  disabled`. No Implement click, modal or confirmation is performed. The mode exists
+  only until O-2 is resolved and is not a substitute for FR-6.5.
 
 ### FR-7 Jobs & workers
 
@@ -347,12 +352,14 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   so missing or unparsed values are visible and correctable before a decision. Missing
   values are not an error and carry no warning: only one or two values may need an
   update. Accept persists the card's values as proposals (FR-10.2).
-- **FR-10.11** The entire raw description is visible together in a bordered Salt card,
-  with no toggle and no internal scroll. Short Old/New block pairs render side by side;
-  long descriptions flow into 3–5 balanced newspaper columns (2 below 1024 px, 1 on
-  phones), so even the longest prose fits without scrolling. At 1280×800 the deck
-  (header, card and actions) fits without page scrolling for every deviation; below
-  that width the card stacks and the page scrolls vertically.
+- **FR-10.11** The raw description is shown in a bordered Salt card with no internal
+  scroll. Short Old/New pairs render side by side; long descriptions flow into 3–5
+  balanced newspaper columns (2 below 1024 px). At 1280×800 the deck (header, card and
+  actions) fits without page scrolling for every deviation. **Mobile, and descriptions
+  too large to fit (over 1200 characters or 40 lines), use a compact preview** (the New
+  block or the first 240 characters) plus a **Read full description** Salt dialog with
+  the complete raw text. This is a size fallback, not a normal-case toggle: desktop
+  descriptions within the limit are always shown in full.
 - **FR-10.11** Decisions never gate sync or extraction. An accepted or rejected item is
   still reconciled with the list view like any other.
 
@@ -403,7 +410,7 @@ absence while a `SUBMIT` lease was held.
 
 | ID | Question | Blocks |
 |---|---|---|
-| O-1 | Which SF object and field label each of `loan_amount`, `property_value`, `tenure`, `emi_incl_hffc` is written to, and whether any value fans out to several objects. | FR-6.3, data model |
+| O-1 | ~~Which SF object and field label each of `loan_amount`, `property_value`, `tenure`, `emi_incl_hffc` is written to, and whether any value fans out to several objects.~~ **Resolved** — see the confirmed mapping below. | — |
 | O-2 | Exact label of the modal confirm button for `Implement`. | FR-6.5 |
 | O-3 | Whether `z01`/`z03`/`z04` and `app/cancellations/` are live or dead scaffolding (proposed: delete). | Architecture |
 | O-4 | ~~Wipe the legacy `data/app.db` for the new schema.~~ **Resolved** — wiped; `data/` now holds the workflow store. | — |
@@ -412,7 +419,40 @@ absence while a `SUBMIT` lease was held.
 | O-7 | Should accepted items auto-submit once Phase 6 lands, or wait for an explicit
   submit action? (Default: explicit action; acceptance only queues.) | FR-10.6 |
 
+### Confirmed write mapping (O-1)
+
+Each value is written to every target below; a submit fails rather than writing a
+partial set (FR-6.3). Section names are the page areas the adapter scrolls to and are
+used to disambiguate repeated labels.
+
+| Value | Object | Section | Label |
+|---|---|---|---|
+| `property_value` | Opportunity | `LOAN PARAMETERS` | `Property Value Ex. Reg & ST(Financeable)` |
+| `property_value` | Collateral | `Details` | `Property Value` |
+| `property_value` | LMS 2.0 collateral | `Financials` | `Property Value` |
+| `loan_amount` | Opportunity | `LOAN PARAMETERS` | `Loan Amount` |
+| `loan_amount` | CL contract | `Contract` | `Loan Amount` |
+| `loan_amount` | CL contract | `Funding` | `Financed Amount` |
+| `loan_amount` | LMS 2.0 CL contract | `Loan amount` | `New value` |
+| `tenure` | Opportunity | `LOAN PARAMETERS` | `Tenure (Yrs)` (months → years) |
+| `tenure` | CL contract | `Contract` | `Term` (months) |
+| `tenure` | LMS 2.0 CL contract | `Tenure` | `New value` (months) |
+| `emi_incl_hffc` | Opportunity | `BUDGET ANALYSIS & SAVINGS PATTERN` | `EMIs & other fixed pmts inc HFFC Loan` |
+
+The CL-contract record is a Classic Visualforce page (`tabbedLoanAccount`) inside the
+Lightning record's iframe. Submission opens it through the org's Classic host
+(`https://<org>.my.salesforce.com/<record-id>`) and uses Classic inline edit
+(double-click, fill, Save).
+
 ## Appendix C — Change log
+
+- **v5.12** — mobile and oversized descriptions use a compact preview + Salt dialog for
+  the full text; normal desktop descriptions remain fully visible in columns. The deck
+  stays bounded on every viewport.
+
+- **v5.12** — O-1 resolved: the confirmed write mapping is recorded above, including
+  the two CL-contract targets for `loan_amount` and the Opportunity/LMS 2.0 tenure
+  conversion. FR-6.14 adds the validate-only bring-up mode (no Implement click).
 
 - **v5.11** — long descriptions flow into balanced columns (up to 5 on wide screens)
   instead of a toggle or scroll; every current card fits 1280×800 with no page scroll.

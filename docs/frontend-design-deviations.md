@@ -105,7 +105,7 @@ accepted/skipped/to-review tallies, then Skip and Accept. The header keeps the
 | ready | record link + status, approval date, *Pages to update* (Opportunity, CL, collateral, LMS2), raw description panel, ROI grid, four prefilled editable values | Skip, Accept |
 | needs_review | same card + the failure reason above the description | Skip, Accept |
 | partial values | inputs not present in the New block are empty; no warning | Accept allowed (FR-10.10) |
-| description | entire raw text in a bordered Salt card; Old/New side by side, long prose in 3–5 balanced columns (stacked narrow), no toggle or internal scroll | decide |
+| description | bordered Salt card: full text in Old/New columns on desktop; compact preview + **Read full description** dialog on mobile or above 1200 chars / 40 lines | decide |
 | editing a value | input shows Indian grouping (amounts) or months; the draft is local until Accept | Skip discards the draft |
 | decision in flight | Skip/Accept disabled until the PATCH + decision finish | — |
 | decision failed | card stays, the server message appears above it | Retry |
@@ -295,9 +295,10 @@ Rules:
   CSS is limited to layout, responsive column hiding and motion.
 - **High density.** Page padding 10/16 px, headings 20/17/14 px, data text 11–12 px,
   layout gaps 8–16 px (not 24–32), table cells 4–5 px, card padding 10–12 px, the deck
-  description block in a bordered Salt Card, full width: short Old/New pairs side by side;
-  descriptions over 500 characters flow into 3–5 balanced columns (2 below 1024 px, 1 on
-  phones). Always visible together, never internally scrollable.
+  description block in a bordered Salt Card, full width: Old/New pairs side by side;
+  descriptions over 500 characters flow into 3–5 balanced columns on desktop. Mobile, or
+  text over 1200 characters / 40 lines, shows a compact preview (New block or first 240
+  characters) with a **Read full description** Salt dialog. Never internally scrollable.
 - **No horizontal page scrolling at 390/768/1280 px.** The shell is border-box; filters
   wrap; the list drops to Status + Deviation at 600 px instead of scrolling sideways.
   Long values wrap (`overflow-wrap: anywhere`), never widen the page.
