@@ -47,6 +47,33 @@ CLOSURE_STATUSES: frozenset[WorkItemStatus] = frozenset(
 )
 
 
+class DecisionKind(StrEnum):
+    """
+    The operator's review decision on an item.
+
+    ``PENDING`` is not a decision the operator makes: it is the append-only undo marker.
+    A reader always takes the newest row, so ``PENDING`` means "undecided" and keeps the
+    previous decision in the audit trail (FR-10.3).
+    """
+
+    ACCEPT = "accept"
+    REJECT = "reject"
+    PENDING = "pending"
+
+
+class DecisionFilter(StrEnum):
+    """
+    Filter values accepted by the item list.
+
+    ``UNDECIDED`` means no decision row at all *or* a latest row that is
+    ``DecisionKind.PENDING``. There is no "any" member: omitting the filter means any.
+    """
+
+    ACCEPT = "accept"
+    REJECT = "reject"
+    UNDECIDED = "undecided"
+
+
 class JobKind(StrEnum):
     """
     What a job does: extract data or submit changes.

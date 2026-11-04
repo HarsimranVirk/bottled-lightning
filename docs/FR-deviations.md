@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.1 |
+| **Version** | v5 |
 | **Date** | 2026-11-04 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -65,6 +65,8 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   SF list. A deviation that disappears and later reappears begins a new epoch.
 - **Session snapshot** — the Playwright `storage_state()` captured after a manual login
   and injected into every browser launch.
+- **Review decision** — the operator's accept/reject judgement on a deviation, recorded
+  locally before submission. It is not a Salesforce write and is reversible.
 
 ---
 
@@ -165,6 +167,8 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   pipeline. Failed rows state which step and which object failed, with the reason.
 - **FR-4.6** The view is filterable by status and searchable. Closed deviations leave
   the working view but remain accessible in history (see FR-8.2).
+- **FR-4.7** The unified view opens as a **review deck**: one deviation per card, for a
+  fast accept/reject decision (FR-10). A *List* toggle keeps the searchable table.
 
 ### FR-5 Editing
 
@@ -263,8 +267,9 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   trigger, the unified view (list and single deviation), field-value edits, submission
   as a job sub-resource, jobs and job logs, worker/queue status, and update status.
 - **FR-9.3** The frontend shows: authentication state with the manual-login trigger, sync
-  health including header-count mismatch, the unified view with inline editing and
-  submission, per-deviation detail grouped by SF object, and a live job/queue strip.
+  health including header-count mismatch, the review deck, the unified view with inline
+  editing and submission, per-deviation detail grouped by SF object, and a live
+  job/queue strip.
 - **FR-9.4** The frontend is TypeScript strict, shared payload types live in one place,
   and `any` is not used.
 - **FR-9.5** Every screen implements an explicit state matrix: loading, empty, ready,
@@ -284,6 +289,36 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   change that is not regenerated fails the typecheck.
 - **FR-9.12** UI changes ship with screenshots of their state-matrix rows at narrow,
   medium and wide widths.
+
+### FR-10 Review decisions (accept / reject)
+
+- **FR-10.1** Every deviation awaiting a decision is presented one card at a time. The
+  operator accepts it (the values are right, it should be implemented) or rejects it
+  (it should not be implemented as-is).
+- **FR-10.2** Accept records an `accepted` decision. Reject records a `rejected` decision
+  with an optional reason. Neither writes to Salesforce and neither changes the item's
+  pipeline status.
+- **FR-10.3** Decisions are reversible. Undoing a decision returns the item to undecided
+  and it re-enters the deck.
+- **FR-10.4** A decided item leaves the deck immediately and stays out of it until it is
+  undone. Decided items remain visible in the list and detail view with their decision.
+- **FR-10.5** The deck shows only items in a decidable status (`ready`, `editing`,
+  `needs_review`). Terminal and in-flight items never appear.
+- **FR-10.6** Accepted items are the submission queue. When FR-6 exists, acceptance hands
+  the item to the submitter; acceptance alone never submits, never implies SF success,
+  and never marks the item terminal.
+- **FR-10.7** Rejection is not a skip. It does not alter extraction state or the pipeline
+  status, and the item keeps syncing from Salesforce.
+- **FR-10.8** Every decision is audited with its kind, reason and timestamp, and is shown
+  in the item detail history.
+- **FR-10.9** Swiping is an accelerator, never the only path: accept/reject buttons and
+  the `←` / `→` keys perform the same action, and the result is announced through
+  `aria-live`.
+- **FR-10.10** The card shows every editable value, so missing or unparsed values are
+  visible before a decision. A missing value is a warning on the card, not a block:
+  the single operator decides whether the deviation is decidable.
+- **FR-10.11** Decisions never gate sync or extraction. An accepted or rejected item is
+  still reconciled with the list view like any other.
 
 ---
 
@@ -338,8 +373,15 @@ absence while a `SUBMIT` lease was held.
 | O-4 | ~~Wipe the legacy `data/app.db` for the new schema.~~ **Resolved** — wiped; `data/` now holds the workflow store. | — |
 | O-5 | ~~Whether the deviation record page remains readable after implement.~~ **Resolved** — no record-page reconciliation; attribution is local (FR-6.12). | — |
 | O-6 | Archive or hard-delete closed deviations (FR-8.2). | FR-8.2, data model |
+| O-7 | Should accepted items auto-submit once Phase 6 lands, or wait for an explicit
+  submit action? (Default: explicit action; acceptance only queues.) | FR-10.6 |
 
 ## Appendix C — Change log
+
+- **v5** — review deck (FR-10): local, reversible accept/reject decisions recorded
+  before submission; the deck is the default view of the unified page. Decisions do not
+  write to SF, do not change pipeline status, and are the submission queue once FR-6
+  exists.
 
 - **v2.1** — single-valid-refresh closure (header total must equal parsed rows; no
   two-sample rule); closure attributed locally from recorded actions; validation includes

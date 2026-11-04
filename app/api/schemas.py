@@ -58,6 +58,12 @@ class EditView(ApiModel):
     at: datetime
 
 
+class DecisionView(ApiModel):
+    decision: str
+    reason: str | None = None
+    at: datetime
+
+
 class JobView(ApiModel):
     id: int
     workflow: str
@@ -82,6 +88,7 @@ class ItemRowView(ApiModel):
     approved_at: str | None = None
     reason: str | None = None
     fields: dict[str, FieldView]
+    decision: DecisionView | None = None
     active_job: JobView | None = None
 
 
@@ -89,6 +96,7 @@ class ItemDetailView(ItemRowView):
     attributes: dict[str, str | None]
     refs: list[PageRefView]
     edits: list[EditView]
+    decisions: list[DecisionView]
 
 
 class ItemsPageView(ApiModel):
@@ -140,6 +148,13 @@ class FieldValuesBody(RootModel[dict[str, str | None]]):
     """Flat body for editable values: ``{"loan_amount": "14,50,000", "tenure": null}``."""
 
     root: dict[str, str | None]
+
+
+class DecisionBody(ApiModel):
+    """One review decision: ``{"decision": "reject", "reason": "…"}``."""
+
+    decision: str
+    reason: str | None = None
 
 
 class ConcurrencyIn(ApiModel):

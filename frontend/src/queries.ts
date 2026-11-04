@@ -8,7 +8,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api } from './api'
-import type { ItemDetail, ItemsPage, JobLogs, JobView, QueueView, SessionView, SyncView, WorkflowView } from './api'
+import type {
+  DecisionKind,
+  ItemDetail,
+  ItemsPage,
+  JobLogs,
+  JobView,
+  QueueView,
+  SessionView,
+  SyncView,
+  WorkflowView,
+} from './api'
 
 const visible = (): boolean => !document.hidden
 
@@ -17,11 +27,18 @@ function poll(ms: number): (query: { state: { status: string } }) => number | fa
   return (query) => (visible() && query.state.status === 'success' ? ms : false)
 }
 
+/** Deck/list filters. `statuses` is the repeatable `?status=` filter. */
+export interface ItemFilters {
+  statuses?: string[]
+  decision?: string
+  q?: string
+}
+
 export const keys = {
   workflows: ['workflows'] as const,
   session: ['session'] as const,
   sync: (route: string) => ['sync', route] as const,
-  items: (route: string, status: string, q: string) => ['items', route, status, q] as const,
+  items: (route: string, filters: ItemFilters) => ['items', route, filters] as const,
   item: (route: string, key: string) => ['item', route, key] as const,
   jobs: (limit: number) => ['jobs', limit] as const,
   jobLogs: (id: number) => ['job', id] as const,
@@ -45,11 +62,16 @@ export function useSync(route: string | null): ReturnType<typeof useQuery<SyncVi
   })
 }
 
-export function useItems(route: string | null, status: string, q: string): ReturnType<typeof useQuery<ItemsPage>> {
+export function useItems(
+  route: string | null,
+  filters: ItemFilters,
+  limit = 200,
+  enabled = true,
+): ReturnType<typeof useQuery<ItemsPage>> {
   return useQuery({
-    queryKey: keys.items(route ?? '', status, q),
-    queryFn: () => api.items(route ?? '', { status: status || undefined, q: q || undefined, limit: 200 }),
-    enabled: route !== null,
+    queryKey: keys.items(route ?? '', filters),
+    queryFn: () => api.items(route ?? '', { ...filters, limit }),
+    enabled: route !== null && enabled,
     refetchInterval: poll(10_000),
   })
 }
@@ -93,6 +115,37 @@ export function useLogout(): ReturnType<typeof useMutation<void>> {
   return useMutation({
     mutationFn: () => api.logout(),
     onSuccess: () => void client.invalidateQueries(),
+  })
+}
+
+/** Record an accept/reject decision; the list and item caches are invalidated. */
+export function useDecideDecision(
+  route: string | null,
+): ReturnType<typeof useMutation<ItemDetail, Error, { key: string; decision: DecisionKind; reason?: string }>> {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ key, decision, reason }) =>
+      api.decide(route ?? '', key, decision, reason),
+    onSuccess: (_detail, { key }) => {
+      if (route === null) return
+      void client.invalidateQueries({ queryKey: ['items', route] })
+      void client.invalidateQueries({ queryKey: keys.item(route, key) })
+    },
+  })
+}
+
+/** Undo the current decision: the item becomes undecided and re-enters the deck. */
+export function useUndoDecision(
+  route: string | null,
+): ReturnType<typeof useMutation<ItemDetail, Error, { key: string }>> {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ key }) => api.undoDecision(route ?? '', key),
+    onSuccess: (_detail, { key }) => {
+      if (route === null) return
+      void client.invalidateQueries({ queryKey: ['items', route] })
+      void client.invalidateQueries({ queryKey: keys.item(route, key) })
+    },
   })
 }
 

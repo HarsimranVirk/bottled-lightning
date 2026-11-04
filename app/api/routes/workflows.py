@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 
 from app.api.schemas import (
+    DecisionBody,
     FieldValuesBody,
     ItemDetailView,
     ItemsPageView,
@@ -20,13 +21,20 @@ def make_router(workflow: Workflow, service: WorkItemService) -> APIRouter:
 
     @router.get("", response_model=ItemsPageView)
     def list_items(
-        status: str | None = None,
+        status: list[str] | None = None,
+        decision: str | None = None,
         q: str | None = None,
         limit: int = Query(default=50, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
     ) -> ItemsPageView:
-        """Unified view: one row per item with its editable values."""
-        return service.list_items(workflow.name, status, q, limit, offset)
+        """Unified view: one row per item with its values and current decision.
+
+        ``status`` is repeatable (``?status=ready&status=needs_review``); ``decision``
+        is ``accept``, ``reject`` or ``undecided``.
+        """
+        return service.list_items(
+            workflow.name, status, q, limit, offset, decision
+        )
 
     @router.get("/{key}", response_model=ItemDetailView)
     def get_item(key: str) -> ItemDetailView:
@@ -42,6 +50,16 @@ def make_router(workflow: Workflow, service: WorkItemService) -> APIRouter:
     def discard_field_values(key: str) -> ItemDetailView:
         """Discard every proposal and return the item to ``ready``."""
         return service.discard_fields(workflow.name, key)
+
+    @router.post("/{key}/decisions", response_model=ItemDetailView)
+    def decide(key: str, body: DecisionBody) -> ItemDetailView:
+        """Record an accept/reject review decision (local, reversible)."""
+        return service.decide(workflow.name, key, body.decision, body.reason)
+
+    @router.delete("/{key}/decisions", response_model=ItemDetailView)
+    def undo_decision(key: str) -> ItemDetailView:
+        """Undo the current decision and return the item to the deck."""
+        return service.undo_decision(workflow.name, key)
 
     @router.post("/{key}/jobs", status_code=202, response_model=JobView)
     def submit_item(key: str) -> JobView:

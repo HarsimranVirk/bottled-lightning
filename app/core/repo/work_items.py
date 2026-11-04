@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Sequence
 from datetime import datetime
 
 from app.core.errors import InvalidTransition, LeaseHeld
@@ -11,6 +12,8 @@ from app.core.models import WorkItem, from_iso, to_iso, utcnow
 from app.core.status import (
     CLOSURE_STATUSES,
     ClosureSource,
+    DecisionFilter,
+    DecisionKind,
     WorkItemStatus,
     can_transition,
 )
@@ -296,22 +299,42 @@ class WorkItemRepository:
     def list(
         self,
         workflow: str,
-        status: WorkItemStatus | None = None,
+        statuses: Sequence[WorkItemStatus] | None = None,
         query: str | None = None,
         limit: int = 50,
         offset: int = 0,
+        *,
+        decision: DecisionFilter | None = None,
     ) -> tuple[list[WorkItem], int]:
         """
         Page the items, newest-seen first.
+
+        ``statuses`` is an optional set (the deck asks for the three decidable
+        statuses at once). ``decision`` filters on the *newest* decision row:
+        ``UNDECIDED`` also matches a latest ``PENDING`` row, which is how undo works.
 
         ``query`` matches the key or the reason, which is enough for the UI's search
         box. Returns the page and the total count for pagination.
         """
         where = ["workflow = ?"]
         params: list[str | int] = [workflow]
-        if status is not None:
-            where.append("status = ?")
-            params.append(status.value)
+        if statuses:
+            placeholders = ",".join("?" for _ in statuses)
+            where.append(f"status IN ({placeholders})")
+            params.extend(status.value for status in statuses)
+        if decision is not None:
+            latest = (
+                "(SELECT d.decision FROM item_decisions d "
+                "WHERE d.workflow = work_items.workflow "
+                "AND d.item_key = work_items.item_key "
+                "ORDER BY d.id DESC LIMIT 1)"
+            )
+            if decision is DecisionFilter.UNDECIDED:
+                where.append(f"COALESCE({latest}, ?) = ?")
+                params.extend([DecisionKind.PENDING.value, DecisionKind.PENDING.value])
+            else:
+                where.append(f"{latest} = ?")
+                params.append(decision.value)
         if query:
             where.append("(item_key LIKE ? OR reason LIKE ?)")
             like = f"%{query}%"

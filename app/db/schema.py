@@ -6,7 +6,7 @@ workflows share the same tables without interfering. See docs/class-design-devia
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS work_items (
@@ -135,4 +135,15 @@ CREATE TABLE IF NOT EXISTS session_events (
     detail TEXT,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS item_decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workflow TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    decision TEXT NOT NULL CHECK (decision IN ('accept', 'reject', 'pending')),
+    reason TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS item_decisions_latest
+    ON item_decisions(workflow, item_key, id DESC);
 """

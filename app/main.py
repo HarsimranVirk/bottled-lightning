@@ -21,6 +21,7 @@ from .api.services import AdminService, WorkItemService
 from .config import Settings, load_settings
 from .core.registry import WorkflowRegistry
 from .core.repo.attributes import AttributeRepository
+from .core.repo.decisions import DecisionRepository
 from .core.repo.edits import EditRepository
 from .core.repo.events import EventRepository
 from .core.repo.fields import FieldValueRepository
@@ -83,6 +84,7 @@ class Stack:
         self.refs = PageRefRepository(self.database)
         self.edits = EditRepository(self.database)
         self.events = EventRepository(self.database)
+        self.decisions = DecisionRepository(self.database)
         self.jobs = JobRepository(self.database)
         self.sessions_repo = SessionRepository(self.database)
         self.sync_runs = SyncRunRepository(self.database)
@@ -146,6 +148,7 @@ class Stack:
             self.attributes,
             self.refs,
             self.edits,
+            self.decisions,
             self.jobs,
             self.events,
             lambda: self.auth.paused,

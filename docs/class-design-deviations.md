@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v3 |
+| **Version** | v4 |
 | **Date** | 2026-11-04 |
 | **Companions** | `docs/FR-deviations.md` (v3), `docs/data-model-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
 | **Change** | Introduced the workflow abstraction; earlier drafts were deviations-only |
@@ -314,6 +314,16 @@ class WriteOutcome(StrEnum):
     SAVED = "saved"
     REJECTED = "rejected"
     UNKNOWN = "unknown"
+
+class DecisionKind(StrEnum):
+    ACCEPT = "accept"
+    REJECT = "reject"
+    PENDING = "pending"       # explicit undo; the latest row wins
+
+class DecisionFilter(StrEnum):
+    ACCEPT = "accept"
+    REJECT = "reject"
+    UNDECIDED = "undecided"    # no row, or the latest row is PENDING
 ```
 
 `WorkItemStatus` is the shared lifecycle. A workflow may add members (and register them as
@@ -344,6 +354,14 @@ class WorkItem:
     closed_at: datetime | None
 
 @dataclass(frozen=True, slots=True)
+class Decision:
+    """One append-only review decision; the newest row is the current one."""
+    workflow: str
+    key: str
+    decision: DecisionKind
+    reason: str | None
+    created_at: datetime
+
 class FieldValue:
     workflow: str
     item: str
@@ -532,9 +550,23 @@ class SyncRunRepository:
 class EventRepository:
     def emit(self, kind: str, workflow: str | None, item: str | None,
              job_id: int | None, detail: str | None) -> None: ...
+
+class DecisionRepository:
+    def record(self, workflow: str, key: str, decision: DecisionKind,
+               reason: str | None, at: datetime) -> Decision: ...
+    def latest(self, workflow: str, key: str) -> Decision | None: ...
+    def latest_for(self, workflow: str,
+                   keys: Sequence[str]) -> dict[str, Decision]: ...
+    def history(self, workflow: str, key: str, limit: int = 50) -> list[Decision]: ...
 ```
 
 Repositories never touch Playwright and never contain workflow-specific logic.
+
+`DecisionRepository` is append-only. Undo is a `PENDING` row rather than a delete, so
+the audit trail keeps the decision that was undone and the operator cannot resurrect a
+stale row. `WorkItemRepository.list` accepts `statuses` (a set) and `decision`
+(`DecisionFilter | None`); the decision filter is a correlated `MAX(id)` subquery, so
+it never drifts from the latest row.
 
 ---
 

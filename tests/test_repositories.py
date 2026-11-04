@@ -9,6 +9,7 @@ from app.core.errors import InvalidTransition, LeaseHeld
 from app.core.list_view import ListRow
 from app.core.models import PageRef, SyncRun, utcnow
 from app.core.repo.attributes import AttributeRepository
+from app.core.repo.decisions import DecisionRepository
 from app.core.repo.edits import EditRepository
 from app.core.repo.events import EventRepository
 from app.core.repo.fields import FieldValueRepository
@@ -19,6 +20,8 @@ from app.core.repo.sync_runs import SyncRunRepository
 from app.core.repo.work_items import WorkItemRepository
 from app.core.status import (
     ClosureSource,
+    DecisionFilter,
+    DecisionKind,
     FieldStatus,
     JobKind,
     JobStatus,
@@ -136,7 +139,7 @@ class WorkItemTests(DbTestCase):
         self.assertEqual(len(everything), 2)
 
         filtered, filtered_total = items.list(
-            WORKFLOW, status=WorkItemStatus.EXTRACTING
+            WORKFLOW, statuses=[WorkItemStatus.EXTRACTING]
         )
         self.assertEqual(filtered_total, 1)
         self.assertEqual(filtered[0].key, "Deviation-2-2")
@@ -375,6 +378,76 @@ class SettingsTests(unittest.TestCase):
             self.assertTrue(database.path.exists())
             database.close()
 
+
+class DecisionTests(DbTestCase):
+    """Append-only decisions: latest wins, undo is a pending row."""
+
+    def test_latest_and_history(self) -> None:
+        """The newest row is current; history keeps the rejected then accepted rows."""
+        decisions = DecisionRepository(self.db)
+        decisions.record(WORKFLOW, KEY, DecisionKind.REJECT, "bad EMI", utcnow())
+        decisions.record(WORKFLOW, KEY, DecisionKind.ACCEPT, None, utcnow())
+
+        latest = decisions.latest(WORKFLOW, KEY)
+        self.assertIsNotNone(latest)
+        assert latest is not None
+        self.assertIs(latest.decision, DecisionKind.ACCEPT)
+
+        history = decisions.history(WORKFLOW, KEY)
+        self.assertEqual(
+            [row.decision for row in history],
+            [DecisionKind.ACCEPT, DecisionKind.REJECT],
+        )
+
+    def test_undo_is_a_pending_row(self) -> None:
+        """Undo records pending and does not delete the decision it reverses."""
+        decisions = DecisionRepository(self.db)
+        decisions.record(WORKFLOW, KEY, DecisionKind.ACCEPT, None, utcnow())
+        decisions.record(WORKFLOW, KEY, DecisionKind.PENDING, None, utcnow())
+
+        latest = decisions.latest(WORKFLOW, KEY)
+        self.assertIsNotNone(latest)
+        assert latest is not None
+        self.assertIs(latest.decision, DecisionKind.PENDING)
+        self.assertEqual(len(decisions.history(WORKFLOW, KEY)), 2)
+
+    def test_latest_for_skips_pending_and_other_items(self) -> None:
+        """A page lookup returns only current accept/reject rows for the given keys."""
+        decisions = DecisionRepository(self.db)
+        decisions.record(WORKFLOW, "A", DecisionKind.ACCEPT, None, utcnow())
+        decisions.record(WORKFLOW, "B", DecisionKind.REJECT, None, utcnow())
+        decisions.record(WORKFLOW, "B", DecisionKind.PENDING, None, utcnow())
+
+        current = decisions.latest_for(WORKFLOW, ["A", "B", "C"])
+        self.assertEqual(set(current), {"A"})
+        self.assertIs(current["A"].decision, DecisionKind.ACCEPT)
+
+    def test_list_filters_by_decision(self) -> None:
+        """The list filter reads the newest row, so undo makes an item undecided."""
+        items = WorkItemRepository(self.db)
+        decisions = DecisionRepository(self.db)
+        items.create_present(WORKFLOW, row("A"), utcnow())
+        items.create_present(WORKFLOW, row("B"), utcnow())
+        decisions.record(WORKFLOW, "A", DecisionKind.ACCEPT, None, utcnow())
+        decisions.record(WORKFLOW, "B", DecisionKind.REJECT, None, utcnow())
+
+        accepted, accepted_total = items.list(
+            WORKFLOW, decision=DecisionFilter.ACCEPT
+        )
+        self.assertEqual(accepted_total, 1)
+        self.assertEqual(accepted[0].key, "A")
+
+        undecided, undecided_total = items.list(
+            WORKFLOW, decision=DecisionFilter.UNDECIDED
+        )
+        self.assertEqual(undecided_total, 0)
+
+        decisions.record(WORKFLOW, "A", DecisionKind.PENDING, None, utcnow())
+        undecided, undecided_total = items.list(
+            WORKFLOW, decision=DecisionFilter.UNDECIDED
+        )
+        self.assertEqual(undecided_total, 1)
+        self.assertEqual(undecided[0].key, "A")
 
 if __name__ == "__main__":
     unittest.main()

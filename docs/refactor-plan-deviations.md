@@ -271,23 +271,26 @@ Design first, in `docs/frontend-design-deviations.md`: screens, the state matrix
 component tree, state ownership, interaction spec, testing and the slice plan. No
 component is written before its matrix rows are specified.
 
-Then three reviewed slices, each shipping screenshots:
+Then reviewed slices, each shipping screenshots:
 
 - **A — read-only** (done): auth card, sync banner, the Deviations Z02 tab, detail
   (fields/attributes/refs), jobs panel, and a `/dev/states` harness with screenshots.
   Proves the contract, state mapping and layout without any item mutation.
 - **B — editing**: draft map, `PATCH …/field-values`, field-level `422`, discard,
   polling paused while dirty.
-- **C — submission**: confirmation dialog, `POST …/{key}/jobs`, phase polling,
-  `needs_review` recovery, terminal states.
+- **C — submission** (blocked on O-1/O-2): confirmation dialog, `POST …/{key}/jobs`,
+  phase polling, `needs_review` recovery, terminal states.
+- **D — review deck** (done): deck as the default view, accept/reject decisions
+  (`POST`/`DELETE …/decisions`), pointer swipe + buttons + `←`/`→`, undo, decision
+  filters and history. Reversible and local — no SF write (FR-10).
 
 Supporting work:
 
 - `tools/export_openapi.py` writes a schema snapshot; `openapi-typescript` generates
   `frontend/src/types.ts`; the script is part of `npm run build` so drift fails.
 - Replace the v1 pages (`Deck.tsx`, `DeviationsZ02.tsx`, `History.tsx`) rather than port
-  them. One `WorkflowPage` driven by `GET /api/workflows`, so a second workflow needs no
-  new screen.
+  them. Each tab is concrete; the registry only supplies labels and fields, so a second
+  workflow is a deliberate second tab rather than a generic picker.
 - Add Vitest + RTL + MSW and a `/dev/states` harness; Playwright screenshots at 390 /
   768 / 1280 are the acceptance evidence for each matrix row.
 

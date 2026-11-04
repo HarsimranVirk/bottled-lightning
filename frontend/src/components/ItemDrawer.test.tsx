@@ -21,10 +21,12 @@ const base: ItemDetail = {
       status: 'extracted',
     },
   },
+  decision: null,
   activeJob: null,
   attributes: { product_type: 'Home Loan', description: 'LA-13,00,000' },
   refs: [{ kind: 'opportunity', name: 'Opp', url: 'https://example/opp' }],
   edits: [{ field: 'tenure', oldValue: null, newValue: '240', at: '2026-11-04T18:05:00Z' }],
+  decisions: [],
 }
 
 const fields = [
@@ -52,6 +54,25 @@ describe('ItemDrawer', () => {
     )
     expect(screen.getAllByText('13,00,000').length).toBeGreaterThan(0)
     expect(screen.getAllByText(/240/).length).toBeGreaterThan(0)
+  })
+
+  it('shows the decision and offers undo', () => {
+    render(
+      <ItemDrawer
+        detail={{
+          ...base,
+          decision: { decision: 'reject', reason: 'EMI mismatch', at: '2026-11-04T18:20:00Z' },
+          decisions: [{ decision: 'reject', reason: 'EMI mismatch', at: '2026-11-04T18:20:00Z' }],
+        }}
+        fields={fields}
+        refKinds={[]}
+        terminalLabels={{}}
+        onClose={() => {}}
+        onUndoDecision={() => {}}
+      />,
+    )
+    expect(screen.getAllByText(/EMI mismatch/).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'Undo decision' })).toBeInTheDocument()
   })
 
   it('explains why an item is not actionable', () => {

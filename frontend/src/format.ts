@@ -1,6 +1,15 @@
 /** Presentation helpers shared by the read-only screens. */
 
+import type { FieldView } from './api'
+
 export type Tone = 'info' | 'success' | 'warning' | 'danger' | 'neutral'
+
+/** The value the operator sees: proposal, then extracted, then applied, else a dash. */
+export function fieldValue(fields: Record<string, FieldView>, key: string): string {
+  const field = fields[key]
+  if (!field) return '—'
+  return field.proposed ?? field.extracted ?? field.applied ?? '—'
+}
 
 /** Colour tone for an item status. The word is always rendered too (FR-9.10). */
 export function statusTone(status: string): Tone {

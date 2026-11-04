@@ -1,20 +1,16 @@
-/** The unified view: one compact row per item. Read-only in Slice A. */
+/** The list view: one compact row per item, with its review decision. Read-only. */
 
 import type { JSX } from 'react'
-import { StatusChip } from './StatusChip'
+
 import type { ItemRow, WorkflowFieldView } from '../api'
+import { fieldValue } from '../format'
+import { DecisionChip, StatusChip } from './StatusChip'
 
 interface Props {
   rows: ItemRow[]
   fields: WorkflowFieldView[]
   terminalLabels: Record<string, string>
   onOpen: (key: string) => void
-}
-
-function value(row: ItemRow, key: string): string {
-  const field = row.fields[key]
-  if (!field) return '—'
-  return field.proposed ?? field.extracted ?? field.applied ?? '—'
 }
 
 export function ItemsGrid({ rows, fields, terminalLabels, onOpen }: Props): JSX.Element {
@@ -29,6 +25,7 @@ export function ItemsGrid({ rows, fields, terminalLabels, onOpen }: Props): JSX.
               {field.label}
             </th>
           ))}
+          <th>Decision</th>
           <th>Approved</th>
         </tr>
       </thead>
@@ -51,9 +48,10 @@ export function ItemsGrid({ rows, fields, terminalLabels, onOpen }: Props): JSX.
             <td className="mono">{row.key}</td>
             {fields.map((field) => (
               <td key={field.key} className={field.valueType === 'text' ? '' : 'num mono'}>
-                {value(row, field.key)}
+                {fieldValue(row.fields, field.key)}
               </td>
             ))}
+            <td>{row.decision ? <DecisionChip decision={row.decision.decision} /> : '—'}</td>
             <td>{row.approvedAt ?? '—'}</td>
           </tr>
         ))}

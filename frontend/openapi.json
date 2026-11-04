@@ -14,6 +14,61 @@
         "title": "ConcurrencyIn",
         "type": "object"
       },
+      "DecisionBody": {
+        "description": "One review decision: ``{\"decision\": \"reject\", \"reason\": \"\u2026\"}``.",
+        "properties": {
+          "decision": {
+            "title": "Decision",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "DecisionBody",
+        "type": "object"
+      },
+      "DecisionView": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "decision": {
+            "title": "Decision",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "decision",
+          "at"
+        ],
+        "title": "DecisionView",
+        "type": "object"
+      },
       "EditView": {
         "properties": {
           "at": {
@@ -177,6 +232,23 @@
             "title": "Attributes",
             "type": "object"
           },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionView"
+            },
+            "title": "Decisions",
+            "type": "array"
+          },
           "edits": {
             "items": {
               "$ref": "#/components/schemas/EditView"
@@ -245,7 +317,8 @@
           "fields",
           "attributes",
           "refs",
-          "edits"
+          "edits",
+          "decisions"
         ],
         "title": "ItemDetailView",
         "type": "object"
@@ -272,6 +345,16 @@
               }
             ],
             "title": "Approvedat"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionView"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "epoch": {
             "title": "Epoch",
@@ -881,33 +964,14 @@
   },
   "openapi": "3.1.0",
   "paths": {
-    "/": {
-      "get": {
-        "description": "Placeholder page when the SPA has not been built.",
-        "operationId": "index__get",
-        "responses": {
-          "200": {
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Index"
-      }
-    },
     "/api/deviations": {
       "get": {
-        "description": "Unified view: one row per item with its editable values.",
+        "description": "Unified view: one row per item with its values and current decision.\n\n``status`` is repeatable (``?status=ready&status=needs_review``); ``decision``\nis ``accept``, ``reject`` or ``undecided``.",
         "operationId": "list_items_api_deviations_get",
         "parameters": [
           {
             "in": "query",
-            "name": "status",
+            "name": "decision",
             "required": false,
             "schema": {
               "anyOf": [
@@ -918,7 +982,7 @@
                   "type": "null"
                 }
               ],
-              "title": "Status"
+              "title": "Decision"
             }
           },
           {
@@ -961,6 +1025,26 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Status"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {
@@ -1028,6 +1112,102 @@
           }
         },
         "summary": "Get Item",
+        "tags": [
+          "admin",
+          "deviations"
+        ]
+      }
+    },
+    "/api/deviations/{key}/decisions": {
+      "delete": {
+        "description": "Undo the current decision and return the item to the deck.",
+        "operationId": "undo_decision_api_deviations__key__decisions_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemDetailView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Undo Decision",
+        "tags": [
+          "admin",
+          "deviations"
+        ]
+      },
+      "post": {
+        "description": "Record an accept/reject review decision (local, reversible).",
+        "operationId": "decide_api_deviations__key__decisions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemDetailView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decide",
         "tags": [
           "admin",
           "deviations"
@@ -1695,6 +1875,39 @@
         "tags": [
           "admin"
         ]
+      }
+    },
+    "/{path}": {
+      "get": {
+        "description": "Serve the SPA for client-side routes; real files win over index.html.",
+        "operationId": "spa__path__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "title": "Path",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Spa"
       }
     }
   }

@@ -21,6 +21,7 @@ from app.config import Settings
 from app.core.list_view import ListRow
 from app.core.models import utcnow
 from app.core.registry import WorkflowRegistry
+from app.core.repo.decisions import DecisionRepository
 from app.core.repo.edits import EditRepository
 from app.core.repo.jobs import JobRepository
 from app.core.status import WorkItemStatus
@@ -71,6 +72,7 @@ class ApiTestCase(DbTestCase):
             deps.attributes,
             deps.refs,
             edits,
+            DecisionRepository(self.db),
             jobs,
             deps.events,
             lambda: paused,
@@ -152,6 +154,87 @@ class ServiceTests(ApiTestCase):
         self.assertEqual(detail.status, "ready")
         self.assertIsNone(detail.fields["tenure"].proposed)
 
+    def test_accept_records_a_reversible_decision(self) -> None:
+        """Accept is local and leaves the pipeline status alone (FR-10.2)."""
+        self.make_ready_item()
+        service, _registry, _workflow, _jobs, _edits = self.build()
+
+        detail = service.decide(WORKFLOW, KEY, "accept")
+        decision = detail.decision
+        self.assertIsNotNone(decision)
+        assert decision is not None
+        self.assertEqual(decision.decision, "accept")
+        self.assertEqual(detail.status, "ready")
+        self.assertEqual(len(detail.decisions), 1)
+
+        accepted = service.list_items(WORKFLOW, decision="accept")
+        self.assertEqual(accepted.total, 1)
+        row_decision = accepted.rows[0].decision
+        self.assertIsNotNone(row_decision)
+        assert row_decision is not None
+        self.assertEqual(row_decision.decision, "accept")
+
+        undone = service.undo_decision(WORKFLOW, KEY)
+        self.assertIsNone(undone.decision)
+        # The undone decision stays in the audit trail; only PENDING is hidden.
+        self.assertEqual([row.decision for row in undone.decisions], ["accept"])
+        self.assertEqual(service.list_items(WORKFLOW, decision="accept").total, 0)
+        self.assertEqual(service.list_items(WORKFLOW, decision="undecided").total, 1)
+
+    def test_reject_keeps_the_reason(self) -> None:
+        """A reject note is stored and visible on the decision."""
+        self.make_ready_item()
+        service, _registry, _workflow, _jobs, _edits = self.build()
+        detail = service.decide(WORKFLOW, KEY, "reject", "  EMI does not match  ")
+        decision = detail.decision
+        self.assertIsNotNone(decision)
+        assert decision is not None
+        self.assertEqual(decision.decision, "reject")
+        self.assertEqual(decision.reason, "EMI does not match")
+        self.assertEqual(service.list_items(WORKFLOW, decision="reject").total, 1)
+        self.assertEqual(service.list_items(WORKFLOW, decision="undecided").total, 0)
+
+    def test_decide_rejects_unknown_and_pending_kinds(self) -> None:
+        """Only accept/reject are decisions; pending is the internal undo marker."""
+        self.make_ready_item()
+        service, _registry, _workflow, _jobs, _edits = self.build()
+        for value in ("maybe", "pending"):
+            with self.assertRaises(ApiError) as caught:
+                service.decide(WORKFLOW, KEY, value)
+            self.assertEqual(caught.exception.code, "invalid_decision")
+
+    def test_decide_requires_a_decidable_status(self) -> None:
+        """An in-flight item cannot be accepted or rejected."""
+        self.make_ready_item()
+        service, _registry, _workflow, _jobs, _edits = self.build()
+        self.deps().items.transition(WORKFLOW, KEY, WorkItemStatus.SUBMITTING)
+        with self.assertRaises(ApiError) as caught:
+            service.decide(WORKFLOW, KEY, "accept")
+        self.assertEqual(caught.exception.status_code, 409)
+
+    def test_undo_without_a_decision_conflicts(self) -> None:
+        """Undo is explicit: there is nothing to undo on an undecided item."""
+        self.make_ready_item()
+        service, _registry, _workflow, _jobs, _edits = self.build()
+        with self.assertRaises(ApiError) as caught:
+            service.undo_decision(WORKFLOW, KEY)
+        self.assertEqual(caught.exception.code, "no_decision")
+
+    def test_list_filters_by_several_statuses(self) -> None:
+        """The deck asks for ready/editing/needs_review in one request."""
+        self.make_ready_item()
+        service, _registry, _workflow, _jobs, _edits = self.build()
+        page = service.list_items(WORKFLOW, statuses=["ready", "needs_review"])
+        self.assertEqual(page.total, 1)
+        self.assertEqual(service.list_items(WORKFLOW, statuses=["present"]).total, 0)
+
+    def test_list_rejects_an_unknown_decision_filter(self) -> None:
+        """A bad filter is a 422, not silently ignored."""
+        service, _registry, _workflow, _jobs, _edits = self.build()
+        with self.assertRaises(ApiError) as caught:
+            service.list_items(WORKFLOW, decision="maybe")
+        self.assertEqual(caught.exception.code, "invalid_decision")
+
     def test_submit_requires_a_proposal(self) -> None:
         self.make_ready_item()
         service, _registry, _workflow, _jobs, _edits = self.build()
@@ -193,7 +276,7 @@ class ServiceTests(ApiTestCase):
     def test_invalid_status_filter_is_422(self) -> None:
         service, _registry, _workflow, _jobs, _edits = self.build()
         with self.assertRaises(ApiError) as caught:
-            service.list_items(WORKFLOW, status="bogus")
+            service.list_items(WORKFLOW, statuses=["bogus"])
         self.assertEqual(caught.exception.status_code, 422)
 
 

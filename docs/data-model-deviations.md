@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v1 |
+| **Version** | v2 |
 | **Date** | 2026-11-04 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/api-deviations.md` |
@@ -19,7 +19,7 @@ change that alters the code (see AGENTS.md, plan-mode rules).
 
 | State | Owner | Notes |
 |---|---|---|
-| Items, fields, refs, jobs, logs, sync history, auth snapshots | SQLite at `settings.db_path` (`data/app.db` in a checkout, OS app-data dir when installed) | Only repositories open connections; nothing else issues SQL |
+| Items, fields, refs, review decisions, jobs, logs, sync history, auth snapshots | SQLite at `settings.db_path` (`data/app.db` in a checkout, OS app-data dir when installed) | Only repositories open connections; nothing else issues SQL |
 | Queue leases, dispatcher state | SQLite `jobs` | There is no authoritative in-process queue; restarting the process loses nothing |
 | Browser pages, cookies in flight | Chromium context, held by `BrowserRuntime` | Never persisted directly; only the storage-state snapshot is |
 | Session snapshot | SQLite `sessions` | As sensitive as a password; never logged or returned by the API |
@@ -38,16 +38,14 @@ change that alters the code (see AGENTS.md, plan-mode rules).
 
 ## 3. Schema version and migration
 
-- `PRAGMA user_version = 2` after `Database.migrate()`.
+- `PRAGMA user_version = 3` after `Database.migrate()`.
+- v3 is additive: `item_decisions` (4.12) is created with `CREATE TABLE IF NOT EXISTS`
+  on the next boot. No backfill — every existing item is simply undecided.
 - **Fresh database only.** `migrate()` detects a legacy database (its `jobs` table has
   no `kind` column) and raises instead of half-applying the schema.
 - Cutover has happened: `data/app.db` now holds the workflow schema. The legacy
   database was wiped, not migrated (the only valuable rows were auth snapshots, which
-  one manual login re-creates).
-- Cutover (refactor Phase 9) deletes the old file; there is no data migration because
-  the only valuable rows are auth snapshots, which are re-created by one manual login.
-- Open item **O-4** is the decision to wipe; until it is answered, nothing touches
-  `data/app.db`.
+  one manual login re-creates). O-4 is resolved.
 
 ## 4. Tables
 
@@ -207,6 +205,28 @@ Invalid runs are recorded deliberately: a persistent header mismatch must stay v
 | `detail` | TEXT | yes | Extra context |
 | `created_at` | TEXT | no | When |
 
+### 4.12 `item_decisions` — review decisions (append-only, latest wins)
+
+| Column | Type | Null | Meaning |
+|---|---|---|---|
+| `id` | INTEGER | no | PK; the highest id for an item is its current decision |
+| `workflow`, `item_key` | TEXT | no | Subject, workflow-scoped |
+| `decision` | TEXT | no | `accept`, `reject` or `pending` (undo) |
+| `reason` | TEXT | yes | Optional operator note (typically on reject) |
+| `created_at` | TEXT | no | When the decision was recorded |
+
+**Index** `(workflow, item_key, id DESC)` for the latest-row lookup.
+
+Semantics:
+- Append-only. Undo writes `pending`; nothing is updated or deleted, so the audit keeps
+  both the original decision and the reversal.
+- A reader takes the row with the highest `id` per item; no row means undecided.
+- The table never changes `work_items.status` and never triggers a job. Accept/reject is
+  a review decision, not a pipeline transition (FR-10.2).
+- Decisions survive refresh, extraction retries, and presence epochs; they are cleared
+  only by an explicit undo. This is deliberate: a refresh must not resurrect a card the
+  operator already dismissed.
+
 ## 5. Relationships
 
 ```
@@ -216,6 +236,7 @@ work_items (workflow, item_key)
    ├── work_item_refs        (1:N, one row per object kind)
    ├── work_item_edits       (1:N, audit)
    ├── work_item_events      (1:N, audit)
+   ├── item_decisions        (1:N, audit; newest row is current)
    └── jobs                  (1:N historically; at most 1 active)
               └── job_logs   (1:N)
 
@@ -237,7 +258,7 @@ repositories made them more friction than value); `job_logs.job_id` is the one F
 | `work_item_attributes` | replace-on-extract | Overwritten wholesale on each extraction |
 | `work_item_refs` | replace-on-extract | Replaced atomically per item |
 | `jobs` | mutable until terminal | Terminal rows are history; stale leases are requeued |
-| `work_item_edits`, `work_item_events`, `job_logs`, `sync_runs`, `session_events` | append-only | Never updated or deleted by normal operation |
+| `work_item_edits`, `work_item_events`, `item_decisions`, `job_logs`, `sync_runs`, `session_events` | append-only | Never updated or deleted by normal operation |
 | `sessions` | append-only | Latest row wins; `clear()` removes all |
 
 ## 7. Retention
@@ -257,6 +278,7 @@ repositories made them more friction than value); `job_logs.job_id` is the one F
 | `work_item_refs` | `PageRefRepository` |
 | `work_item_edits` | `EditRepository` |
 | `work_item_events` | `EventRepository` |
+| `item_decisions` | `DecisionRepository` |
 | `jobs`, `job_logs` | `JobRepository` |
 | `sync_runs` | `SyncRunRepository` |
 | `sessions`, `session_events` | `SessionRepository` |

@@ -7,6 +7,7 @@ import type { JSX } from 'react'
 import { FlexLayout, H1, H2, Spinner, Text } from '@salt-ds/core'
 
 import type { ItemDetail, ItemRow, JobView, SessionView, SyncView, WorkflowFieldView } from '../api'
+import { DecisionDeck } from '../components/DecisionDeck'
 import { ItemDrawer } from '../components/ItemDrawer'
 import { ItemsGrid } from '../components/ItemsGrid'
 import { JobsPanel } from '../components/JobsPanel'
@@ -52,6 +53,7 @@ function row(status: string, key = 'Deviation-03112026-486382'): ItemRow {
       tenure: { extracted: null, lastSynced: null, proposed: null, applied: null, status: 'extracted' },
       emi_incl_hffc: { extracted: '16,256', lastSynced: '16,256', proposed: null, applied: null, status: 'extracted' },
     },
+    decision: null,
     activeJob:
       status === 'submitting'
         ? {
@@ -89,6 +91,7 @@ function detail(status: string): ItemDetail {
       { kind: 'collateral', name: 'CJID-0000280688', url: 'https://example/coll' },
     ],
     edits: [{ field: 'tenure', oldValue: null, newValue: '240', at: '2026-11-04T18:05:00Z' }],
+    decisions: [{ decision: 'accept', reason: null, at: '2026-11-04T18:20:00Z' }],
   }
 }
 
@@ -200,6 +203,70 @@ export function DevStates(): JSX.Element {
 
       <Section title="Detail: implemented">
         <ItemDrawer detail={detail('completed')} fields={FIELDS} refKinds={REF_KINDS} terminalLabels={TERMINAL_LABELS} onClose={() => {}} />
+      </Section>
+
+      <Section title="Review deck: stack">
+        <DecisionDeck
+          rows={[
+            row('ready', 'Deviation-03112026-486382'),
+            row('needs_review', 'Deviation-04112026-486814'),
+            row('editing', 'Deviation-05112026-486901'),
+          ]}
+          fields={FIELDS}
+          terminalLabels={{ completed: 'Implemented' }}
+          busyKey={null}
+          undoBusy={false}
+          canUndo
+          error={null}
+          announcement=""
+          enabled
+          onDecide={() => {}}
+          onUndo={() => {}}
+          onOpen={() => {}}
+          onShowList={() => {}}
+          onReload={() => {}}
+          reloading={false}
+        />
+      </Section>
+
+      <Section title="Review deck: empty">
+        <DecisionDeck
+          rows={[]}
+          fields={FIELDS}
+          terminalLabels={{}}
+          busyKey={null}
+          undoBusy={false}
+          canUndo={false}
+          error={null}
+          announcement="Accepted Deviation-03112026-486382 · nothing left to review"
+          enabled
+          onDecide={() => {}}
+          onUndo={() => {}}
+          onOpen={() => {}}
+          onShowList={() => {}}
+          onReload={() => {}}
+          reloading={false}
+        />
+      </Section>
+
+      <Section title="Review deck: decision failed">
+        <DecisionDeck
+          rows={[row('ready', 'Deviation-03112026-486382')]}
+          fields={FIELDS}
+          terminalLabels={{}}
+          busyKey={null}
+          undoBusy={false}
+          canUndo={false}
+          error="item is submitting and not decidable"
+          announcement=""
+          enabled
+          onDecide={() => {}}
+          onUndo={() => {}}
+          onOpen={() => {}}
+          onShowList={() => {}}
+          onReload={() => {}}
+          reloading={false}
+        />
       </Section>
 
       <Section title="Jobs">

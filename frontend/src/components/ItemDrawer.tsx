@@ -1,14 +1,14 @@
 /**
  * Item detail panel: values grouped by target object, read-only attributes, the five
- * object links, and history. Read-only in Slice A.
+ * object links, the review decision, and history.
  */
 
 import type { JSX } from 'react'
 import { Button, Divider, H2, H3, Link, Text } from '@salt-ds/core'
 
 import type { ItemDetail, PageRefView, WorkflowFieldView } from '../api'
-import { formatTime } from '../format'
-import { StatusChip } from './StatusChip'
+import { fieldValue, formatTime } from '../format'
+import { DecisionChip, StatusChip } from './StatusChip'
 
 interface Props {
   detail: ItemDetail
@@ -16,12 +16,9 @@ interface Props {
   refKinds: string[]
   terminalLabels: Record<string, string>
   onClose: () => void
-}
-
-function fieldValue(detail: ItemDetail, key: string): string {
-  const field = detail.fields[key]
-  if (!field) return '—'
-  return field.proposed ?? field.extracted ?? field.applied ?? '—'
+  /** Present when a decision exists and the item is still decidable. */
+  onUndoDecision?: () => void
+  undoing?: boolean
 }
 
 function groups(fields: WorkflowFieldView[]): Map<string, WorkflowFieldView[]> {
@@ -39,7 +36,15 @@ function refFor(detail: ItemDetail, kind: string): PageRefView | undefined {
   return detail.refs.find((ref) => ref.kind === kind)
 }
 
-export function ItemDrawer({ detail, fields, refKinds, terminalLabels, onClose }: Props): JSX.Element {
+export function ItemDrawer({
+  detail,
+  fields,
+  refKinds,
+  terminalLabels,
+  onClose,
+  onUndoDecision,
+  undoing = false,
+}: Props): JSX.Element {
   const grouped = groups(fields)
   return (
     <aside className="drawer" aria-label={`Item ${detail.key}`}>
@@ -55,6 +60,21 @@ export function ItemDrawer({ detail, fields, refKinds, terminalLabels, onClose }
         <Button appearance="transparent" onClick={onClose}>Close</Button>
       </div>
 
+      {detail.decision ? (
+        <div className="decision-banner">
+          <DecisionChip decision={detail.decision.decision} />
+          <Text>
+            {detail.decision.decision === 'accept' ? 'Accepted' : 'Rejected'} {formatTime(detail.decision.at)}
+            {detail.decision.reason ? ` — ${detail.decision.reason}` : ''}
+          </Text>
+          {onUndoDecision ? (
+            <Button appearance="bordered" onClick={onUndoDecision} disabled={undoing}>
+              Undo decision
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
       {detail.reason ? <Text className="reason">{detail.reason}</Text> : null}
 
       {[...grouped.entries()].map(([kind, group]) => (
@@ -64,7 +84,7 @@ export function ItemDrawer({ detail, fields, refKinds, terminalLabels, onClose }
             {group.map((field) => (
               <div key={field.key} className="field">
                 <dt>{field.label}</dt>
-                <dd className="mono">{fieldValue(detail, field.key)}</dd>
+                <dd className="mono">{fieldValue(detail.fields, field.key)}</dd>
               </div>
             ))}
           </dl>
@@ -107,10 +127,18 @@ export function ItemDrawer({ detail, fields, refKinds, terminalLabels, onClose }
       <Divider />
       <section>
         <H3>History</H3>
-        {detail.edits.length === 0 ? (
-          <Text color="secondary">No edits recorded.</Text>
+        {detail.decisions.length === 0 && detail.edits.length === 0 ? (
+          <Text color="secondary">No edits or decisions recorded.</Text>
         ) : (
           <ul className="history">
+            {detail.decisions.map((decision, index) => (
+              <li key={`decision-${index}`}>
+                <span className="mono">decision</span>{' '}
+                {decision.decision === 'accept' ? 'accepted' : 'rejected'}
+                {decision.reason ? ` — ${decision.reason}` : ''}{' '}
+                <span className="muted">{formatTime(decision.at)}</span>
+              </li>
+            ))}
             {detail.edits.map((edit, index) => (
               <li key={`${edit.field}-${index}`}>
                 <span className="mono">{edit.field}</span> {edit.oldValue ?? '—'} → {edit.newValue ?? '—'}{' '}

@@ -205,6 +205,7 @@
 .field dd {
   margin: 0;
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .description {
@@ -347,5 +348,283 @@
   .drawer,
   .states-section {
     padding: 12px;
+  }
+}
+
+/* --- review deck ------------------------------------------------------- */
+
+.view-toggle {
+  display: flex;
+  gap: 8px;
+}
+
+.deck {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.deck-toolbar,
+.deck-stack,
+.deck-actions,
+.deck-reason,
+.deck-help,
+.deck-announcement {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+.deck-count {
+  font-weight: 600;
+}
+
+.deck-announcement {
+  min-height: 16px;
+  margin: 0 auto;
+  font-size: 12px;
+  color: var(--salt-color-gray-200, #4c4c4c);
+}
+
+.deck-error {
+  max-width: 560px;
+  margin: 0 auto;
+  width: 100%;
+  background: #fce8e6;
+  border: 1px solid #f3b3ae;
+  color: #a50e0e;
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.deck-stack {
+  display: grid;
+  padding-bottom: 24px;
+}
+
+.deck-slot {
+  grid-area: 1 / 1;
+  position: relative;
+  touch-action: pan-y;
+  user-select: none;
+  transition:
+    transform 160ms ease,
+    opacity 160ms ease;
+}
+
+.deck-slot[data-offset='0'] {
+  z-index: 3;
+  cursor: grab;
+}
+
+.deck-slot[data-offset='1'] {
+  z-index: 2;
+  transform: translateY(10px) scale(0.97);
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+.deck-slot[data-offset='2'] {
+  z-index: 1;
+  transform: translateY(20px) scale(0.94);
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.deck-slot[data-dragging='true'] {
+  transition: none;
+  cursor: grabbing;
+}
+
+.decision-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 360px;
+  padding: 20px 22px;
+  background: var(--salt-color-white, #fff);
+  border: 1px solid var(--salt-color-gray-40, #d9d9d9);
+  border-radius: 12px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.card-key {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--salt-color-gray-200, #4c4c4c);
+}
+
+.card-values {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px 22px;
+  margin: 0;
+  flex: 1;
+  align-content: start;
+}
+
+.card-value dt {
+  margin: 0;
+  font-size: 12px;
+  color: var(--salt-color-gray-200, #4c4c4c);
+}
+
+.card-value dd {
+  margin: 2px 0 0;
+  font-size: 20px;
+  line-height: 1.3;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.card-warning {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid #f2d17a;
+  border-radius: 4px;
+  background: #fef7e0;
+  color: #8a5a00;
+  font-size: 12px;
+}
+
+.card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--salt-color-gray-20, #ededed);
+  padding-top: 10px;
+}
+
+.card-hint {
+  font-size: 11px;
+}
+
+.swipe-stamp {
+  position: absolute;
+  top: 26px;
+  left: 50%;
+  transform: translateX(-50%) rotate(-10deg);
+  padding: 4px 14px;
+  border: 3px solid currentColor;
+  border-radius: 6px;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  background: rgba(255, 255, 255, 0.85);
+  pointer-events: none;
+}
+
+.swipe-stamp[data-kind='accept'] {
+  color: #137333;
+}
+
+.swipe-stamp[data-kind='reject'] {
+  color: #a50e0e;
+}
+
+.deck-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.deck-actions > button {
+  flex: 1;
+  min-height: 48px;
+  font-size: 15px;
+}
+
+.reject-button {
+  color: #a50e0e;
+  border-color: #f3b3ae;
+}
+
+.accept-button {
+  background: #137333;
+  border-color: #137333;
+}
+
+.accept-button:hover {
+  background: #0f5c28;
+}
+
+.deck-reason {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.deck-reason > :first-child {
+  flex: 1;
+}
+
+.deck-help {
+  text-align: center;
+  font-size: 12px;
+}
+
+.deck-empty {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 40px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+  background: var(--salt-color-white, #fff);
+  border: 1px dashed var(--salt-color-gray-40, #d9d9d9);
+  border-radius: 12px;
+}
+
+.decision-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px solid var(--salt-color-gray-40, #d9d9d9);
+  border-radius: 4px;
+  background: var(--salt-color-gray-10, #f7f7f7);
+}
+
+@media (max-width: 600px) {
+  .decision-card {
+    min-height: 320px;
+    padding: 14px;
+  }
+
+  .card-value dd {
+    font-size: 18px;
+  }
+
+  .deck-actions {
+    position: sticky;
+    bottom: 0;
+    padding: 8px 0;
+    background: var(--salt-color-gray-10, #f7f7f7);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deck-slot {
+    transition: none;
   }
 }

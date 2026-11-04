@@ -14,6 +14,8 @@ export type ItemRow = components['schemas']['ItemRowView']
 export type ItemDetail = components['schemas']['ItemDetailView']
 export type ItemsPage = components['schemas']['ItemsPageView']
 export type FieldView = components['schemas']['FieldView']
+export type DecisionView = components['schemas']['DecisionView']
+export type DecisionKind = DecisionView['decision']
 export type PageRefView = components['schemas']['PageRefView']
 export type JobView = components['schemas']['JobView']
 export type JobLogs = components['schemas']['JobLogsView']
@@ -87,17 +89,47 @@ async function requestVoid(path: string, init?: RequestInit): Promise<void> {
   }
 }
 
+/** Query for the item collection: `status` is repeatable, unlike the generic helper. */
+export interface ItemQuery {
+  statuses?: string[]
+  decision?: string
+  q?: string
+  limit?: number
+  offset?: number
+}
+
+function itemsQuery(params: ItemQuery): string {
+  const search = new URLSearchParams()
+  for (const status of params.statuses ?? []) search.append('status', status)
+  if (params.decision) search.set('decision', params.decision)
+  if (params.q) search.set('q', params.q)
+  if (params.limit !== undefined) search.set('limit', String(params.limit))
+  if (params.offset !== undefined) search.set('offset', String(params.offset))
+  const text = search.toString()
+  return text ? `?${text}` : ''
+}
+
 export const api = {
   workflows: (): Promise<WorkflowView[]> => request('/api/workflows'),
   session: (): Promise<SessionView> => request('/api/sessions'),
   sync: (route: string): Promise<SyncView | null> =>
     request(`/api/syncs${query({ workflow: routeToWorkflow(route) })}`),
-  items: (
-    route: string,
-    params: { status?: string; q?: string; limit?: number; offset?: number } = {},
-  ): Promise<ItemsPage> => request(`/api/${route}${query(params)}`),
+  items: (route: string, params: ItemQuery = {}): Promise<ItemsPage> =>
+    request(`/api/${route}${itemsQuery(params)}`),
   item: (route: string, key: string): Promise<ItemDetail> =>
     request(`/api/${route}/${encodeURIComponent(key)}`),
+  decide: (
+    route: string,
+    key: string,
+    decision: DecisionKind,
+    reason?: string,
+  ): Promise<ItemDetail> =>
+    request(`/api/${route}/${encodeURIComponent(key)}/decisions`, {
+      method: 'POST',
+      body: JSON.stringify({ decision, reason: reason ?? null }),
+    }),
+  undoDecision: (route: string, key: string): Promise<ItemDetail> =>
+    request(`/api/${route}/${encodeURIComponent(key)}/decisions`, { method: 'DELETE' }),
   jobs: (params: { workflow?: string; limit?: number } = {}): Promise<JobView[]> =>
     request(`/api/jobs${query(params)}`),
   jobLogs: (id: number): Promise<JobLogs> => request(`/api/jobs/${id}/logs`),

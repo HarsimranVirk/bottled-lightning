@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 from .status import (
     ClosureSource,
+    DecisionKind,
     FieldStatus,
     JobKind,
     JobStatus,
@@ -66,6 +67,28 @@ class WorkItem:
     execute_attempted_at: datetime | None
     execute_confirmed_at: datetime | None
     closed_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class Decision:
+    """
+    One row of the review-decision audit trail.
+
+    Decisions are append-only: the newest row for ``(workflow, key)`` is the current
+    decision, and ``DecisionKind.PENDING`` is the explicit undo that puts the item back
+    in the deck without deleting history (FR-10.3). A decision is a review judgement,
+    not a pipeline transition — it never changes ``WorkItem.status``.
+
+    Example:
+        accepted = Decision("deviations_z02", "Deviation-…", DecisionKind.ACCEPT,
+                            None, utcnow())
+    """
+
+    workflow: str
+    key: str
+    decision: DecisionKind
+    reason: str | None
+    created_at: datetime
 
 
 @dataclass(frozen=True, slots=True)

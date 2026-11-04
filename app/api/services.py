@@ -6,15 +6,16 @@ job, auth pause) lives here so it can be unit-tested without an HTTP client.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from typing import Protocol
 
 from app.config import Settings
 from app.core.field import normalise
-from app.core.models import Job, WorkItem
+from app.core.models import Decision, Job, WorkItem, utcnow
 from app.core.registry import WorkflowRegistry
 from app.core.repo.attributes import AttributeRepository
+from app.core.repo.decisions import DecisionRepository
 from app.core.repo.edits import EditRepository
 from app.core.repo.events import EventRepository
 from app.core.repo.fields import FieldValueRepository
@@ -23,7 +24,13 @@ from app.core.repo.refs import PageRefRepository
 from app.core.repo.sessions import SessionRepository
 from app.core.repo.sync_runs import SyncRunRepository
 from app.core.repo.work_items import WorkItemRepository
-from app.core.status import JobKind, JobStatus, WorkItemStatus
+from app.core.status import (
+    DecisionFilter,
+    DecisionKind,
+    JobKind,
+    JobStatus,
+    WorkItemStatus,
+)
 from app.core.workflow import Workflow
 from app.jobs.auth import AuthGate
 from app.jobs.dispatcher import Dispatcher
@@ -34,6 +41,7 @@ from app.salesforce.session import SessionProvider
 
 from .errors import ApiError
 from .schemas import (
+    DecisionView,
     EditView,
     FieldView,
     ItemDetailView,
@@ -99,6 +107,15 @@ def job_view(job: Job) -> JobView:
     )
 
 
+def decision_view(decision: Decision) -> DecisionView:
+    """Project a stored decision into its public shape."""
+    return DecisionView(
+        decision=decision.decision.value,
+        reason=decision.reason,
+        at=decision.created_at,
+    )
+
+
 class WorkItemService:
     """Reads and edits one workflow's items; enqueues submissions.
 
@@ -114,6 +131,7 @@ class WorkItemService:
         attributes: AttributeRepository,
         refs: PageRefRepository,
         edits: EditRepository,
+        decisions: DecisionRepository,
         jobs: JobRepository,
         events: EventRepository,
         is_paused: Callable[[], bool],
@@ -124,6 +142,7 @@ class WorkItemService:
         self._attributes = attributes
         self._refs = refs
         self._edits = edits
+        self._decisions = decisions
         self._jobs = jobs
         self._events = events
         self._is_paused = is_paused
@@ -136,22 +155,41 @@ class WorkItemService:
     def list_items(
         self,
         workflow_name: str,
-        status: str | None = None,
+        statuses: Sequence[str] | None = None,
         query: str | None = None,
         limit: int = 50,
         offset: int = 0,
+        decision: str | None = None,
     ) -> ItemsPageView:
-        """The unified view: one row per item, newest-seen first."""
+        """The unified view: one row per item, newest-seen first.
+
+        ``statuses`` is the repeated ``?status=`` filter (the deck asks for every
+        decidable status at once); ``decision`` filters on the newest review decision.
+        Decisions for the page are fetched in one query, not per row.
+        """
         workflow = self._workflow(workflow_name)
-        parsed = self._parse_status(status) if status else None
+        parsed = (
+            [self._parse_status(status) for status in statuses] if statuses else None
+        )
+        parsed_decision = self._parse_decision(decision)
         items, total = self._items.list(
-            workflow.name, parsed, query, limit, offset
+            workflow.name,
+            parsed,
+            query,
+            limit,
+            offset,
+            decision=parsed_decision,
+        )
+        decisions = self._decisions.latest_for(
+            workflow.name, [item.key for item in items]
         )
         return ItemsPageView(
             workflow=workflow.name,
             count=len(items),
             total=total,
-            rows=[self._row_view(workflow, item) for item in items],
+            rows=[
+                self._row_view(workflow, item, decisions.get(item.key)) for item in items
+            ],
         )
 
     def get_item(self, workflow_name: str, key: str) -> ItemDetailView:
@@ -204,6 +242,59 @@ class WorkItemService:
             self._items.transition(workflow.name, key, WorkItemStatus.READY)
         return self._detail_view(workflow, self._item(workflow, key))
 
+    def decide(
+        self,
+        workflow_name: str,
+        key: str,
+        decision: str,
+        reason: str | None = None,
+    ) -> ItemDetailView:
+        """Record an accept/reject review decision (FR-10).
+
+        A decision is local and reversible: it writes no Salesforce data and leaves the
+        item's pipeline status untouched. Only the three decidable statuses are allowed,
+        so an in-flight or terminal item cannot be re-decided.
+        """
+        workflow = self._workflow(workflow_name)
+        item = self._item(workflow, key)
+        self._ensure_status(item, _EDITABLE, "decidable")
+
+        try:
+            kind = DecisionKind(decision)
+        except ValueError as exc:
+            raise ApiError(
+                422, f"unknown decision: {decision}", "invalid_decision"
+            ) from exc
+        if kind is DecisionKind.PENDING:
+            raise ApiError(422, "record accept or reject", "invalid_decision")
+
+        note = reason.strip() if reason is not None else None
+        at = utcnow()
+        self._decisions.record(workflow.name, key, kind, note or None, at)
+        self._events.emit(
+            kind.value,
+            workflow=workflow.name,
+            item=key,
+            detail=note or None,
+        )
+        return self._detail_view(workflow, self._item(workflow, key))
+
+    def undo_decision(self, workflow_name: str, key: str) -> ItemDetailView:
+        """Return a decided item to undecided; the audit keeps both rows (FR-10.3)."""
+        workflow = self._workflow(workflow_name)
+        item = self._item(workflow, key)
+        self._ensure_status(item, _EDITABLE, "decidable")
+
+        current = self._decisions.latest(workflow.name, key)
+        if current is None or current.decision is DecisionKind.PENDING:
+            raise ApiError(409, "no decision to undo", "no_decision")
+
+        self._decisions.record(
+            workflow.name, key, DecisionKind.PENDING, None, utcnow()
+        )
+        self._events.emit("decision_cleared", workflow=workflow.name, item=key)
+        return self._detail_view(workflow, self._item(workflow, key))
+
     def submit(self, workflow_name: str, key: str) -> JobView:
         """Enqueue exactly one ``SUBMIT`` job for an item that has proposed values."""
         workflow = self._workflow(workflow_name)
@@ -244,6 +335,17 @@ class WorkItemService:
             raise ApiError(404, f"unknown item: {key}", "unknown_item")
         return item
 
+    def _parse_decision(self, decision: str | None) -> DecisionFilter | None:
+        """Parse the ``?decision=`` filter, or ``None`` for any decision."""
+        if not decision:
+            return None
+        try:
+            return DecisionFilter(decision)
+        except ValueError as exc:
+            raise ApiError(
+                422, f"unknown decision filter: {decision}", "invalid_decision"
+            ) from exc
+
     def _parse_status(self, status: str) -> WorkItemStatus:
         try:
             return WorkItemStatus(status)
@@ -260,7 +362,12 @@ class WorkItemService:
                 "invalid_state",
             )
 
-    def _row_view(self, workflow: Workflow, item: WorkItem) -> ItemRowView:
+    def _row_view(
+        self,
+        workflow: Workflow,
+        item: WorkItem,
+        decision: Decision | None = None,
+    ) -> ItemRowView:
         stored = self._fields.for_item(workflow.name, item.key)
         fields: dict[str, FieldView] = {}
         for spec in workflow.catalog:
@@ -286,13 +393,20 @@ class WorkItemService:
             approved_at=item.approved_at,
             reason=item.reason,
             fields=fields,
+            decision=(
+                decision_view(decision) if decision is not None else None
+            ),
             active_job=job_view(active) if active is not None else None,
         )
 
     def _detail_view(self, workflow: Workflow, item: WorkItem) -> ItemDetailView:
-        row = self._row_view(workflow, item)
+        latest = self._decisions.latest(workflow.name, item.key)
+        if latest is not None and latest.decision is DecisionKind.PENDING:
+            latest = None
+        row = self._row_view(workflow, item, latest)
         refs = self._refs.for_item(workflow.name, item.key)
         edits = self._edits.for_item(workflow.name, item.key)
+        decisions = self._decisions.history(workflow.name, item.key)
         return ItemDetailView(
             **row.model_dump(),
             attributes=self._attributes.for_item(workflow.name, item.key),
@@ -308,6 +422,11 @@ class WorkItemService:
                     at=datetime.fromisoformat(at),
                 )
                 for field, old, new, at in edits
+            ],
+            decisions=[
+                decision_view(decision)
+                for decision in decisions
+                if decision.decision is not DecisionKind.PENDING
             ],
         )
 

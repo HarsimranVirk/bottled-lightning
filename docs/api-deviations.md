@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v1 |
+| **Version** | v2 |
 | **Date** | 2026-11-04 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/data-model-deviations.md` |
@@ -119,7 +119,7 @@ Requests an immediate refresh instead of waiting for the 30 s cycle.
 
 ## 5. Items (the unified view)
 
-### `GET /api/deviations?status=&q=&limit=50&offset=0`
+### `GET /api/deviations?status=&status=&decision=&q=&limit=50&offset=0`
 
 ```json
 {
@@ -141,13 +141,18 @@ Requests an immediate refresh instead of waiting for the 30 s cycle.
         "tenure": { "extracted": null, "lastSynced": null, "proposed": null, "applied": null, "status": "extracted" },
         "emi_incl_hffc": { "extracted": "16,256", "lastSynced": "16,256", "proposed": null, "applied": null, "status": "extracted" }
       },
+      "decision": null,
       "activeJob": { "id": 12, "kind": "extract", "status": "running", "phase": "extract" }
     }
   ]
 }
 ```
 
-`status` filters by `WorkItemStatus`; `q` matches the key or the reason.
+- `status` filters by `WorkItemStatus` and is repeatable
+  (`?status=ready&status=needs_review`). Omitted means every status.
+- `decision` filters by review decision: `accept`, `reject`, or `undecided` (no decision,
+  or the latest decision was undone). Omitted means any.
+- `q` matches the key or the reason.
 
 ### `GET /api/deviations/{key}`
 
@@ -159,6 +164,7 @@ Adds attributes and refs, grouped for the detail panel:
   "status": "ready",
   "recordUrl": "https://…/view",
   "fields": { "loan_amount": { "…": "…" } },
+  "decision": { "decision": "accept", "reason": null, "at": "2026-11-04T18:20:00Z" },
   "attributes": {
     "description": "Old Paramaters\nLA-13,00,000…",
     "requested_roi": null,
@@ -175,9 +181,33 @@ Adds attributes and refs, grouped for the detail panel:
     { "kind": "lms2_cl_contract", "name": "LAI-00533155", "url": "https://…/CL_Contract_Detail?c__loanId=…" },
     { "kind": "lms2_collateral", "name": "CJID-0000280688", "url": "https://…/Collateral_Detail?c__collateralId=…" }
   ],
-  "edits": [ { "field": "tenure", "oldValue": null, "newValue": "240", "at": "…" } ]
+  "edits": [ { "field": "tenure", "oldValue": null, "newValue": "240", "at": "…" } ],
+  "decisions": [ { "decision": "accept", "reason": null, "at": "2026-11-04T18:20:00Z" } ]
 }
 ```
+
+### `POST /api/deviations/{key}/decisions` → `200`
+
+Record an accept/reject review decision. This never writes to Salesforce and never
+changes the pipeline status (FR-10.2).
+
+```json
+{ "decision": "reject", "reason": "tenure and EMI do not match the sanction letter" }
+```
+
+- `decision` is `accept` or `reject` (422 `invalid_decision` otherwise). `reason` is
+  optional and may be omitted or null.
+- Returns the updated detail, whose `decision` is the new decision and whose
+  `decisions` list gains the row.
+- `404` unknown item; `409` item is not decidable (`submitting`, in-flight or terminal).
+- A decision is allowed on `ready`, `editing` and `needs_review`; the item leaves the
+  deck but keeps its status and proposals.
+
+### `DELETE /api/deviations/{key}/decisions` → `200`
+
+Undo the current decision. Appends a `pending` row (nothing is deleted), so the audit
+trail keeps the reversal; the returned detail has `decision: null` and the item is
+undecided again. `404` unknown item; `409` when the item is not decidable.
 
 ### `PATCH /api/deviations/{key}/field-values`
 
@@ -320,6 +350,13 @@ export interface JobView {
   error: string | null;
 }
 
+export type DecisionKind = "accept" | "reject";
+export interface DecisionView {
+  decision: DecisionKind;
+  reason: string | null;
+  at: string;
+}
+
 export interface ItemRow {
   key: string;
   status: WorkItemStatus;
@@ -329,6 +366,7 @@ export interface ItemRow {
   approvedAt: string | null;
   reason: string | null;
   fields: Record<string, FieldView>;
+  decision: DecisionView | null;
   activeJob: JobView | null;
 }
 
@@ -338,6 +376,7 @@ export interface ItemDetail extends ItemRow {
   attributes: Record<string, string | null>;
   refs: PageRefView[];
   edits: { field: string; oldValue: string | null; newValue: string | null; at: string }[];
+  decisions: DecisionView[];
 }
 
 export interface ItemsPage {
@@ -374,6 +413,13 @@ export interface QueueView {
   counts: Record<string, number>;
 }
 ```
+
+### Decision list filters
+
+The deck calls `GET /api/deviations?status=ready&status=editing&status=needs_review
+&decision=undecided&limit=200`. The list view passes the operator's selections. There is
+no separate `/review` resource: a decision is a property of the item, so it is filtered
+on the item collection and written as an item sub-resource.
 
 ## 10. Removed from v1
 
