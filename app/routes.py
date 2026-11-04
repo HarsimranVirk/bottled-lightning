@@ -25,7 +25,8 @@ from app.types import (
     ViewRecord,
 )
 
-from . import config, jobs, store, sync
+from . import config, store, sync
+from . import legacy_jobs as jobs
 
 router = APIRouter(prefix="/api")
 
@@ -367,7 +368,8 @@ def create_session(body: LoginIn | None = None) -> StartLoginResponse:
 
     def _run() -> None:
         try:
-            from . import browser, jobs
+            from . import browser
+            from . import legacy_jobs as jobs
 
             ok = browser.do_manual_login(reset=reset)
             if ok:

@@ -15,7 +15,8 @@ import threading
 import time
 from dataclasses import dataclass
 
-from . import config, jobs, store
+from . import config, store
+from . import legacy_jobs as jobs
 from .browser import SalesforceSession
 from .deviations_z02 import PROFILE
 from .deviations_z02.pipeline import extract_list_and_links

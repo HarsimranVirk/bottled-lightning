@@ -43,10 +43,16 @@ Rules for the whole effort:
 Rough sizing assumes one focused developer: **~22–27 working days**, of which Phases 3 and
 6 (adapters, submit) are the long poles because they are UI-selector work.
 
-**Progress:** Phases 0–3 are done on branch `refactor/deviations-v2` (core domain,
+**Progress:** Phases 0–4 are done on branch `refactor/deviations-v2` (core domain,
 schema v2, repositories, workflow seam, Z02 catalog + description parser, async browser
-runtime, session snapshot/expiry, `ListPage`, login CLI, six Z02 adapters and the
-`DeviationsZ02Extraction` pipeline). Phases 4–9 are not started.
+runtime, session snapshot/expiry, `ListPage`, login CLI, six Z02 adapters, the
+`DeviationsZ02Extraction` pipeline, and the job dispatcher/worker/auth gate).
+Phases 5–9 are not started.
+
+Live verification so far: list sample valid (7/7), full extraction of one deviation with
+all five refs, and one `EXTRACT` job drained through the real dispatcher
+(`tools/smoke_job.py`). The legacy `app/jobs.py` was renamed to `app/legacy_jobs.py` so
+the new `app/jobs/` package can exist; the old modules still import.
 
 Phase 2's live gate is only half-verified: the runtime boots, injects cookies, navigates
 and correctly reports an expired session, and `ListPage` was verified end-to-end against a

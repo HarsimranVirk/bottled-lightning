@@ -36,7 +36,11 @@ def map_row(row: ListRow) -> Mapping[str, str]:
 
 
 def build_workflow(
-    settings: Settings, deps: WorkflowDeps, adapters: AdapterRegistry
+    settings: Settings,
+    deps: WorkflowDeps,
+    adapters: AdapterRegistry,
+    *,
+    force: bool = False,
 ) -> Workflow:
     extraction = DeviationsZ02Extraction(
         WORKFLOW_NAME,
@@ -46,6 +50,7 @@ def build_workflow(
         deps.refs,
         deps.events,
         adapters,
+        force=force,
     )
     return Workflow(
         name=WORKFLOW_NAME,

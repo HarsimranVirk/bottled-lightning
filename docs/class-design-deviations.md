@@ -7,7 +7,7 @@
 | **Date** | 2026-11-04 |
 | **Companion** | `docs/FR-deviations-v2.md` (v2.1), `docs/refactor-plan-deviations.md` |
 | **Change** | v2 introduces the workflow abstraction; v1 was deviations-only |
-| **Implemented so far** | Phases 1–3 on `refactor/deviations-v2`: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,adapters}`, `app/workflows/deviations_z02/{catalog,description,product_map,adapters,extraction}` |
+| **Implemented so far** | Phases 1–4 on `refactor/deviations-v2`: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,adapters}`, `app/jobs/{dispatcher,worker,auth,logger}`, `app/utils/dom`, `app/workflows/deviations_z02/{catalog,description,product_map,adapters,extraction}` |
 
 This document describes the target class design. It separates the parts that are the
 same for every Salesforce workflow (browser, tabs, queue, leases, refresh, closure) from
@@ -97,9 +97,10 @@ app/
     reconciler.py                 Reconciler (generic)
     closure.py                    ClosureResolver (generic)
   jobs/
-    dispatcher.py                 Dispatcher
-    worker.py                     Worker
-    lease.py                      Lease
+    dispatcher.py                 Dispatcher (claim loop, N slots, pause on auth)
+    worker.py                     Worker (one job, lease heartbeat, outcome mapping)
+    auth.py                       AuthGate (pause/resume, park blocked jobs)
+    logger.py                     RepositoryLogger (stdout + job_logs)
     outcomes.py                   ExtractOutcome, SubmitOutcome
   api/
     schemas.py                    Pydantic DTOs

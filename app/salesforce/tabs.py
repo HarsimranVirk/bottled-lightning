@@ -22,6 +22,12 @@ class TabProvider(Protocol):
     async def close_page(self, page: Page) -> None: ...
 
 
+class TabSessions(TabProvider, Protocol):
+    """What a job runner needs: tabs it can also tear down as a group."""
+
+    async def close_all(self) -> None: ...
+
+
 class TabGroup:
     def __init__(self, context: BrowserContext, timeout_ms: int) -> None:
         self._context = context

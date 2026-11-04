@@ -1,0 +1,93 @@
+"""Claim loop: N concurrent workers, paused on authentication, stale leases recovered.
+
+One asyncio task per concurrency slot; each loop claims one job at a time. Lowering the
+worker count lets in-flight jobs finish (they are never cancelled mid-write, FR-7.7).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+from functools import partial
+
+from app.config import Settings
+from app.core.repo.jobs import JobRepository
+
+from .auth import AuthGate
+from .worker import Worker
+
+logger = logging.getLogger(__name__)
+
+
+class Dispatcher:
+    def __init__(
+        self,
+        jobs: JobRepository,
+        worker: Worker,
+        auth: AuthGate,
+        settings: Settings,
+        *,
+        poll_s: float = 2.0,
+        lease_ttl_s: float = 300.0,
+    ) -> None:
+        self._jobs = jobs
+        self._worker = worker
+        self._auth = auth
+        self._desired = settings.workers
+        self._poll_s = poll_s
+        self._lease_ttl_s = lease_ttl_s
+        self._owner_prefix = f"{os.getpid()}"
+        self._loops: dict[int, asyncio.Task[None]] = {}
+        self._running = False
+
+    @property
+    def concurrency(self) -> int:
+        return self._desired
+
+    @property
+    def in_flight(self) -> int:
+        return len(self._loops)
+
+    async def run_forever(self) -> None:
+        self._running = True
+        self._sync_loops()
+        try:
+            while self._running:
+                await asyncio.sleep(1.0)
+                self._sync_loops()
+        finally:
+            self._running = False
+            for task in list(self._loops.values()):
+                task.cancel()
+            await asyncio.gather(*self._loops.values(), return_exceptions=True)
+            self._loops.clear()
+
+    def stop(self) -> None:
+        self._running = False
+
+    def set_concurrency(self, count: int) -> None:
+        self._desired = max(1, count)
+        self._sync_loops()
+
+    def _sync_loops(self) -> None:
+        for index in range(self._desired):
+            if index in self._loops:
+                continue
+            task = asyncio.create_task(self._loop(index), name=f"sf-job-{index}")
+            self._loops[index] = task
+            task.add_done_callback(partial(self._forget, index))
+
+    def _forget(self, index: int, _task: asyncio.Task[None]) -> None:
+        self._loops.pop(index, None)
+
+    async def _loop(self, index: int) -> None:
+        owner = f"{self._owner_prefix}:w{index}"
+        while self._running and index < self._desired:
+            await self._auth.wait()
+            job = self._jobs.claim(owner, self._lease_ttl_s)
+            if job is None:
+                self._jobs.requeue_stale()
+                await asyncio.sleep(self._poll_s)
+                continue
+            await self._worker.execute(job)

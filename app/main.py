@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__, config, store, sync, updater
-from .jobs import shutdown_pool
+from .legacy_jobs import shutdown_pool
 from .routes import router
 
 PACKAGED_WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -34,7 +34,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         f" | data: {config.DATA_DIR}"
         f" | update policy: {config.UPDATE_POLICY}"
     )
-    from .jobs import _start_pool
+    from .legacy_jobs import _start_pool
 
     _start_pool(config.SCRAPE_WORKERS)
     print(f"* worker pool started: {config.SCRAPE_WORKERS} always-alive sessions")
