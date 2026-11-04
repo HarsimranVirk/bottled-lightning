@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4 |
+| **Version** | v4.1 |
 | **Date** | 2026-11-04 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -136,12 +136,15 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   to the CL-contract product using the existing product mapping.
 - **FR-3.5** The system discovers and records page refs for the Opportunity, the matching
   CL contract, the collateral, the LMS 2.0 CL contract and the LMS 2.0 collateral.
+  The LMS 2.0 CL contract is narrowed by the *same* product mapping as the CL contract,
+  because a loan legitimately has more than one LMS 2.0 CL contract.
 - **FR-3.6** All pages belonging to one deviation are opened in parallel tabs within the
   same authenticated session. The deviation is complete only when every page has been
   read or explicitly skipped.
-- **FR-3.7** Ambiguity is a skip, never a guess. Multiple matching CL contracts, multiple
-  collaterals, a missing detail page, or an SF internal error records the deviation as
-  skipped with a human-readable reason.
+- **FR-3.7** Ambiguity is a skip, never a guess. Ambiguous means several candidates that
+  match the *required* product (for CL contracts and LMS 2.0 CL contracts), several
+  collaterals, a missing detail page, or an SF internal error — each records the deviation
+  as skipped with a human-readable reason.
 - **FR-3.8** Linked-object pages are cached and are not re-scraped on every sync.
   Re-extraction happens only for newly seen deviations, or on an explicit operator
   refresh.

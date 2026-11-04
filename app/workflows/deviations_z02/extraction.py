@@ -19,7 +19,7 @@ from app.core.repo.events import EventRepository
 from app.core.repo.fields import FieldValueRepository
 from app.core.repo.refs import PageRefRepository
 from app.core.repo.work_items import WorkItemRepository
-from app.core.status import ExtractOutcome, WorkItemStatus
+from app.core.status import TERMINAL_STATUSES, ExtractOutcome, WorkItemStatus
 from app.core.workflow import JobLogger
 from app.salesforce.adapters import (
     AdapterRegistry,
@@ -93,6 +93,12 @@ class DeviationsZ02Extraction:
         if not item.record_url:
             return self._skip(item, "no record URL on the list row", log)
 
+        if self._force and item.status in TERMINAL_STATUSES:
+            # A forced retry is a new attempt: terminal states re-enter via PRESENT
+            # (the state machine never jumps terminal -> EXTRACTING).
+            item = self._items.transition(
+                self._workflow, item.key, WorkItemStatus.PRESENT, clear_reason=True
+            )
         self._items.transition(self._workflow, item.key, WorkItemStatus.EXTRACTING)
         try:
             discoveries = await self._discover_all(item, tabs, log)
@@ -105,6 +111,7 @@ class DeviationsZ02Extraction:
                 item.key,
                 WorkItemStatus.READY,
                 extracted_at=utcnow(),
+                clear_reason=True,
             )
             self._events.emit(
                 "extracted", workflow=self._workflow, item=item.key

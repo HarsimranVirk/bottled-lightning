@@ -354,6 +354,68 @@ class ExtractionTests(DbTestCase):
         self.assertEqual(record.calls, 0)
         self.assertEqual(item.key, KEY)
 
+    def test_force_retries_a_skipped_item(self) -> None:
+        """A skipped item can be retried: terminal re-enters via PRESENT first."""
+        deps = self.deps()
+        deps.items.create_present(
+            "deviations_z02",
+            ListRow(key=KEY, href=f"/lightning/r/a2f/{KEY}/view", columns={}, approved_at=None),
+            utcnow(),
+        )
+        deps.items.transition("deviations_z02", KEY, WorkItemStatus.EXTRACTING)
+        deps.items.transition("deviations_z02", KEY, WorkItemStatus.SKIPPED, reason="old ambiguity")
+        record = FakeAdapter(DeviationObject.DEVIATION.value, Discovery())
+        pipeline = self._pipeline([record], force=True)
+
+        outcome = self._run(pipeline, deps.items.require("deviations_z02", KEY))
+        self.assertIs(outcome, ExtractOutcome.SKIPPED)
+        item = deps.items.require("deviations_z02", KEY)
+        self.assertIs(item.status, WorkItemStatus.SKIPPED)
+        self.assertIn("no Opportunity link", item.reason or "")
+
+    def test_successful_retry_clears_the_previous_reason(self) -> None:
+        deps = self.deps()
+        deps.items.create_present(
+            "deviations_z02",
+            ListRow(key=KEY, href=f"/lightning/r/a2f/{KEY}/view", columns={}, approved_at=None),
+            utcnow(),
+        )
+        deps.items.transition("deviations_z02", KEY, WorkItemStatus.EXTRACTING)
+        deps.items.transition("deviations_z02", KEY, WorkItemStatus.SKIPPED, reason="old ambiguity")
+
+        record = FakeAdapter(
+            DeviationObject.DEVIATION.value,
+            Discovery(
+                refs=(
+                    DiscoveredRef(
+                        kind=DeviationObject.OPPORTUNITY.value,
+                        name="Opp",
+                        url=OPP_URL,
+                    ),
+                )
+            ),
+        )
+        opportunity = FakeAdapter(
+            DeviationObject.OPPORTUNITY.value,
+            Discovery(attributes={"product_type": "Home Loan"}),
+        )
+        others = [
+            FakeAdapter(kind, Discovery())
+            for kind in (
+                DeviationObject.CL_CONTRACT.value,
+                DeviationObject.COLLATERAL.value,
+                DeviationObject.LMS2_CL_CONTRACT.value,
+                DeviationObject.LMS2_COLLATERAL.value,
+            )
+        ]
+        pipeline = self._pipeline([record, opportunity, *others], force=True)
+
+        outcome = self._run(pipeline, deps.items.require("deviations_z02", KEY))
+        self.assertIs(outcome, ExtractOutcome.EXTRACTED)
+        item = deps.items.require("deviations_z02", KEY)
+        self.assertIs(item.status, WorkItemStatus.READY)
+        self.assertIsNone(item.reason)
+
     def test_force_re_extracts(self) -> None:
         """force=True bypasses the one-shot marker."""
         deps = self.deps()

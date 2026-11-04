@@ -167,6 +167,7 @@ class WorkItemRepository:
         closed_at: datetime | None = None,
         present: bool | None = None,
         extracted_at: datetime | None = None,
+        clear_reason: bool = False,
     ) -> WorkItem:
         """
         Apply a state-machine move, refusing closure statuses under a lease.
@@ -178,6 +179,9 @@ class WorkItemRepository:
            (``LeaseHeld``), which is how FR-6.11 prevents closing a row mid-write.
            ``SKIPPED`` is allowed: the extraction job writes it from inside its own lease
         3. only ``SubmitPipeline`` is expected to pass closure statuses
+
+        ``clear_reason=True`` is for retries: a successful re-extraction must not keep
+        the reason from the attempt that failed.
 
         Example:
             items.transition(workflow, key, WorkItemStatus.READY, extracted_at=now)
@@ -192,7 +196,9 @@ class WorkItemRepository:
 
         sets = ["status = ?"]
         params: list[str | int] = [to.value]
-        if reason is not None:
+        if clear_reason:
+            sets.append("reason = NULL")
+        elif reason is not None:
             sets.append("reason = ?")
             params.append(reason)
         if source is not None:
