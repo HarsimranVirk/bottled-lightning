@@ -108,3 +108,4 @@ class Workflow:
     submission: SubmissionPipeline
     map_row: Callable[[ListRow], Mapping[str, str]]
     terminal_labels: Mapping[WorkItemStatus, str] = field(default_factory=dict)
+    ref_kinds: tuple[str, ...] = ()

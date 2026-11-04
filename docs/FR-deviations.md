@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v3 |
+| **Version** | v4 |
 | **Date** | 2026-11-04 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -264,6 +264,23 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   submission, per-deviation detail grouped by SF object, and a live job/queue strip.
 - **FR-9.4** The frontend is TypeScript strict, shared payload types live in one place,
   and `any` is not used.
+- **FR-9.5** Every screen implements an explicit state matrix: loading, empty, ready,
+  invalid-sync, paused, and each terminal status. No screen may be designed only for the
+  happy path.
+- **FR-9.6** The server is the only source of truth for status. The UI never derives an
+  item's status from its own actions and never applies an optimistic status change.
+- **FR-9.7** Editable values are validated by the server. A `422` is shown against the
+  specific field, the other drafts are preserved, and the item stays editable.
+- **FR-9.8** Background polling stops while the document is hidden and resumes when it is
+  visible; it never overwrites an in-progress edit.
+- **FR-9.9** Submitting a declaration requires an explicit confirmation naming the item
+  and the changed values; the button is disabled unless the item is submittable.
+- **FR-9.10** The full edit → save → submit path is keyboard-reachable, the detail panel
+  traps focus while open, and status changes are announced to assistive technology.
+- **FR-9.11** `frontend/src/types.ts` is generated from the OpenAPI schema; a contract
+  change that is not regenerated fails the typecheck.
+- **FR-9.12** UI changes ship with screenshots of their state-matrix rows at narrow,
+  medium and wide widths.
 
 ---
 

@@ -24,6 +24,7 @@ This plan executes the design recorded in:
 | `docs/class-design-deviations.md` | classes, protocols, workflow seam, ownership, invariants | v3 |
 | `docs/data-model-deviations.md` | tables, columns, keys, semantics, migration, retention | v1 |
 | `docs/api-deviations.md` | endpoints, payloads, status codes, TS types | v1 |
+| `docs/frontend-design-deviations.md` | screens, state matrix, components, state ownership, slices | v1 |
 
 If implementation reveals a gap, the document is amended first and the change lands
 with it (AGENTS.md). Phase 7 implements the API doc; Phases 1–2 implement the data
@@ -264,20 +265,35 @@ parks jobs as `BLOCKED_AUTH` and resumes after re-login.
 **Gate:** frontend builds against the new types; no behaviour change without a
 corresponding FR; adding a workflow requires no route code.
 
-### Phase 8 — Frontend (3–5 days)
+### Phase 8 — Frontend (4–6 days)
 
-- `types.ts` regenerated from `api/schemas.py` (hand-synced; single source of truth).
-- Pages: Home (auth + sync health + worker count), workflow list page rendered from
-  `GET /api/workflows` (today: Deviations) with inline edit, submit, status chips,
-  filter/search, item detail (grouped by SF object), jobs (queue + logs), history
-  (closed/skipped).
-- Delete `Deck.tsx`, `DeviationsZ02.tsx`, `History.tsx` and rebuild them under the new
-  model rather than porting. The deviations page is one instance of a shared
-  `WorkflowPage` component driven by the workflow's catalogue and labels, so a second
-  workflow needs no new screen.
+Design first, in `docs/frontend-design-deviations.md`: screens, the state matrix,
+component tree, state ownership, interaction spec, testing and the slice plan. No
+component is written before its matrix rows are specified.
 
-**Gate:** `npm --prefix frontend run typecheck` and `npm run build` pass; the full
-operator loop (log in → see rows → edit → submit → watch status) works in dev.
+Then three reviewed slices, each shipping screenshots:
+
+- **A — read-only** (done): auth card, sync banner, the Deviations Z02 tab, detail
+  (fields/attributes/refs), jobs panel, and a `/dev/states` harness with screenshots.
+  Proves the contract, state mapping and layout without any item mutation.
+- **B — editing**: draft map, `PATCH …/field-values`, field-level `422`, discard,
+  polling paused while dirty.
+- **C — submission**: confirmation dialog, `POST …/{key}/jobs`, phase polling,
+  `needs_review` recovery, terminal states.
+
+Supporting work:
+
+- `tools/export_openapi.py` writes a schema snapshot; `openapi-typescript` generates
+  `frontend/src/types.ts`; the script is part of `npm run build` so drift fails.
+- Replace the v1 pages (`Deck.tsx`, `DeviationsZ02.tsx`, `History.tsx`) rather than port
+  them. One `WorkflowPage` driven by `GET /api/workflows`, so a second workflow needs no
+  new screen.
+- Add Vitest + RTL + MSW and a `/dev/states` harness; Playwright screenshots at 390 /
+  768 / 1280 are the acceptance evidence for each matrix row.
+
+**Gate:** typecheck and tests pass; every matrix row has a screenshot; the full operator
+loop (log in → see rows → edit → submit → watch phases → completed) works against the
+real backend.
 
 ### Phase 9 — Cutover and cleanup (1 day)
 

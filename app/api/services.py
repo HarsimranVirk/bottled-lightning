@@ -66,12 +66,14 @@ def workflow_view(workflow: Workflow) -> WorkflowView:
         route=workflow.route,
         label=workflow.name.replace("_", " ").title(),
         list_url=workflow.list_view.url,
+        ref_kinds=list(workflow.ref_kinds),
         fields=[
             WorkflowFieldView(
                 key=field.key,
                 label=field.label,
                 value_type=field.value_type.value,
                 required=field.required,
+                targets=[target.object_kind for target in field.targets],
             )
             for field in workflow.catalog
         ],

@@ -53,11 +53,12 @@ Registered workflows, enough for the frontend to render a generic page.
     "route": "deviations",
     "label": "Loan Deviations",
     "listUrl": "https://hffc.lightning.force.com/lightning/o/Consumer_Loan_Deviation__c/list?filterName=Z2_Loan_para_pricing1",
+    "refKinds": ["opportunity", "cl_contract", "collateral", "lms2_cl_contract", "lms2_collateral"],
     "fields": [
-      { "key": "loan_amount", "label": "Loan Amount", "valueType": "amount", "required": false },
-      { "key": "property_value", "label": "Property Value", "valueType": "amount", "required": false },
-      { "key": "tenure", "label": "Tenure", "valueType": "months", "required": false },
-      { "key": "emi_incl_hffc", "label": "EMI & other fixed payments incl. HFFC Loan", "valueType": "amount", "required": false }
+      { "key": "loan_amount", "label": "Loan Amount", "valueType": "amount", "required": false, "targets": ["cl_contract"] },
+      { "key": "property_value", "label": "Property Value", "valueType": "amount", "required": false, "targets": ["collateral"] },
+      { "key": "tenure", "label": "Tenure", "valueType": "months", "required": false, "targets": ["cl_contract"] },
+      { "key": "emi_incl_hffc", "label": "EMI & other fixed payments incl. HFFC Loan", "valueType": "amount", "required": false, "targets": ["cl_contract"] }
     ],
     "terminalLabels": { "completed": "Implemented", "closed": "Closed", "skipped": "Skipped" }
   }
@@ -264,6 +265,11 @@ their current behaviour and payloads (`app/updater.py`).
 
 ## 9. TypeScript types (`frontend/src/types.ts`)
 
+These are the shapes the frontend consumes. The committed `frontend/src/types.ts` is
+**generated** from `tools/export_openapi.py` + `openapi-typescript`, so this section
+documents intent and the generator is the mechanism. A schema change that is not
+regenerated fails `npm run typecheck`.
+
 ```ts
 export type WorkItemStatus =
   | "present" | "extracting" | "ready" | "editing" | "submitting"
@@ -286,6 +292,7 @@ export interface WorkflowField {
   label: string;
   valueType: ValueType;
   required: boolean;
+  targets: string[];
 }
 
 export interface WorkflowView {
@@ -293,6 +300,7 @@ export interface WorkflowView {
   route: string;
   label: string;
   listUrl: string;
+  refKinds: string[];
   fields: WorkflowField[];
   terminalLabels: Record<string, string>;
 }

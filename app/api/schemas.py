@@ -24,6 +24,7 @@ class WorkflowFieldView(ApiModel):
     label: str
     value_type: str
     required: bool
+    targets: list[str]
 
 
 class WorkflowView(ApiModel):
@@ -31,6 +32,7 @@ class WorkflowView(ApiModel):
     route: str
     label: str
     list_url: str
+    ref_kinds: list[str]
     fields: list[WorkflowFieldView]
     terminal_labels: dict[str, str]
 

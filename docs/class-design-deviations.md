@@ -194,6 +194,7 @@ class Workflow:
     submission: SubmissionPipeline
     map_row: Callable[[ListRow], Mapping[str, str]]   # list-visible attrs → store
     terminal_labels: Mapping[WorkItemStatus, str]     # UI wording, e.g. COMPLETED→Implemented
+    ref_kinds: tuple[str, ...] = ()                   # object kinds the UI must show, or mark missing
 ```
 
 `name` identifies the workflow internally (and scopes every DB row); `route` is the REST

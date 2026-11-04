@@ -69,4 +69,11 @@ def build_workflow(
         submission=_PendingSubmission(),
         map_row=map_row,
         terminal_labels={WorkItemStatus.COMPLETED: "Implemented"},
+        ref_kinds=(
+            "opportunity",
+            "cl_contract",
+            "collateral",
+            "lms2_cl_contract",
+            "lms2_collateral",
+        ),
     )

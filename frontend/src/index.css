@@ -1,141 +1,351 @@
-/* Table styles that follow Salt tokens (no Salt core Table component in the
-   base package; the data grid lives in unstable @salt-ds/lab). */
-.dev-table {
+/* Slice A layout. Salt tokens only; no colour literals except tone tints. */
+
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--salt-color-gray-10, #f7f7f7);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 10px 24px;
+  background: var(--salt-color-white, #fff);
+  border-bottom: 1px solid var(--salt-color-gray-40, #d9d9d9);
+}
+
+.topbar nav {
+  display: flex;
+  gap: 16px;
+}
+
+.topbar nav a {
+  color: var(--salt-color-blue-600, #1c5bd8);
+  text-decoration: none;
+}
+
+.content {
+  flex: 1;
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 20px 24px 40px;
+}
+
+.footer {
+  margin-top: 24px;
+}
+
+.queue-bar {
+  margin-left: auto;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--salt-color-gray-200, #4c4c4c);
+}
+
+/* --- status chip ------------------------------------------------------- */
+
+.chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 600;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.chip[data-tone='info'] {
+  background: #e8f0fe;
+  border-color: #b6cdfb;
+  color: #174ea6;
+}
+
+.chip[data-tone='success'] {
+  background: #e6f4ea;
+  border-color: #a8dab5;
+  color: #137333;
+}
+
+.chip[data-tone='warning'] {
+  background: #fef7e0;
+  border-color: #f2d17a;
+  color: #8a5a00;
+}
+
+.chip[data-tone='danger'] {
+  background: #fce8e6;
+  border-color: #f3b3ae;
+  color: #a50e0e;
+}
+
+.chip[data-tone='neutral'] {
+  background: #eeeeee;
+  border-color: #d0d0d0;
+  color: #4c4c4c;
+}
+
+/* --- list grid --------------------------------------------------------- */
+
+.grid {
   width: 100%;
   border-collapse: collapse;
+  background: var(--salt-color-white, #fff);
 }
 
-.dev-table th {
+.grid th {
   text-align: left;
-  padding: 6px 10px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.25);
-  color: rgba(0, 0, 0, 0.65);
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--salt-color-gray-40, #d9d9d9);
+  color: var(--salt-color-gray-200, #4c4c4c);
+  white-space: nowrap;
 }
 
-.dev-table td {
-  padding: 4px 10px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-}
-
-.dev-table tbody tr:hover td {
-  background: rgba(0, 0, 0, 0.03);
-}
-
-.dev-table .mono {
-  font-family: var(--salt-typography-fontFamily-code, monospace);
-  font-size: 12px;
-}
-
-/* --- gamified deck ------------------------------------------------------- */
-.deck-stack {
-  max-width: 640px;
-  margin: 0 auto;
-}
-
-.deck-card {
-  transition: transform 0.4s ease, opacity 0.4s ease;
-  will-change: transform, opacity;
-}
-
-.deck-card.deck-out-right {
-  transform: translateX(140%) rotate(14deg);
-  opacity: 0;
-}
-
-.deck-card.deck-out-left {
-  transform: translateX(-140%) rotate(-14deg);
-  opacity: 0;
-}
-
-.deck-card.deck-skip {
-  transform: translateY(30px);
-  opacity: 0;
-}
-
-.deck-description {
-  max-height: 220px;
-  overflow-y: auto;
-  padding: 10px 12px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.02);
-}
-
-.deck-title-link {
-  font-family: var(--salt-typography-fontFamily-code, monospace);
+.grid td {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--salt-color-gray-20, #ededed);
   font-size: 13px;
 }
 
-/* --- responsive shell ---------------------------------------------------- */
-.app-shell {
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 24px 28px 56px;
-  min-height: 100vh;
-  box-sizing: border-box;
+.grid tbody tr {
+  cursor: pointer;
 }
 
-.app-header {
-  width: 100%;
+.grid tbody tr:hover td,
+.grid tbody tr:focus td {
+  background: var(--salt-color-gray-10, #f7f7f7);
 }
 
-.app-subtitle {
-  font-size: 11px;
+.grid tbody tr:focus {
+  outline: 2px solid var(--salt-color-blue-400, #4c8ff0);
+  outline-offset: -2px;
 }
 
-.app-nav--desktop {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
+.grid .num {
+  text-align: right;
 }
 
-.app-nav-toggle {
-  display: none;
-}
-
-.app-nav--mobile {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 8px;
-}
-
-.sub-nav {
-  border-bottom: 1px solid var(--salt-separator-borderColor, #e0e0e0);
-  padding-bottom: 8px;
-  flex-wrap: wrap;
-}
-
-.app-footer {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 1000;
-  padding: 6px 16px;
-  background: var(--salt-container-primary-background, #ffffff);
-  border-top: 1px solid var(--salt-separator-borderColor, #e0e0e0);
-  display: flex;
-  justify-content: center;
+.mono {
+  font-family: var(--salt-typography-fontFamily-code, ui-monospace, monospace);
   font-size: 12px;
 }
 
-@media (max-width: 640px) {
-  .app-shell {
-    padding: 16px 12px 56px;
-    max-width: 100%;
-  }
-  .app-nav--desktop {
-    display: none;
-  }
-  .app-nav-toggle {
-    display: inline-flex;
-  }
-  .app-subtitle {
-    font-size: 10px;
+.filters {
+  align-items: end;
+}
+
+.filters select,
+.filters input {
+  min-width: 180px;
+}
+
+/* --- detail drawer ----------------------------------------------------- */
+
+.drawer {
+  background: var(--salt-color-white, #fff);
+  border: 1px solid var(--salt-color-gray-40, #d9d9d9);
+  border-radius: 6px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.drawer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.drawer-meta {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.reason {
+  background: #fce8e6;
+  border: 1px solid #f3b3ae;
+  color: #a50e0e;
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px 24px;
+  margin: 8px 0 0;
+}
+
+.field {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px dotted var(--salt-color-gray-40, #d9d9d9);
+  padding: 4px 0;
+}
+
+.field dt {
+  color: var(--salt-color-gray-200, #4c4c4c);
+  font-size: 12px;
+}
+
+.field dd {
+  margin: 0;
+  font-size: 13px;
+}
+
+.description {
+  white-space: pre-wrap;
+  font-size: 12px;
+  max-width: 420px;
+}
+
+.refs,
+.history {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.refs li {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.refs .mono {
+  min-width: 140px;
+  color: var(--salt-color-gray-200, #4c4c4c);
+}
+
+.missing {
+  color: var(--salt-color-gray-200, #4c4c4c);
+  font-style: italic;
+}
+
+.muted {
+  color: var(--salt-color-gray-200, #4c4c4c);
+}
+
+/* --- jobs -------------------------------------------------------------- */
+
+.jobs {
+  display: grid;
+  grid-template-columns: minmax(360px, 1fr) minmax(320px, 1.2fr);
+  gap: 20px;
+}
+
+@media (max-width: 900px) {
+  .jobs {
+    grid-template-columns: 1fr;
   }
 }
 
+.job-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.job-row {
+  display: grid;
+  grid-template-columns: 48px 110px 70px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 6px 8px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--salt-color-gray-20, #ededed);
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.job-row:hover,
+.job-row:focus {
+  background: var(--salt-color-gray-10, #f7f7f7);
+}
+
+.job-logs pre {
+  background: #1e1e1e;
+  color: #e8e8e8;
+  padding: 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+/* --- states harness ---------------------------------------------------- */
+
+.states-section {
+  background: var(--salt-color-white, #fff);
+  border: 1px solid var(--salt-color-gray-40, #d9d9d9);
+  border-radius: 6px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-card {
+  max-width: 560px;
+}
+
+@media (max-width: 900px) {
+  .content {
+    padding: 12px;
+  }
+
+  .grid th:nth-child(n + 4),
+  .grid td:nth-child(n + 4) {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .job-row {
+    grid-template-columns: 34px 92px 54px 1fr;
+  }
+
+  .job-row span:nth-child(5) {
+    display: none;
+  }
+
+  .job-row span:nth-child(4) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 600px) {
+  .field {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .drawer,
+  .states-section {
+    padding: 12px;
+  }
+}
