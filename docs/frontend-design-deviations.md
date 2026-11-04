@@ -294,8 +294,9 @@ Rules:
   CSS is limited to layout, responsive column hiding and motion.
 - **High density.** Page padding 10/16 px, headings 20/17/14 px, data text 11–12 px,
   layout gaps 8–16 px (not 24–32), table cells 4–5 px, card padding 10–12 px, the deck
-  description panel 150 px tall. The 1280×800 laptop shows the whole deck card, its
-  tallies and its actions without scrolling.
+  description block in a bordered Salt Card. The description is shown in full (no
+  internal scroll); the deck grows instead, because copying the New block matters more
+  than a fixed card height.
 - **No horizontal page scrolling at 390/768/1280 px.** The shell is border-box; filters
   wrap; the list drops to Status + Deviation at 600 px instead of scrolling sideways.
   Long values wrap (`overflow-wrap: anywhere`), never widen the page.

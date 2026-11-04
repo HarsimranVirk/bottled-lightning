@@ -97,11 +97,6 @@
   margin-right: auto;
 }
 
-.deck-description {
-  max-height: 150px;
-  overflow-y: auto;
-}
-
 .deck-description-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

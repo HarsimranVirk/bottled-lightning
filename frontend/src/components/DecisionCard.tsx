@@ -15,7 +15,6 @@ import {
   GridLayout,
   Input,
   Link,
-  Panel,
   StackLayout,
   Text,
 } from '@salt-ds/core'
@@ -120,7 +119,7 @@ export function DecisionCard({
           <Text color="secondary" styleAs="label">
             Loan Deviation Description — read it, raw is truth
           </Text>
-          <Panel className="deck-description">
+          <Card variant="secondary" elevation="flat" className="deck-description">
             {detail === null ? (
               <Text color="secondary">loading description…</Text>
             ) : description ? (
@@ -130,7 +129,7 @@ export function DecisionCard({
             ) : (
               <Text color="secondary">no description picked yet — run an extraction first</Text>
             )}
-          </Panel>
+          </Card>
 
           <Text color="secondary" styleAs="label">
             Housing Loan Deviation Details
