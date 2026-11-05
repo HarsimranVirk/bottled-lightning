@@ -13,6 +13,10 @@ from app.core.list_view import ListRow
 from app.core.models import PageRef, WorkItem, utcnow
 from app.core.status import FieldStatus, SubmitOutcome, WorkItemStatus, WriteOutcome
 from app.salesforce.adapters import AdapterBase, AdapterRegistry
+from app.salesforce.tabs import TabProvider
+from app.workflows.deviations_z02.adapters.deviation_record import (
+    DeviationRecordAdapter,
+)
 from app.workflows.deviations_z02.catalog import FIELD_CATALOG, DeviationObject
 from app.workflows.deviations_z02.submission import DeviationsZ02Submission
 from tests.support import DbTestCase
@@ -50,6 +54,37 @@ class FakeTabs:
 
     async def close_page(self, page: Page) -> None:
         """No-op: the fake page has nothing to close."""
+
+
+class FakeDeviationAdapter(DeviationRecordAdapter):
+    """In-memory deviation record: records the click and the tick it reports."""
+
+    def __init__(
+        self, *, implemented: bool | None = False, confirm: bool = True
+    ) -> None:
+        """Seed the initial tick and whether the click should confirm it."""
+        super().__init__("https://org", 1000)
+        self.implemented = implemented
+        self.confirm = confirm
+        self.clicks = 0
+        self.opened: list[str] = []
+
+    async def open_record(self, tabs: TabProvider, record_url: str) -> Page:
+        """Record the record URL and hand back a fake page."""
+        self.opened.append(record_url)
+        return FakePage()
+
+    async def is_implemented(self, page: Page) -> bool | None:
+        """Report the seeded tick."""
+        return self.implemented
+
+    async def implement(self, page: Page) -> bool:
+        """Count the click; turn the tick on only when ``confirm`` is set."""
+        self.clicks += 1
+        if self.confirm:
+            self.implemented = True
+            return True
+        return False
 
 
 class FakeWriteAdapter(AdapterBase):
@@ -175,9 +210,10 @@ class SubmissionTests(DbTestCase):
         current: Mapping[FieldTarget, str],
         outcomes: Mapping[FieldTarget, WriteOutcome] | None = None,
         missing: str | None = None,
+        deviation: FakeDeviationAdapter | None = None,
     ) -> AdapterRegistry:
-        """Build one fake adapter per object kind."""
-        adapters = [
+        """Build one fake adapter per object kind plus the deviation record."""
+        adapters: list[AdapterBase] = [
             FakeWriteAdapter(
                 kind,
                 {target: value for target, value in current.items() if target.object_kind == kind},
@@ -186,6 +222,7 @@ class SubmissionTests(DbTestCase):
             for kind in REF_KINDS
             if kind != missing
         ]
+        adapters.append(deviation or FakeDeviationAdapter())
         return AdapterRegistry(adapters)
 
     def _pipeline(self, adapters: AdapterRegistry) -> DeviationsZ02Submission:
@@ -199,7 +236,6 @@ class SubmissionTests(DbTestCase):
             deps.events,
             adapters,
             FIELD_CATALOG,
-            final_action=False,
         )
 
     def _run(
@@ -209,7 +245,7 @@ class SubmissionTests(DbTestCase):
         return asyncio.run(pipeline.run(item, FakeTabs(), lambda _message: None))
 
     def test_apply_and_validate_marks_fields_applied(self) -> None:
-        """A clean run writes every target, validates and returns validated."""
+        """A clean run writes every target, validates and implements."""
         item = self._item()
         self._refs()
         self._seed(
@@ -221,10 +257,11 @@ class SubmissionTests(DbTestCase):
 
         outcome = self._run(pipeline, item)
 
-        self.assertIs(outcome, SubmitOutcome.VALIDATED)
+        self.assertIs(outcome, SubmitOutcome.COMPLETED)
         fresh = self.deps().items.require(WORKFLOW, KEY)
-        self.assertIs(fresh.status, WorkItemStatus.READY)
-        self.assertEqual(fresh.reason, "validated; final action disabled")
+        self.assertIs(fresh.status, WorkItemStatus.EXECUTING)
+        self.assertIsNotNone(fresh.execute_attempted_at)
+        self.assertIsNotNone(fresh.execute_confirmed_at)
         fields = self.deps().fields.for_item(WORKFLOW, KEY)
         self.assertEqual(fields["loan_amount"].applied, "1450000")
         self.assertEqual(fields["emi_incl_hffc"].applied, "18585")
@@ -255,9 +292,9 @@ class SubmissionTests(DbTestCase):
 
         outcome = self._run(pipeline, item)
 
-        self.assertIs(outcome, SubmitOutcome.VALIDATED)
+        self.assertIs(outcome, SubmitOutcome.COMPLETED)
         fresh = self.deps().items.require(WORKFLOW, KEY)
-        self.assertIs(fresh.status, WorkItemStatus.READY)
+        self.assertIs(fresh.status, WorkItemStatus.EXECUTING)
         for kind in (
             DeviationObject.OPPORTUNITY.value,
             DeviationObject.CL_CONTRACT.value,
@@ -288,7 +325,7 @@ class SubmissionTests(DbTestCase):
 
         outcome = self._run(pipeline, item)
 
-        self.assertIs(outcome, SubmitOutcome.VALIDATED)
+        self.assertIs(outcome, SubmitOutcome.COMPLETED)
         emi_target = next(
             target
             for target in _targets(DeviationObject.OPPORTUNITY.value)
@@ -383,13 +420,117 @@ class SubmissionTests(DbTestCase):
 
         outcome = self._run(pipeline, item)
 
-        self.assertIs(outcome, SubmitOutcome.VALIDATED)
+        self.assertIs(outcome, SubmitOutcome.COMPLETED)
         for kind in REF_KINDS:
             adapter = adapters.get(kind)
             assert isinstance(adapter, FakeWriteAdapter)
             self.assertEqual(adapter.writes, {})
         fields = self.deps().fields.for_item(WORKFLOW, KEY)
         self.assertEqual(fields["loan_amount"].applied, "1450000")
+
+
+    def test_already_implemented_is_external(self) -> None:
+        """A pre-existing tick is not claimed as our implementation."""
+        item = self._item()
+        self._refs()
+        self._seed({"loan_amount": "14,50,000"})
+        deviation = FakeDeviationAdapter(implemented=True)
+        adapters = self._adapters(self._current(), deviation=deviation)
+        pipeline = self._pipeline(adapters)
+
+        outcome = self._run(pipeline, item)
+
+        self.assertIs(outcome, SubmitOutcome.ALREADY_CLOSED)
+        self.assertEqual(deviation.clicks, 0)
+        self.assertEqual(deviation.opened, [f"/lightning/r/a2f/{KEY}/view"])
+        fresh = self.deps().items.require(WORKFLOW, KEY)
+        self.assertIsNone(fresh.execute_attempted_at)
+        self.assertIsNone(fresh.execute_confirmed_at)
+
+    def test_confirmed_implement_sets_both_timestamps(self) -> None:
+        """A confirmed click records the attempt and the observation."""
+        item = self._item()
+        self._refs()
+        self._seed({"loan_amount": "14,50,000"})
+        deviation = FakeDeviationAdapter()
+        adapters = self._adapters(self._current(), deviation=deviation)
+        pipeline = self._pipeline(adapters)
+
+        outcome = self._run(pipeline, item)
+
+        self.assertIs(outcome, SubmitOutcome.COMPLETED)
+        self.assertEqual(deviation.clicks, 1)
+        fresh = self.deps().items.require(WORKFLOW, KEY)
+        self.assertIs(fresh.status, WorkItemStatus.EXECUTING)
+        self.assertIsNotNone(fresh.execute_attempted_at)
+        self.assertIsNotNone(fresh.execute_confirmed_at)
+
+    def test_unconfirmed_implement_parks_for_review(self) -> None:
+        """A click without the tick leaves the item for review with the attempt kept."""
+        item = self._item()
+        self._refs()
+        self._seed({"loan_amount": "14,50,000"})
+        deviation = FakeDeviationAdapter(confirm=False)
+        adapters = self._adapters(self._current(), deviation=deviation)
+        pipeline = self._pipeline(adapters)
+
+        outcome = self._run(pipeline, item)
+
+        self.assertIs(outcome, SubmitOutcome.FAILED)
+        self.assertEqual(deviation.clicks, 1)
+        fresh = self.deps().items.require(WORKFLOW, KEY)
+        self.assertIs(fresh.status, WorkItemStatus.NEEDS_REVIEW)
+        self.assertIsNotNone(fresh.execute_attempted_at)
+        self.assertIsNone(fresh.execute_confirmed_at)
+        self.assertIn("did not turn on", fresh.reason or "")
+
+    def test_missing_record_url_fails_before_the_final_action(self) -> None:
+        """Without a record link the deviation page cannot be opened."""
+        item = self._item()
+        self._refs()
+        self._seed({"loan_amount": "14,50,000"})
+        conn = self.db.connect()
+        conn.execute(
+            "UPDATE work_items SET record_url = NULL WHERE workflow = ? AND item_key = ?",
+            [WORKFLOW, KEY],
+        )
+        conn.commit()
+        adapters = self._adapters(self._current())
+        pipeline = self._pipeline(adapters)
+
+        outcome = self._run(pipeline, item)
+
+        self.assertIs(outcome, SubmitOutcome.FAILED)
+        fresh = self.deps().items.require(WORKFLOW, KEY)
+        self.assertIn("no deviation record URL", fresh.reason or "")
+
+    def test_resume_from_executing_skips_the_write_phase(self) -> None:
+        """A requeued job that already validated only finishes the final action."""
+        item = self._item()
+        self._refs()
+        self._seed({"loan_amount": "14,50,000"})
+        deps = self.deps()
+        for status in (
+            WorkItemStatus.SUBMITTING,
+            WorkItemStatus.APPLYING,
+            WorkItemStatus.VALIDATING,
+            WorkItemStatus.EXECUTING,
+        ):
+            deps.items.transition(WORKFLOW, KEY, status)
+        deps.items.mark_execute_attempted(WORKFLOW, KEY, utcnow())
+        adapters = self._adapters(self._current())
+        pipeline = self._pipeline(adapters)
+
+        outcome = self._run(pipeline, item)
+
+        self.assertIs(outcome, SubmitOutcome.COMPLETED)
+        for kind in REF_KINDS:
+            adapter = adapters.get(kind)
+            assert isinstance(adapter, FakeWriteAdapter)
+            self.assertEqual(adapter.reads, 0)
+            self.assertEqual(adapter.writes, {})
+        fresh = self.deps().items.require(WORKFLOW, KEY)
+        self.assertIsNotNone(fresh.execute_confirmed_at)
 
 
 if __name__ == "__main__":

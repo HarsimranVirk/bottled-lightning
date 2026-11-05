@@ -13,6 +13,7 @@ never touches Playwright and never reads the token-bearing ``sessions`` table.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -57,6 +58,8 @@ class HistoryQuery:
     decided_before: str | None = None
     field_text: tuple[tuple[str, str], ...] = ()
     field_values: tuple[tuple[str, str], ...] = ()
+    ref_text: tuple[tuple[str, str], ...] = ()
+    ref_values: tuple[tuple[str, str], ...] = ()
     limit: int = 25
     offset: int = 0
 
@@ -367,6 +370,24 @@ class ApprovedHistoryRepository:
                 "AND COALESCE(f.proposed, f.extracted, f.applied, '') = ?)"
             )
             params.extend([field_key, value])
+        for ref_kind, text in query.ref_text:
+            where.append(
+                "EXISTS (SELECT 1 FROM approved_deviation_refs r "
+                "WHERE r.workflow = approved_deviations.workflow "
+                "AND r.item_key = approved_deviations.item_key "
+                "AND r.kind = ? "
+                "AND r.name LIKE ?)"
+            )
+            params.extend([ref_kind, f"%{text}%"])
+        for ref_kind, value in query.ref_values:
+            where.append(
+                "EXISTS (SELECT 1 FROM approved_deviation_refs r "
+                "WHERE r.workflow = approved_deviations.workflow "
+                "AND r.item_key = approved_deviations.item_key "
+                "AND r.kind = ? "
+                "AND r.name = ?)"
+            )
+            params.extend([ref_kind, value])
 
         clause = " WHERE " + " AND ".join(where)
         conn = self._db.connect()
@@ -446,6 +467,42 @@ class ApprovedHistoryRepository:
             )
             for row in rows
         }
+
+    def refs_for(
+        self, workflow: str, keys: Sequence[str]
+    ) -> dict[str, dict[str, PageRef]]:
+        """
+        Snapshot object links for a whole page, keyed by item then object kind.
+
+        Called once per History page so a 25-row page costs one query instead of 25.
+        Uses the ``(workflow, item_key, kind)`` primary-key prefix. An empty ``keys``
+        sequence returns an empty mapping without touching the database.
+        """
+        if not keys:
+            return {}
+        placeholders = ", ".join("?" for _ in keys)
+        rows = (
+            self._db.connect()
+            .execute(
+                "SELECT item_key, kind, name, url FROM approved_deviation_refs "
+                f"WHERE workflow = ? AND item_key IN ({placeholders}) "
+                "ORDER BY item_key, kind",
+                [workflow, *keys],
+            )
+            .fetchall()
+        )
+        grouped: dict[str, dict[str, PageRef]] = {}
+        for row in rows:
+            item_key = str(row["item_key"])
+            ref = PageRef(
+                workflow=workflow,
+                item=item_key,
+                kind=str(row["kind"]),
+                name=str(row["name"]),
+                url=str(row["url"]),
+            )
+            grouped.setdefault(item_key, {})[ref.kind] = ref
+        return grouped
 
     def edits(
         self, workflow: str, key: str, limit: int = 50

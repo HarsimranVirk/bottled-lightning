@@ -3,11 +3,11 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.5 |
+| **Version** | v4.8 |
 | **Date** | 2026-11-05 |
 | **Companions** | `docs/FR-deviations.md` (v3), `docs/data-model-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
 | **Change** | Introduced the workflow abstraction; earlier drafts were deviations-only |
-| **Implemented so far** | Phases 1–5, 7 and the apply/validate half of 6: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,urls,adapters}`, `app/jobs/{dispatcher,worker,auth,logger}`, `app/pipeline/{watcher,reconciler,closure}`,
+| **Implemented so far** | Phases 1–7 including the full 6: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,urls,adapters}`, `app/jobs/{dispatcher,worker,auth,logger}`, `app/pipeline/{watcher,reconciler,closure}`,
 `app/utils/dom`, `app/workflows/deviations_z02/{catalog,description,product_map,adapters,extraction,submission}` |
 
 This document describes the target class design. It separates the parts that are the
@@ -178,7 +178,7 @@ class ExtractOutcome(StrEnum):
 
 class SubmitOutcome(StrEnum):
     COMPLETED = "completed"     # final action performed by us
-    VALIDATED = "validated"     # apply + read-back ok; final action disabled (FR-6.14)
+    VALIDATED = "validated"     # retained for compatibility; the pipeline no longer returns it
     ALREADY_CLOSED = "already_closed"   # gone in SF; clean terminal, not an error
     FAILED = "failed"           # retryable or needs review, decided by the pipeline
 ```
@@ -524,8 +524,8 @@ one-shot / append-only semantics — is specified in
 
 - item tables, workflow-scoped: `work_items`, `work_item_fields`,
   `work_item_attributes`, `work_item_refs`
-- audit, append-only: `work_item_edits`, `work_item_events`, `job_logs`,
-  `sync_runs`, `session_events`
+- audit: `work_item_edits`, `work_item_events`, `job_logs`, `session_events`
+- bounded ring: `sync_runs` (newest 20 per workflow, trimmed on insert)
 - queue: `jobs`, with a partial unique index enforcing one active job per item
 - auth: `sessions` (latest snapshot wins)
 
@@ -595,7 +595,7 @@ class SessionRepository:
     def event(self, kind: str, detail: str) -> None: ...
 
 class SyncRunRepository:
-    def record(self, run: SyncRun) -> int: ...
+    def record(self, run: SyncRun) -> int: ...   # insert + trim to 20 per workflow
     def latest(self, workflow: str) -> SyncRun | None: ...
 
 class EventRepository:
@@ -620,6 +620,7 @@ class ApprovedHistoryRepository:
     def fields(self, workflow: str, key: str) -> dict[str, FieldValue]: ...
     def attributes(self, workflow: str, key: str) -> dict[str, str | None]: ...
     def refs(self, workflow: str, key: str) -> dict[str, PageRef]: ...
+    def refs_for(self, workflow: str, keys: Sequence[str]) -> dict[str, dict[str, PageRef]]: ...
     def edits(self, workflow: str, key: str, limit: int = 50) -> list[tuple[str, str | None, str | None, str]]: ...
 
 class PurgeRepository:
@@ -633,14 +634,29 @@ snapshot; `remove` deletes it. The History read model therefore never joins
 `work_items` or `item_decisions`.
 
 `HistoryQuery` carries the standard filter row: key/status/approval contains and exact
-sets, a decided date range, and repeated `(field_key, text/value)` pairs. Field filters
-are correlated `EXISTS` clauses against `approved_deviation_fields`, using the same
-`proposed`, else `extracted`, else `applied` precedence as the table.
+sets, a decided date range, repeated `(field_key, text/value)` pairs, and repeated
+`(ref_kind, text/value)` pairs. Field filters are correlated `EXISTS` clauses against
+`approved_deviation_fields`, using the same `proposed`, else `extracted`, else `applied`
+precedence as the table. Ref filters are correlated `EXISTS` clauses against
+`approved_deviation_refs`, matching `kind` and `name`; one clause per pair, so text and
+selections in one column compose with AND and columns compose with AND.
 
-`PurgeRepository` owns the two bulk-delete statements. `PurgeService` chooses the cutoff
-(`now - 24h` for current, `now - 90d` for history), runs the dry-run or real transaction,
-and returns an immutable `PurgeResult` with per-table counts. The repository is the only
-class that issues destructive SQL; the API and frontend never supply a cutoff.
+`refs_for` is the list-view read: one query for a whole page keyed by
+`(workflow, item_key IN …)`, returning `{item_key: {kind: PageRef}}`. The API projects a
+`HistoryRowView` (item row + `refs`) from it, so a page costs one extra query rather than
+one per row. `refs` remains the single-item read used by the detail view.
+
+`PurgeRepository` owns the operator-triggered bulk-delete statements. `PurgeService` chooses
+the cutoff (`now - 24h` for current, `now - 90d` for history), runs the dry-run or real
+transaction, and returns an immutable `PurgeResult` with per-table counts. The current
+scope deletes `jobs` and `job_logs` for the items it removes; the job delete re-applies the
+terminal-status filter so a job queued between selection and delete survives.
+
+`SyncRunRepository.record()` owns the one automatic delete in the system: it inserts the
+sample and, in the same transaction, drops everything outside the newest 20 rows per
+workflow. Keeping the trim inside the repository (not in the watcher or reconciler) means
+the bound holds no matter which caller records a sample. The repository layer is the only
+place destructive SQL exists; the API and frontend never supply a cutoff.
 
 `JobPage` is `(jobs, total)`; `JobQuery` carries the optional column filters, the
 sort column + direction and the page window. Enum filters (`kind`, `status`, `phase`)
@@ -961,8 +977,7 @@ class DeviationsZ02Submission:
     def __init__(self, workflow: str, items: WorkItemRepository,
                  fields: FieldValueRepository, refs: PageRefRepository,
                  events: EventRepository, adapters: AdapterRegistry,
-                 catalog: Sequence[EditableField], *,
-                 final_action: bool = False) -> None: ...
+                 catalog: Sequence[EditableField]) -> None: ...
     async def run(self, item: WorkItem, tabs: TabProvider,
                   log: JobLogger) -> SubmitOutcome: ...
     async def preview(self, item: WorkItem, tabs: TabProvider,
@@ -976,14 +991,21 @@ apply      → group targets by object_kind; open every page and read all curren
              (FR-6.2); a difference does NOT block the write; write; persist
              per-field applied/rejected truth
 validate   → re-read every target: equality + still present                 (FR-6.4)
-execute    → only with final_action=True: mark execute_attempted → click
-             Implement → modal confirm → observe → mark execute_confirmed   (FR-6.5/6.7)
+execute    → open the deviation record page from item.record_url
+             read the Implemented__c checkbox
+             ticked  → ALREADY_CLOSED (external; no click, no timestamps)
+             not ticked → mark execute_attempted → click
+                          button[name="Consumer_Loan_Deviation__c.Implemented"]
+                          → poll the tick → mark execute_confirmed → COMPLETED
+                          (no tick → NEEDS_REVIEW + failed job)             (FR-6.5/6.7)
 ```
 
-`final_action=False` is the Phase 6 bring-up mode: the run stops after validation,
-returns `VALIDATED`, and moves the item back to `READY` with
-`reason="validated; final action disabled"` (FR-6.14). `final_action=True` currently
-raises a reviewable failure rather than clicking Implement, because O-2 is still open.
+The final action has no modal. `DeviationRecordAdapter` owns the page details:
+`open_record(tabs, record_url)`, `is_implemented(page)`, `implement(page)`. The pipeline
+never writes `COMPLETED`/`CLOSED` itself: a live lease forbids it, so a confirmed click
+leaves the item in `EXECUTING` until the next valid refresh attributes the closure
+`COMPLETED`/`system` (invariant I13's lease rule). An already-ticked deviation is not
+claimed: the closure is `CLOSED`/`external` (FR-6.16).
 
 `ALREADY_CLOSED` is not an error: the worker marks the job succeeded (FR-6.6). A retry
 after a crash skips targets whose `applied` value already equals the intended value and
@@ -1161,9 +1183,13 @@ Each should have a test.
     the write, so a formatted/concatenated input can never be saved.
 12. **I12** The History read model uses only `approved_*` tables. It never joins or falls
     back to `work_items`/`item_decisions`, so deleting current data cannot blank history.
-13. **I13** A current purge never deletes an item with an active job and never touches an
-    `approved_*` table; a history purge never touches a current or operational table.
+13. **I13** A current purge never deletes an item with an active job, never deletes a
+    `queued`/`running`/`blocked_auth` job row even when its item is old, and never touches
+    an `approved_*` table; a history purge never touches a current or operational table.
 14. **I14** Both purges are idempotent, and a dry run performs no permanent delete.
+15. **I15** After every successful `SyncRunRepository.record()`, each workflow has at most
+    20 `sync_runs` rows and the newest row is still present, so `latest()` always has a
+    reading.
 
 ## 13. Test seams
 

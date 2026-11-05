@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v3.4 |
+| **Version** | v3.7 |
 | **Date** | 2026-11-05 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/api-deviations.md` |
@@ -80,6 +80,13 @@ change that alters the code (see AGENTS.md, plan-mode rules).
 | `closed_at` | TEXT | yes | Terminal timestamp |
 
 **Key** `(workflow, item_key)`. **Index** `(workflow, status)` for the working view.
+
+**Final-action timestamps.** `execute_attempted_at` is written immediately before the
+Implement click and `execute_confirmed_at` only after the `Implemented__c` tick is
+observed. The closure resolver turns them into `COMPLETED`/`system` (confirmed) or
+`COMPLETED`/`system` with `implement_unconfirmed` (attempted only); neither set means
+`CLOSED`/`external`. The submit job cannot write `COMPLETED`/`CLOSED` itself while it
+holds the lease.
 
 Semantics:
 - Rows are never deleted by normal operation; the manual current purge (7.1) removes
@@ -180,8 +187,11 @@ CREATE UNIQUE INDEX jobs_active ON jobs(workflow, item_key)
 ```
 
 One active job per item, enforced by the database rather than by application checks.
+**Retention:** terminal rows are deleted by the current purge when their item is purged
+(§7.1). `queued`, `running` and `blocked_auth` rows are never deleted, because the queue,
+the lease check and the purge's own protection filter read them.
 
-### 4.8 `job_logs` — per-job progress (append-only)
+### 4.8 `job_logs` — per-job progress (audit, deleted with its job)
 
 | Column | Type | Null | Meaning |
 |---|---|---|---|
@@ -190,7 +200,11 @@ One active job per item, enforced by the database rather than by application che
 | `line` | TEXT | no | One log line |
 | `at` | TEXT | no | When |
 
-### 4.9 `sync_runs` — refresh history (append-only)
+**Retention:** rows follow their job. The current purge deletes them explicitly (joined
+through `jobs`) before deleting the job rows; the `ON DELETE CASCADE` remains as a
+backstop, not as the primary path.
+
+### 4.9 `sync_runs` — refresh history (bounded ring)
 
 | Column | Type | Null | Meaning |
 |---|---|---|---|
@@ -204,6 +218,8 @@ One active job per item, enforced by the database rather than by application che
 | `added`, `updated`, `closed` | INTEGER | no | Reconciliation counters |
 
 Invalid runs are recorded deliberately: a persistent header mismatch must stay visible.
+**Retention:** a bounded ring — each workflow keeps its 20 newest rows, pruned in the same
+transaction as the insert (§7.4). The table is never unbounded.
 
 ### 4.10 `sessions` — auth snapshots (append-only, latest wins)
 
@@ -293,6 +309,12 @@ key to the parent.
 Same shape as 4.4 (`workflow`, `item_key`, `kind`, `name`, `url`), with a cascading
 foreign key to the parent.
 
+**History list reads** use one batch query per page —
+`WHERE workflow = ? AND item_key IN (…)` — served by the `(workflow, item_key, kind)`
+primary-key prefix. No column, index or migration is added for the five history link
+columns; the rows already exist and are copied with the snapshot, so list and detail read
+the same data.
+
 ### 4.17 `approved_deviation_edits` — submitted edits (snapshot)
 
 | Column | Type | Null | Meaning |
@@ -341,8 +363,9 @@ repositories made them more friction than value); `job_logs.job_id` is the one F
 | `work_item_fields` | mutable | `proposed` immune to refresh; `applied` written only after a verified save |
 | `work_item_attributes` | replace-on-extract | Overwritten wholesale on each extraction |
 | `work_item_refs` | replace-on-extract | Replaced atomically per item |
-| `jobs` | mutable until terminal | Terminal rows are history; stale leases are requeued |
-| `work_item_edits`, `work_item_events`, `item_decisions`, `job_logs`, `sync_runs`, `session_events` | append-only | Never updated or deleted by normal operation |
+| `jobs` | mutable until terminal | Terminal rows are deleted only by the current purge, with their items |
+| `work_item_edits`, `work_item_events`, `item_decisions`, `job_logs`, `session_events` | audit | Never updated; deleted only when their parent item (and, for `job_logs`, its job) is purged |
+| `sync_runs` | bounded ring | Newest 20 per workflow, trimmed in the insert transaction |
 | `sessions` | append-only | Latest row wins; `clear()` removes all |
 | `approved_deviations` | snapshot | Written on accept, refreshed on submit/closure, removed on undo/reject |
 | `approved_deviation_*` | snapshot children | Replaced with the parent; cascade on delete |
@@ -359,9 +382,19 @@ with an active job (`queued`, `running`, `blocked_auth`). It deletes the item's
 `work_item_fields`, `work_item_attributes`, `work_item_refs`, `work_item_edits`,
 `work_item_events` and `item_decisions` in the same transaction.
 
+It also deletes the item's `jobs` rows and their `job_logs`, but only when the job is
+terminal (`succeeded`, `failed`, `cancelled`). The terminal filter is applied again in the
+delete statement itself: `submit()` can enqueue a job between the item selection and the
+delete, and a freshly queued job must never be removed after the API has already returned
+`202`. An item whose job is still terminal-free keeps that job until the next run.
+
 Deleting the old decisions is deliberate: a deviation that disappears and later returns
-must not inherit a stale accept that would keep it out of the deck. Jobs, job logs, sync
-runs, sessions, session events and every `approved_*` table are out of scope.
+must not inherit a stale accept that would keep it out of the deck. `sessions`,
+`session_events` and every `approved_*` table are out of scope.
+
+The trade-off is explicit: the Jobs page keeps history only for items still inside the
+current store. Once an item is purged, its job log is unrecoverable — `work_item_events`
+records status transitions, not the Salesforce detail.
 
 ### 7.2 Approved history — 90 days
 
@@ -373,9 +406,34 @@ and operational tables are untouched.
 
 - Both purges are idempotent and support a dry run that returns the same counts.
 - The cutoff is computed server-side; the UI never supplies or changes it.
-- No automatic retention loop exists yet; both actions are operator-triggered.
+- Both purges are operator-triggered. The one automatic deletion is the `sync_runs` ring
+  (§7.4), which has no reader beyond the newest row and needs no confirmation.
 - `VACUUM` is not run automatically; SQLite may keep free pages until a later manual
-  maintenance step.
+  maintenance step. Deleting rows does not shrink the file.
+
+### 7.4 Sync runs — 20 rows per workflow
+
+`SyncRunRepository.record()` inserts the new sample and, in the same transaction, deletes
+every row outside the newest 20 for each workflow:
+
+```sql
+DELETE FROM sync_runs
+ WHERE id NOT IN (
+   SELECT id FROM (
+     SELECT id, ROW_NUMBER() OVER (PARTITION BY workflow ORDER BY id DESC) AS rn
+       FROM sync_runs
+   ) WHERE rn <= 20
+ );
+```
+
+`id DESC` is the same order `recent(limit=20)` reads, so the retained window equals the
+documented read window. `latest()` is unaffected because the newest row is always kept.
+The statement runs on every insert and trims every workflow at once, so rows belonging to
+a workflow that is no longer registered do not linger.
+
+No index is needed: the table never exceeds 20 rows per workflow, and both the trim and
+`latest()` order by the `id` primary key. This is why the change carries no schema
+migration.
 
 ## 8. Repository ownership map
 

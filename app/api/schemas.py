@@ -116,6 +116,21 @@ class ItemsPageView(ApiModel):
     rows: list[ItemRowView]
 
 
+class HistoryRowView(ItemRowView):
+    """One approved-history row; adds the snapshot's object links."""
+
+    refs: list[PageRefView]
+
+
+class HistoryPageView(ApiModel):
+    """One page of approved-history rows plus the filtered total."""
+
+    workflow: str
+    count: int
+    total: int
+    rows: list[HistoryRowView]
+
+
 class JobLogsView(ApiModel):
     job: JobView
     logs: list[str]

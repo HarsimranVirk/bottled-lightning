@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.21 |
+| **Version** | v5.24 |
 | **Date** | 2026-11-05 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -217,17 +217,19 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   A write that does not stick is a failure. An absent deviation is not a failure — it
   means SF already closed it (see FR-6.6).
 - **FR-6.5** `Implement` is clicked only when apply succeeded, every value read back
-  equal, and the deviation is still present. If the deviation is absent at the validation
-  check, the implement step is skipped entirely: no modal is opened and nothing is
-  confirmed.
+  equal, and the deviation is still present. The action runs on the deviation record page,
+  opened from the item's record URL. If the deviation's Implemented checkbox is already
+  ticked, no click happens and the run returns `already_closed` (FR-6.16). If the
+  deviation is absent at the validation check, the implement step is skipped entirely.
 - **FR-6.6** Any failure before the final action aborts the job, so a deviation is never
   implemented on partial or unverified success. An absence-driven skip is a clean
   terminal outcome, not an error: the deviation is recorded as `closed` with
   `source=external` and reason `already_implemented`, the job is marked successful, and
   it is neither retried nor sent to review.
-- **FR-6.7** Implement success is confirmed immediately after the confirm action by the
-  deviation page state (the button/status changes). It is not inferred from a toast
-  string, and not from list absence. If that observation cannot be made, FR-6.12 applies.
+- **FR-6.7** Implement success is confirmed immediately after the click by the deviation's
+  Implemented checkbox turning ticked. It is not inferred from a toast string, and not
+  from list absence. If the tick cannot be observed within the request timeout, the run
+  fails to `needs_review` and `execute_attempted_at` stays set (FR-6.12).
 - **FR-6.8** `SUBMIT` is idempotent with respect to its effects: retrying after a crash
   must not double-write or double-implement. Per-phase and per-object progress is
   persisted before and after every action.
@@ -246,15 +248,17 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   `source=system` and carries an `implement_unconfirmed` flag for operator review.
 - **FR-6.13** A deviation that reappears after being closed starts a new presence epoch
   and returns to `present`, with its prior history intact.
-- **FR-6.14** During Phase 6 bring-up the submission pipeline may run with the final
-  action disabled. In that mode it performs apply and validate only, returns
-  `validated`, and returns the item to `ready` with the reason `validated; final action
-  disabled`. No Implement click, modal or confirmation is performed. The mode exists
-  only until O-2 is resolved and is not a substitute for FR-6.5.
+- **FR-6.14** The validate-only bring-up mode is retired: the submission pipeline always
+  performs the final action. There is no configuration switch that skips it. A deployment
+  that must not implement deviations should not submit them.
 - **FR-6.15** A failed submit does not roll back values that were already written. It
   records per-target truth (`applied` / `rejected`), moves the deviation to
   `needs_review`, fails the job, and notifies the operator with the field/object that
   failed. The operator fixes the cause and resubmits.
+- **FR-6.16** A deviation whose Implemented checkbox is already ticked before the click is
+  not implemented again and is not attributed to us: the run returns `already_closed`, and
+  the first valid refresh that no longer shows the deviation records `closed` with
+  `source=external` and reason `already_implemented`. No execute timestamps are written.
 
 ### FR-7 Jobs & workers
 
@@ -310,15 +314,33 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   never `work_items` or `item_decisions`. A history row therefore remains readable after
   its current work item is purged.
 - **FR-8.6** Current work items and approved history have independent retention windows.
-  The current work-item purge keeps the last 24 hours; the approved-history purge keeps
-  the last 3 months (90 days). Neither purge may erase the other store.
+  The current work-item purge keeps the last 24 hours and also removes the terminal jobs
+  and job logs of every item it deletes; the approved-history purge keeps the last 3
+  months (90 days). Neither purge may erase the other store.
 - **FR-8.7** Both purges are manual. They are triggered from the hidden `/dev/db` page,
   are localhost-only, and require an explicit confirmation with the cutoff and the
-  per-table counts shown before the destructive action.
+  per-table counts shown before the destructive action. The single automatic deletion in
+  the system is the bounded `sync_runs` ring in FR-8.9; it removes nothing an operator can
+  read.
 - **FR-8.8** History uses the same standard table-filter pattern as every other table:
   deviation key, status, SF approval and each displayed value column have a text input
   and exact-value checkboxes; the decided date uses the range variant. The filtered total
   and pagination come from the server.
+- **FR-8.9** Each workflow retains its 20 newest `sync_runs` rows; older rows are deleted
+  automatically in the same transaction that records a new sample. The newest row is never
+  deleted, so the sync banner always has a reading. The retained window matches the
+  documented `recent(limit=20)` read; `latest()` is the only production reader.
+- **FR-8.10** The current purge also deletes `jobs` and `job_logs` belonging to the items
+  it removes. Only terminal jobs (`succeeded`, `failed`, `cancelled`) may be deleted;
+  `queued`, `running` and `blocked_auth` rows always survive. A job whose item is not
+  purged is retained even when it is old. Consequently the Jobs page keeps history only
+  for items inside the current store, i.e. until the next current purge past their 24-hour
+  window.
+- **FR-8.11** Every approved-history row exposes the item's five object links —
+  opportunity, CL contract, collateral, LMS2 CL contract and LMS2 collateral — as five
+  table columns. Each cell shows the linked object's `name` and opens its Salesforce URL in
+  a new tab; a kind with no stored ref shows `—` and is not clickable. The links come from
+  the snapshot's refs, so they remain readable after the current work item is purged.
 
 ### FR-9 API & frontend
 
@@ -349,15 +371,18 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-9.9** In the current phase Accept is the submission action and does not open a
   separate confirmation dialog; its label is “Accept & update” and the card's values are
   visible before it is pressed. The button is disabled unless the item is submittable. A
-  dedicated confirmation may return when Implement is enabled.
+  dedicated confirmation is deliberately not shown now that the final action runs:
+  submissions must stay fast.
 - **FR-9.10** The full edit → save → submit path is keyboard-reachable, the detail panel
   traps focus while open, and status changes are announced to assistive technology.
 - **FR-9.11** `frontend/src/types.ts` is generated from the OpenAPI schema; a contract
   change that is not regenerated fails the typecheck.
 - **FR-9.12** UI changes ship with screenshots of their state-matrix rows at narrow,
   medium and wide widths.
-- **FR-9.13** No screen requires horizontal scrolling at 390, 768 or 1280 px. Tables hide
-  columns and the filters sit in the column headers instead of widening the page. All
+- **FR-9.13** No screen scrolls horizontally at its default layout at 390, 768 or 1280 px.
+  A table whose columns the operator widens — and the History table with its full column
+  set at 1280 px — scrolls inside its own container instead of widening the page. Tables
+  hide columns and the filters sit in the column headers instead of widening the page. All
   data text (the deck description, ROI values, page refs and detail fields) is selectable
   so the operator can copy values. The deck has no drag gesture (FR-10.9).
 - **FR-9.14** The UI is built from Salt DS components only: Tabs for navigation,
@@ -388,6 +413,22 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   filtering remains client-side over the bounded preview; exports still run the full SQL.
   Future tables must reuse the shared filter components rather than adding bespoke
   filter cells.
+- **FR-9.20** Every real table (History, Jobs, Dev DB results) is paginated. History and
+  Jobs page on the server with a filtered total; the Dev DB preview pages on the client
+  over its capped result, because arbitrary read-only SQL has no stable cursor.
+- **FR-9.21** Every column of every real table is filterable using FR-9.18. Object-link
+  columns filter on the linked object's name with the same text + multiselect pair; the
+  server receives every selected value so totals and later pages stay correct.
+- **FR-9.22** Every column of every real table is resizable. Widths persist per table
+  across reloads, a Reset action restores the defaults, and resizing is keyboard-operable
+  from the header. Resizing is unavailable below 900 px, where columns are hidden by
+  breakpoint instead.
+- **FR-9.23** A table that does not fit its container scrolls horizontally inside the
+  table container only; the page itself never scrolls sideways. Default widths must fit at
+  390, 768 and 1280 px, except History's full column set at 1280 px (FR-9.13).
+- **FR-9.24** The three real tables share one implementation — a single `DataTable`
+  component built from Salt DS primitives — so pagination, filters, widths and scrolling
+  cannot diverge between screens. Bespoke table markup is not allowed.
 
 ### FR-10 Review decisions (accept / reject)
 
@@ -398,8 +439,7 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   values. If at least one value is non-empty, it also enqueues exactly one `SUBMIT` job.
   A card with no values records the decision only. Reject records a `rejected` decision
   with an optional reason and no values; it never writes to Salesforce. The submit job
-  writes and validates the accepted values but does not Implement during the current
-  phase (FR-6.14).
+  writes, validates and implements the accepted values (FR-6.5).
 - **FR-10.3** Decisions are reversible. Undoing a decision returns the item to undecided
   and it re-enters the deck.
 - **FR-10.4** A decided item leaves the deck immediately, except an accepted item that
@@ -410,8 +450,9 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   `needs_review`). Terminal and in-flight items never appear.
 - **FR-10.6** Accepted items with non-empty values are the submission queue: acceptance
   enqueues the `SUBMIT` job immediately. Acceptance with no values is a local decision
-  only. Acceptance never implies Implement success; a successful validate-only run returns
-  the item to `ready` with a reason, and a failed run returns it to `needs_review`.
+  only. Acceptance never implies Implement success; a confirmed run leaves the item in
+  `executing` until the next valid refresh completes the closure, and a failed run returns
+  it to `needs_review`.
 - **FR-10.7** Rejection is not a skip. It does not alter extraction state or the pipeline
   status, and the item keeps syncing from Salesforce.
 - **FR-10.8** Every decision is audited with its kind, reason and timestamp, and is shown
@@ -446,9 +487,10 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 
 - **FR-11.1** **Purge current data** deletes work items whose latest activity
   (`closed_at`, `last_seen` or `first_seen`) is older than 24 hours. It deletes that
-  item's fields, attributes, refs, decisions, edits and events with it. An item with an
-  active job (`queued`, `running` or `blocked_auth`) is never deleted. Jobs, job logs,
-  sync runs, sessions, session events and approved history are out of scope.
+  item's fields, attributes, refs, decisions, edits, events and terminal jobs (with their
+  logs) with it. An item with an active job (`queued`, `running` or `blocked_auth`) is
+  never deleted, and an active job row is never deleted even when its item is old.
+  `sessions`, session events and approved history are out of scope.
 - **FR-11.2** **Purge historical data** deletes approved-history rows whose accept
   decision is older than 3 months (90 days) and cascades every snapshot child row.
   Current work items and operational tables are out of scope.
@@ -461,6 +503,8 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   count, and a success/error result. The dialog must state that the action cannot be
   undone and must require an explicit acknowledgement before the destructive button is
   enabled.
+- **FR-11.6** `sync_runs` is not a purge scope. It is a bounded ring of the newest 20 rows
+  per workflow, trimmed automatically in the insert transaction (FR-8.9).
 
 ---
 
@@ -510,7 +554,7 @@ absence while a `SUBMIT` lease was held.
 | ID | Question | Blocks |
 |---|---|---|
 | O-1 | ~~Which SF object and field label each of `loan_amount`, `property_value`, `tenure`, `emi_incl_hffc` is written to, and whether any value fans out to several objects.~~ **Resolved** — see the confirmed mapping below. | — |
-| O-2 | Exact label of the modal confirm button for `Implement`. | FR-6.5 |
+| O-2 | ~~Exact label of the modal confirm button for `Implement`.~~ **Resolved** — there is no modal; the action is `button[name="Consumer_Loan_Deviation__c.Implemented"]` (label **Implemented**) on the deviation record, and the `Implemented__c` tick is both the precheck and the confirmation. | — |
 | O-3 | Whether `z01`/`z03`/`z04` and `app/cancellations/` are live or dead scaffolding (proposed: delete). | Architecture |
 | O-4 | ~~Wipe the legacy `data/app.db` for the new schema.~~ **Resolved** — wiped; `data/` now holds the workflow store. | — |
 | O-5 | ~~Whether the deviation record page remains readable after implement.~~ **Resolved** — no record-page reconciliation; attribution is local (FR-6.12). | — |
@@ -545,6 +589,20 @@ opens the Lightning ref URL directly, resolves that iframe, and uses Classic inl
 (double-click, clear the input, fill, verify, Save).
 
 ## Appendix C — Change log
+
+- **v5.24** — the submission pipeline completes: after apply and validate it opens the
+  deviation record, reads the `Implemented__c` tick and clicks **Implemented**; a tick
+  already present is an external closure, not ours (FR-6.5–6.7, FR-6.14, FR-6.16; O-2
+  resolved).
+
+- **v5.23** — history rows expose the five object links as filterable columns; one
+  `DataTable` implementation replaces the bespoke History, Jobs and Dev DB tables, with
+  resizable persisted columns and container-only horizontal scrolling (FR-8.11,
+  FR-9.20–9.24; FR-9.13 relaxed).
+
+- **v5.22** — `sync_runs` is a bounded ring of 20 rows per workflow; the current purge
+  also removes the purged item's terminal jobs and logs (FR-8.9, FR-8.10, FR-11.1,
+  FR-11.6).
 
 - **v5.21** — one standard table filter everywhere: text plus a multiselect checkbox
   dropdown for exact values, with a range variant for dates/durations. Jobs sends

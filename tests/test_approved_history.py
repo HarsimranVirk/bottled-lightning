@@ -25,45 +25,45 @@ KEY = "Deviation-1-1"
 class ApprovedHistoryTests(DbTestCase):
     """The snapshot store is independent of the current work-item tables."""
 
-    def make_item(self) -> None:
+    def make_item(self, key: str = KEY, ref_name: str = "Opportunity 1") -> None:
         """Create one current item with values, refs, a decision and an edit."""
         items = WorkItemRepository(self.db)
         items.create_present(
             WORKFLOW,
             ListRow(
-                key=KEY,
-                href=f"/lightning/r/a2f/{KEY}/view",
+                key=key,
+                href=f"/lightning/r/a2f/{key}/view",
                 columns={},
                 approved_at="4/11/2026",
             ),
             utcnow(),
         )
-        items.transition(WORKFLOW, KEY, WorkItemStatus.EXTRACTING)
-        items.transition(WORKFLOW, KEY, WorkItemStatus.READY, extracted_at=utcnow())
+        items.transition(WORKFLOW, key, WorkItemStatus.EXTRACTING)
+        items.transition(WORKFLOW, key, WorkItemStatus.READY, extracted_at=utcnow())
         FieldValueRepository(self.db).set_extracted(
-            WORKFLOW, KEY, {"loan_amount": "1300000", "tenure": "240"}
+            WORKFLOW, key, {"loan_amount": "1300000", "tenure": "240"}
         )
         AttributeRepository(self.db).upsert(
-            WORKFLOW, KEY, {"description": "Old Parameters\nLA-13,00,000"}
+            WORKFLOW, key, {"description": "Old Parameters\nLA-13,00,000"}
         )
         PageRefRepository(self.db).replace(
             WORKFLOW,
-            KEY,
+            key,
             [
                 PageRef(
                     workflow=WORKFLOW,
-                    item=KEY,
+                    item=key,
                     kind="opportunity",
-                    name="Opportunity 1",
+                    name=ref_name,
                     url="https://example/opportunity",
                 )
             ],
         )
         DecisionRepository(self.db).record(
-            WORKFLOW, KEY, DecisionKind.ACCEPT, "looks right", utcnow()
+            WORKFLOW, key, DecisionKind.ACCEPT, "looks right", utcnow()
         )
         EditRepository(self.db).record(
-            WORKFLOW, KEY, "loan_amount", "1300000", "1450000", utcnow()
+            WORKFLOW, key, "loan_amount", "1300000", "1450000", utcnow()
         )
 
     def test_record_accept_copies_parent_and_children(self) -> None:
@@ -245,6 +245,47 @@ class ApprovedHistoryTests(DbTestCase):
                     statuses=("ready",),
                     field_values=(("loan_amount", "2500000"),),
                 ),
+            )[1],
+            0,
+        )
+
+    def test_refs_for_groups_a_page_in_one_read(self) -> None:
+        """The batch read returns refs per item and tolerates an empty page."""
+        self.make_item()
+        self.make_item("Deviation-1-2", ref_name="Opportunity 2")
+        history = ApprovedHistoryRepository(self.db)
+        history.record_accept(WORKFLOW, KEY, None, utcnow())
+        history.record_accept(WORKFLOW, "Deviation-1-2", None, utcnow())
+
+        grouped = history.refs_for(WORKFLOW, [KEY, "Deviation-1-2"])
+
+        self.assertEqual(grouped[KEY]["opportunity"].name, "Opportunity 1")
+        self.assertEqual(grouped["Deviation-1-2"]["opportunity"].name, "Opportunity 2")
+        self.assertEqual(history.refs_for(WORKFLOW, []), {})
+
+    def test_ref_filters_match_kind_and_name(self) -> None:
+        """Exact and contains ref filters are scoped to their object kind."""
+        self.make_item()
+        self.make_item("Deviation-1-2", ref_name="Opportunity 2")
+        history = ApprovedHistoryRepository(self.db)
+        history.record_accept(WORKFLOW, KEY, None, utcnow())
+        history.record_accept(WORKFLOW, "Deviation-1-2", None, utcnow())
+
+        exact, exact_total = history.page(
+            WORKFLOW, HistoryQuery(ref_values=(("opportunity", "Opportunity 2"),))
+        )
+        self.assertEqual(
+            ([row.key for row in exact], exact_total), (["Deviation-1-2"], 1)
+        )
+        self.assertEqual(
+            history.page(
+                WORKFLOW, HistoryQuery(ref_text=(("opportunity", "Opportunity"),))
+            )[1],
+            2,
+        )
+        self.assertEqual(
+            history.page(
+                WORKFLOW, HistoryQuery(ref_values=(("collateral", "Opportunity 2"),))
             )[1],
             0,
         )

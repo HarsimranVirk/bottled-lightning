@@ -13,6 +13,8 @@ export type WorkflowFieldView = components['schemas']['WorkflowFieldView']
 export type ItemRow = components['schemas']['ItemRowView']
 export type ItemDetail = components['schemas']['ItemDetailView']
 export type ItemsPage = components['schemas']['ItemsPageView']
+export type HistoryRow = components['schemas']['HistoryRowView']
+export type HistoryPage = components['schemas']['HistoryPageView']
 export type FieldView = components['schemas']['FieldView']
 export type DecisionView = components['schemas']['DecisionView']
 export type DecisionKind = DecisionView['decision']
@@ -186,6 +188,8 @@ export interface HistoryQuery {
   decidedBefore?: string
   fields?: { key: string; value: string }[]
   fieldText?: { key: string; text: string }[]
+  refs?: { kind: string; value: string }[]
+  refText?: { kind: string; text: string }[]
   limit?: number
   offset?: number
 }
@@ -208,6 +212,12 @@ function historyQuery(params: HistoryQuery): string {
   }
   for (const filter of params.fieldText ?? []) {
     search.append('field_text', `${filter.key}:${filter.text}`)
+  }
+  for (const filter of params.refs ?? []) {
+    search.append('ref', `${filter.kind}:${filter.value}`)
+  }
+  for (const filter of params.refText ?? []) {
+    search.append('ref_text', `${filter.kind}:${filter.text}`)
   }
   if (params.limit !== undefined) search.set('limit', String(params.limit))
   if (params.offset !== undefined) search.set('offset', String(params.offset))
@@ -249,7 +259,7 @@ export const api = {
     request(`/api/${route}${itemsQuery(params)}`),
   item: (route: string, key: string): Promise<ItemDetail> =>
     request(`/api/${route}/${encodeURIComponent(key)}`),
-  history: (route: string, params: HistoryQuery = {}): Promise<ItemsPage> =>
+  history: (route: string, params: HistoryQuery = {}): Promise<HistoryPage> =>
     request(`/api/${route}/history${historyQuery(params)}`),
   historyItem: (route: string, key: string): Promise<ItemDetail> =>
     request(`/api/${route}/history/${encodeURIComponent(key)}`),

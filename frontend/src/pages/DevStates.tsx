@@ -191,10 +191,21 @@ export function DevStates(): JSX.Element {
             {
               ...row('ready', 'Deviation-03112026-486382'),
               decision: { decision: 'accept', reason: null, at: '2026-11-04T18:20:00Z' },
+              refs: [
+                { kind: 'opportunity', name: '0065g00000AbCdE', url: 'https://example/opp' },
+                { kind: 'cl_contract', name: 'LAI-00533155', url: 'https://example/cl' },
+                { kind: 'collateral', name: 'CJID-0000280688', url: 'https://example/coll' },
+                { kind: 'lms2_cl_contract', name: 'LAI-00533155', url: 'https://example/lm-cl' },
+                { kind: 'lms2_collateral', name: 'CJID-0000280688', url: 'https://example/lm-coll' },
+              ],
             },
             {
               ...row('completed', 'Deviation-04112026-486814'),
               decision: { decision: 'accept', reason: null, at: '2026-11-04T17:05:00Z' },
+              refs: [
+                { kind: 'opportunity', name: '0065g00000XyZab', url: 'https://example/opp-2' },
+                { kind: 'collateral', name: 'CJID-0000280999', url: 'https://example/coll-2' },
+              ],
             },
           ]}
           fields={FIELDS}

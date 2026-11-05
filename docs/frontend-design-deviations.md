@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.7 |
+| **Version** | v4.9 |
 | **Date** | 2026-11-05 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
@@ -141,20 +141,25 @@ no deck actions.
 | State | Content | Actions |
 |---|---|---|
 | loading | Salt table skeleton | — |
-| ready | Salt Table: Deviation (SF link), Decided (chip + time), Status, SF approval, four values | Open detail, standard filter row |
+| ready | Salt Table: Deviation (SF link), Decided (chip + time), Status, SF approval, four values, five object links | Open detail, standard filter row |
 | empty | "No deviations have been accepted yet." | — |
 | filter miss | "No approved deviations match these filters." | Clear filters |
 | page overflow | `1–25 of N`, page buttons, rows-per-page | Page |
 
 Every column has the standard filter row: a text input plus a multiselect checkbox
-dropdown (deviation key, status, SF approval and each displayed value); the Decided
-column uses the shared date-range variant. Pagination is server-side ordered by the
-newest accept (`decided_at DESC`), and the filtered total comes from the server. The view
-lives at `?view=history` so a history row can be linked directly. Clicking a row opens
-the read-only snapshot detail; the deviation number is an absolute Salesforce link. There
-is no **Undo decision** action in history — undo is a current-item action and removes the
-snapshot when it is used from the deck. The history detail keeps working after the
-current work item is purged.
+dropdown (deviation key, status, SF approval, each displayed value, and each linked
+object's name); the Decided column uses the shared date-range variant. Pagination is
+server-side ordered by the newest accept (`decided_at DESC`), and the filtered total comes
+from the server. The view lives at `?view=history` so a history row can be linked
+directly. Clicking a row opens the read-only snapshot detail; the deviation number is an
+absolute Salesforce link. There is no **Undo decision** action in history — undo is a
+current-item action and removes the snapshot when it is used from the deck. The history
+detail keeps working after the current work item is purged.
+
+The five link columns are **Opportunity**, **CL contract**, **Collateral**, **LMS2 CL
+contract** and **LMS2 collateral**. Each cell shows the linked object's `name` as the link
+text and opens its URL in a new tab; a kind with no ref renders `—`. Link clicks call
+`stopPropagation` so they do not also open the detail drawer.
 
 ### 3.3 Item detail (drawer or full page on narrow screens)
 
@@ -242,6 +247,54 @@ inputs for the lower and upper bound, with no checkbox list. It is used for Jobs
 and duration and the History decided date. Future tables must use these components
 rather than bespoke filter cells.
 
+### 3.5c Shared DataTable (every table)
+
+One `DataTable<Row>` renders History, Jobs and the Dev DB result preview. It owns the
+table markup, the filter row, pagination and column widths; a caller supplies columns and
+rows and nothing else.
+
+```ts
+interface DataColumn<Row> {
+  id: string
+  header: ReactNode                 // may be a SortHeader (Jobs)
+  cell: (row: Row) => ReactNode
+  filter?: ReactNode                // the TableFilter / TableRangeFilter cell
+  width?: number                    // default width in px
+  minWidth?: number                 // default 80
+  align?: 'left' | 'right'
+  className?: string                // existing responsive hiding classes
+}
+
+interface DataTableProps<Row> {
+  tableId: string                   // localStorage key for widths
+  columns: DataColumn<Row>[]
+  rows: Row[]
+  rowKey: (row: Row) => string
+  onRowClick?: (row: Row) => void
+  loading?: boolean
+  empty?: ReactNode
+  pagination: { page: number; size: number; total: number;
+                onPage: (page: number) => void; onSize: (size: number) => void }
+}
+```
+
+- **Widths:** `<Table style={{ tableLayout: 'fixed' }}>` plus a `<colgroup>` driven by the
+  per-column widths. Unspecified columns share the remaining space. This is the only way
+  to keep the header row, the filter row and the body aligned.
+- **Resize:** a drag handle at each header's right edge (pointer drag, 80 px minimum)
+  and ±16 px arrow keys on a `role="separator"` control. Handles are hidden below 900 px,
+  where the existing breakpoint hiding applies instead.
+- **Persistence:** widths are stored per `tableId` in `localStorage`
+  (`sf.data-table.widths.v1.<tableId>`), validated on read (finite, 40–2000 px) and
+  discarded if corrupt. A **Reset columns** action restores the defaults.
+- **Overflow:** the `TableContainer` scrolls horizontally only; the page never gains a
+  sideways scrollbar. See the FR-9.13 amendment: defaults fit where they can, and
+  History's full 13-column set scrolls at 1280 px.
+- **Pagination:** rendered by `DataTable`, so all three tables share one implementation.
+  History and Jobs pass the server total; the Dev DB passes the filtered preview length.
+- **Dev DB:** passes a query-derived `tableId` so dynamic column sets start from defaults
+  instead of inheriting widths from a previous query.
+
 ### 3.6 Dev DB explorer (dev-only)
 
 `/dev/db`, linked from `/dev/states`; not in the main navigation. It is enabled by
@@ -298,7 +351,7 @@ App
     │   ├── ViewToggle          Salt ToggleButtonGroup: Deck (default) / History
     │   ├── DecisionDeck         one card, tallies, replay, exit animation
     │   │   └── DecisionCard     Salt card: refs, description, ROI grid, FormField values
-    │   ├── HistoryTable         Salt Table of accepted deviations + standard filters + pagination
+    │   ├── HistoryTable         DataTable of accepted deviations + standard filters + pagination
     │   └── ItemDrawer           route "/deviations-z02/:key" (Salt Panel)
     │       ├── FieldGroup       values grouped by target object
     │       ├── AttributeList    read-only extracted values
@@ -306,7 +359,7 @@ App
     │       └── HistoryList      decisions + edits
     ├── QueueBar                 concurrency, in-flight, pause state
     ├── AppFooter                version, session/sync status, refresh
-    └── JobsPage                 filters + table + pagination + logs
+    └── JobsPage                 filters + DataTable + pagination + logs
 ```
 
 Responsibilities are deliberately narrow: `FieldCell` never fetches, `ItemRow` never
@@ -452,7 +505,7 @@ Rules:
 | Components | RTL + MSW | disabled rules per status, field error rendering, accept-and-submit flow, job-enqueue rollback, paused banner |
 | Tables | RTL + MSW | header filters, sorting, pagination, empty/error states |
 | States | `/dev/states` route + Playwright screenshots | every row of the matrix, at 390/768/1280 |
-| Responsive | `tools/audit_layout.py` | fails when any route needs horizontal scrolling at 390/768/1280 |
+| Responsive | `tools/audit_layout.py` | fails when the **page** needs horizontal scrolling at 390/768/1280; a table container may scroll on its own |
 | Contract | generated types + MSW handlers | a field rename on the backend breaks typecheck |
 
 Visual review loop: build → run → screenshot the state harness at three widths → inspect
@@ -473,12 +526,14 @@ fixtures; a valid session shows the 7 real deviations.
 Acceptance: editing `tenure` to an invalid value shows the server message on that field;
 saving a valid value updates the row without a manual refresh.
 
-**Slice C — submission** (done for validate-only). Accept & update stores the values,
-records the accept and enqueues `POST …/jobs` when there is at least one value; a card
-with no values records the decision only. Status polling shows
-`submitting → applying → validating → ready` or `needs_review`; a failed accepted item
-returns to the deck with its reason. There is no confirmation dialog and no Implement
-button in this phase. Acceptance: accepting a prepared card enqueues one job and leaves
+**Slice C — submission** (done, including the final action). Accept & update stores the
+values, records the accept and enqueues `POST …/jobs` when there is at least one value; a
+card with no values records the decision only. Status polling shows
+`submitting → applying → validating → executing → completed/closed`, or `needs_review`
+when a write or the Implement click fails; a failed accepted item returns to the deck with
+its reason. There is no confirmation dialog. The final action itself is a backend page
+interaction (the deviation record's **Implemented** button); the UI only shows the status
+and the job logs. Acceptance: accepting a prepared card enqueues one job and leaves
 the deck; a failed job brings the card back; a paused session blocks the write and keeps
 the card actionable.
 

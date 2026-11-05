@@ -163,6 +163,53 @@
   cursor: pointer;
 }
 
+.history-ref {
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-table-scroll {
+  overflow-x: auto;
+  /* Keep the wide table's overflow inside this container: without paint containment
+     Chrome also grows the document's scroll area by the table's layout width. */
+  contain: paint;
+}
+
+.data-table {
+  min-width: 100%;
+}
+
+.data-table-th {
+  position: relative;
+}
+
+.data-table-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+}
+
+.data-table-resize:hover,
+.data-table-resize:focus-visible {
+  outline: none;
+  box-shadow: inset -2px 0 0 var(--salt-separator-borderColor);
+}
+
+.data-table-row-clickable {
+  cursor: pointer;
+}
+
+.data-table-row-clickable[aria-selected='true'] td {
+  background: var(--salt-selectable-background-selected);
+}
+
 .job-row[aria-selected='true'] td {
   background: var(--salt-selectable-background-selected);
 }
@@ -212,7 +259,12 @@
   .job-col-phase,
   .job-col-error,
   .history-values,
-  .history-approval {
+  .history-approval,
+  .history-ref {
+    display: none;
+  }
+
+  .data-table-resize {
     display: none;
   }
 }

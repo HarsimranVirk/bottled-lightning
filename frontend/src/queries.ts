@@ -12,6 +12,7 @@ import type {
   DecisionKind,
   DevQueryView,
   DevTablesView,
+  HistoryPage,
   ItemDetail,
   ItemsPage,
   JobLogs,
@@ -89,6 +90,8 @@ export interface HistoryFilters {
   decidedBefore: string
   fieldText: Record<string, string>
   fieldValues: Record<string, string[]>
+  refText: Record<string, string>
+  refValues: Record<string, string[]>
 }
 
 export const EMPTY_HISTORY_FILTERS: HistoryFilters = {
@@ -102,6 +105,8 @@ export const EMPTY_HISTORY_FILTERS: HistoryFilters = {
   decidedBefore: '',
   fieldText: {},
   fieldValues: {},
+  refText: {},
+  refValues: {},
 }
 
 /** Deck/list filters. `statuses` is the repeatable `?status=` filter. */
@@ -184,7 +189,7 @@ export function useHistory(
   limit = 25,
   enabled = true,
   offset = 0,
-): ReturnType<typeof useQuery<ItemsPage>> {
+): ReturnType<typeof useQuery<HistoryPage>> {
   return useQuery({
     queryKey: ['history', route ?? '', JSON.stringify(filters), offset, limit],
     queryFn: () =>
@@ -204,6 +209,12 @@ export function useHistory(
         fieldText: Object.entries(filters.fieldText)
           .filter(([, text]) => text.trim() !== '')
           .map(([key, text]) => ({ key, text })),
+        refs: Object.entries(filters.refValues).flatMap(([kind, values]) =>
+          values.map((value) => ({ kind, value })),
+        ),
+        refText: Object.entries(filters.refText)
+          .filter(([, text]) => text.trim() !== '')
+          .map(([kind, text]) => ({ kind, text })),
         limit,
         offset,
       }),

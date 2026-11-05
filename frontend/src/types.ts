@@ -119,7 +119,7 @@ export interface paths {
          * @description Accepted-deviation snapshots with the standard server-side filter row.
          *
          *     This is a separate read model from the live item list; it survives the current
-         *     work-item purge.
+         *     work-item purge. ``ref``/``ref_text`` filter the five object links by name.
          */
         get: operations["list_history_api_deviations_history_get"];
         put?: never;
@@ -630,6 +630,48 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /**
+         * HistoryPageView
+         * @description One page of approved-history rows plus the filtered total.
+         */
+        HistoryPageView: {
+            /** Count */
+            count: number;
+            /** Rows */
+            rows: components["schemas"]["HistoryRowView"][];
+            /** Total */
+            total: number;
+            /** Workflow */
+            workflow: string;
+        };
+        /**
+         * HistoryRowView
+         * @description One approved-history row; adds the snapshot's object links.
+         */
+        HistoryRowView: {
+            activeJob?: components["schemas"]["JobView"] | null;
+            /** Approvedat */
+            approvedAt?: string | null;
+            decision?: components["schemas"]["DecisionView"] | null;
+            /** Epoch */
+            epoch: number;
+            /** Fields */
+            fields: {
+                [key: string]: components["schemas"]["FieldView"];
+            };
+            /** Key */
+            key: string;
+            /** Present */
+            present: boolean;
+            /** Reason */
+            reason?: string | null;
+            /** Recordurl */
+            recordUrl?: string | null;
+            /** Refs */
+            refs: components["schemas"]["PageRefView"][];
+            /** Status */
+            status: string;
+        };
         /** ItemDetailView */
         ItemDetailView: {
             activeJob?: components["schemas"]["JobView"] | null;
@@ -1107,6 +1149,8 @@ export interface operations {
                 decided_before?: string | null;
                 field?: string[] | null;
                 field_text?: string[] | null;
+                ref?: string[] | null;
+                ref_text?: string[] | null;
                 limit?: number;
                 offset?: number;
             };
@@ -1122,7 +1166,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ItemsPageView"];
+                    "application/json": components["schemas"]["HistoryPageView"];
                 };
             };
             /** @description Validation Error */

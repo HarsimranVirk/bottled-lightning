@@ -18,6 +18,7 @@ from app.core.models import (
     Decision,
     FieldValue,
     Job,
+    PageRef,
     WorkItem,
     job_duration_ms,
     utcnow,
@@ -55,6 +56,8 @@ from .schemas import (
     DecisionView,
     EditView,
     FieldView,
+    HistoryPageView,
+    HistoryRowView,
     ItemDetailView,
     ItemRowView,
     ItemsPageView,
@@ -227,27 +230,32 @@ class WorkItemService:
         self,
         workflow_name: str,
         query: HistoryQuery | None = None,
-    ) -> ItemsPageView:
+    ) -> HistoryPageView:
         """
         Page the approved-history snapshots, newest accept first.
 
         Reads only the segregated snapshot store, so a purged work item cannot remove a
         row from this response. The caller supplies the standard filter row; ``None``
-        means no filters and the first 25 rows.
+        means no filters and the first 25 rows. Object links for the whole page are read
+        once, not per row.
         """
         workflow = self._workflow(workflow_name)
         if self._history is None:
-            return ItemsPageView(
+            return HistoryPageView(
                 workflow=workflow.name, count=0, total=0, rows=[]
             )
         items, total = self._history.page(workflow.name, query or HistoryQuery())
-        return ItemsPageView(
+        refs_by_key = self._history.refs_for(workflow.name, [item.key for item in items])
+        return HistoryPageView(
             workflow=workflow.name,
             count=len(items),
             total=total,
             rows=[
-                self._history_row_view(
-                    workflow, item, self._history.fields(workflow.name, item.key)
+                self._history_list_row_view(
+                    workflow,
+                    item,
+                    self._history.fields(workflow.name, item.key),
+                    refs_by_key.get(item.key, {}),
                 )
                 for item in items
             ],
@@ -509,6 +517,34 @@ class WorkItemService:
                 at=item.decided_at,
             ),
             active_job=None,
+        )
+
+    def _history_list_row_view(
+        self,
+        workflow: Workflow,
+        item: ApprovedDeviation,
+        stored: Mapping[str, FieldValue],
+        refs: Mapping[str, PageRef],
+    ) -> HistoryRowView:
+        """
+        Add the snapshot's object links to a list row.
+
+        Refs are ordered by the workflow's ``ref_kinds`` so a column never changes
+        position between pages. Kinds with no stored ref are omitted; the UI renders a
+        dash for them.
+        """
+        base = self._history_row_view(workflow, item, stored)
+        return HistoryRowView(
+            **base.model_dump(),
+            refs=[
+                PageRefView(
+                    kind=refs[kind].kind,
+                    name=refs[kind].name,
+                    url=refs[kind].url,
+                )
+                for kind in workflow.ref_kinds
+                if kind in refs
+            ],
         )
 
     def _history_detail_view(

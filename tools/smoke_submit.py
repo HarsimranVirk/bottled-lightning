@@ -218,7 +218,6 @@ def main(argv: list[str] | None = None) -> int:
         deps.events,
         adapters,
         FIELD_CATALOG,
-        final_action=False,
     )
 
     if args.key is not None:

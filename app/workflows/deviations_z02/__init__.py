@@ -70,7 +70,6 @@ def build_workflow(
         deps.events,
         adapters,
         FIELD_CATALOG,
-        final_action=False,
     )
     return Workflow(
         name=WORKFLOW_NAME,

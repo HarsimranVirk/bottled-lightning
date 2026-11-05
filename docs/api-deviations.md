@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v2.6 |
+| **Version** | v2.9 |
 | **Date** | 2026-11-05 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/data-model-deviations.md` |
@@ -159,10 +159,12 @@ Requests an immediate refresh instead of waiting for the 30 s cycle.
 
 ### `GET /api/deviations/history`
 
-The approved-history read model. Returns the same `ItemsPageView` shape as the item list,
-but every row comes from `approved_deviations`, not `work_items`. Rows are always newest
-accept first; only accepted snapshots exist, so there is no decision filter.
-`activeJob` is always `null`.
+The approved-history read model. Returns `HistoryPageView`: the same counters as
+`ItemsPageView` but rows are `HistoryRowView`, which adds `refs`. Every row comes from
+`approved_deviations`, not `work_items`. Rows are always newest accept first; only
+accepted snapshots exist, so there is no decision filter. `activeJob` is always `null`.
+The current-item list keeps the smaller `ItemRowView`, so the polled deck endpoint does
+not pay for refs it never shows.
 
 Query parameters (all optional and composable):
 
@@ -178,11 +180,52 @@ Query parameters (all optional and composable):
 | `decided_after`, `decided_before` | accept date range (`YYYY-MM-DD`), inclusive |
 | `field` | repeated `field_key:value` exact field values |
 | `field_text` | repeated `field_key:text` contains field values |
+| `ref` | repeated `kind:value` exact linked-object names |
+| `ref_text` | repeated `kind:text` contains linked-object names |
 | `limit`, `offset` | page size (default 25, max 500) and offset |
 
 The field filters use the same value precedence as the table: `proposed`, else
 `extracted`, else `applied`. Amount values are compared raw; the UI strips Indian
 grouping commas before sending a text filter. `total` is the filtered set, not the page.
+
+The `ref` kinds are the five object kinds the workflow registers: `opportunity`,
+`cl_contract`, `collateral`, `lms2_cl_contract`, `lms2_collateral`. Each `(kind, value)`
+pair becomes its own `EXISTS` against `approved_deviation_refs`, matching on `name`; text
+and selections in one column compose with AND, columns with AND, values within one
+selection with OR — the same rule as every other column (FR-9.18, FR-9.21).
+
+```json
+// GET /api/deviations/history?ref_text=opportunity:006&ref=collateral:CJID-0000280688
+{
+  "workflow": "deviations_z02",
+  "count": 1,
+  "total": 1,
+  "rows": [
+    {
+      "key": "Deviation-03112026-486382",
+      "status": "completed",
+      "present": false,
+      "epoch": 1,
+      "recordUrl": "https://…/view",
+      "approvedAt": "2026-11-03",
+      "reason": null,
+      "fields": { "loan_amount": { "…": "…" } },
+      "decision": { "decision": "accept", "reason": null, "at": "2026-11-04T18:20:00Z" },
+      "activeJob": null,
+      "refs": [
+        { "kind": "opportunity", "name": "006…", "url": "https://…/006…/view" },
+        { "kind": "cl_contract", "name": "LAI-00533155", "url": "https://…/a4b…/view" },
+        { "kind": "collateral", "name": "CJID-0000280688", "url": "https://…/a49…/view" },
+        { "kind": "lms2_cl_contract", "name": "LAI-00533155", "url": "https://…/LMS2…" },
+        { "kind": "lms2_collateral", "name": "CJID-0000280688", "url": "https://…/LMS2…" }
+      ]
+    }
+  ]
+}
+```
+
+A kind with no stored ref is simply absent from `refs`; the UI renders `—` for that
+column. `refs` is never `null`.
 
 ### `GET /api/deviations/history/{key}`
 
@@ -280,12 +323,14 @@ every proposed value before returning.
 - `409` with `code: "login_required"` when `AuthGate` is paused.
 - `422` when there are no proposed values to submit.
 
-During Phase 6 bring-up the job applies and validates the values but does not click
-Implement (FR-6.14): it returns `validated` and the item goes back to `ready` with
-`reason="validated; final action disabled"`. The response shape is unchanged. A rejected
-write or a read-back mismatch fails the job and moves the item to `needs_review`; there
-is no automatic rollback, so the item reason and job logs identify which targets were
-already written (FR-6.15).
+A `SUBMIT` job applies and validates the values, then implements the deviation: it opens
+the deviation record, checks the `Implemented__c` tick and clicks **Implemented** when the
+tick is absent, confirming on the tick (FR-6.5–6.7). An already-ticked deviation returns
+`already_closed` and is closed externally on the next refresh (FR-6.16). The response
+shape is unchanged. A rejected write, a read-back mismatch, or an unconfirmed click fails
+the job and moves the item to `needs_review`; there is no automatic rollback, so the item
+reason and job logs identify which targets were already written (FR-6.15). The API never
+exposes the Salesforce page or the button; it only enqueues the job.
 
 ## 6. Jobs
 
@@ -427,12 +472,18 @@ Manual retention. The server computes the cutoff; the body cannot override it.
 ```
 
 - `scope=current` deletes work items last active more than 24 hours ago (except items
-  with an active job) plus their fields, attributes, refs, decisions, edits and events.
+  with an active job) plus their fields, attributes, refs, decisions, edits and events. It
+  also deletes their terminal `jobs` (`succeeded`, `failed`, `cancelled`) and those jobs'
+  `job_logs`; `queued`, `running` and `blocked_auth` jobs are never deleted.
 - `scope=history` deletes approved snapshots accepted more than 90 days ago plus their
   child rows.
 - `dryRun` returns the counts without deleting. A real run is one transaction.
 - `409` with `code: "purge_failed"` if SQLite rejects the transaction; `404` when dev
   tools are disabled or the request is not localhost.
+
+The payload is unchanged: `deleted` is an open `dict[str, int]`, so the two new table keys
+need no schema edit and the confirm dialog renders them automatically. The frontend
+regenerates `types.ts` as usual, but the TypeScript shape is identical.
 
 ```json
 {
@@ -446,9 +497,11 @@ Manual retention. The server computes the cutoff; the body cannot override it.
     "work_item_refs": 15,
     "work_item_edits": 2,
     "work_item_events": 4,
-    "item_decisions": 3
+    "item_decisions": 3,
+    "jobs": 5,
+    "job_logs": 17
   },
-  "total": 69
+  "total": 91
 }
 ```
 
@@ -555,6 +608,17 @@ export interface ItemsPage {
   count: number;
   total: number;
   rows: ItemRow[];
+}
+
+export interface HistoryRow extends ItemRow {
+  refs: PageRefView[];
+}
+
+export interface HistoryPage {
+  workflow: string;
+  count: number;
+  total: number;
+  rows: HistoryRow[];
 }
 
 export type PurgeScope = "current" | "history";
