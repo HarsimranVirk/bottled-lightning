@@ -20,6 +20,7 @@ from app.salesforce.adapters import AdapterBase, Discovery, DiscoveryContext
 from app.salesforce.tabs import TabProvider
 from app.utils.dom import (
     absolute_url,
+    clear_and_fill,
     click_first_visible,
     poll,
     safe_body_text,
@@ -89,11 +90,14 @@ def _same(target: FieldTarget, raw: str | None, intended: str) -> bool:
     """Whether a displayed value canonicalises to the intended value."""
     if raw is None:
         return False
+    canonical = _canonical(target, raw)
+    if canonical is None:
+        return False
     value_type = _value_type(target)
     try:
-        return normalise(raw, value_type) == normalise(intended, value_type)
+        return normalise(canonical, value_type) == normalise(intended, value_type)
     except ValueError:
-        return raw.strip() == intended.strip()
+        return canonical.strip() == intended.strip()
 
 
 def _canonical(target: FieldTarget, raw: str | None) -> str | None:
@@ -223,7 +227,11 @@ class OpportunityAdapter(AdapterBase):
             await edit.first.click(timeout=self._timeout_ms)
             if not await poll(lambda: _has_input(field), self._timeout_ms):
                 return WriteOutcome.UNKNOWN
-            await field.locator("input").first.fill(_display(target, value))
+            actual = await clear_and_fill(
+                field.locator("input").first, _display(target, value)
+            )
+            if not _same(target, actual, value):
+                return WriteOutcome.UNKNOWN
             save = page.get_by_role("button", name="Save", exact=True)
             if not await click_first_visible(save, self._timeout_ms):
                 return WriteOutcome.UNKNOWN

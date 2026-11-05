@@ -23,6 +23,7 @@ from app.salesforce.adapters import (
 from app.salesforce.tabs import TabProvider
 from app.utils.dom import (
     absolute_url,
+    clear_and_fill,
     click_first_visible,
     poll,
     related_list_url,
@@ -150,7 +151,9 @@ class CollateralAdapter(AdapterBase):
             )
             if not await poll(lambda: _has_input(item), self._timeout_ms):
                 return WriteOutcome.UNKNOWN
-            await item.locator("input").first.fill(value)
+            actual = await clear_and_fill(item.locator("input").first, value)
+            if not _same(actual, value):
+                return WriteOutcome.UNKNOWN
             save = page.get_by_role("button", name="Save", exact=True)
             if not await click_first_visible(save, self._timeout_ms):
                 return WriteOutcome.UNKNOWN

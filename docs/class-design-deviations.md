@@ -699,10 +699,13 @@ link, its read-only attributes, any catalogue values it is the source of, or a s
 reason (FR-3.7). It never persists and never decides item status.
 
 `write()` = open the record → enter edit mode (inline pencil/double-click or the page's
-Edit button) → fill the target inputs → Save → return per-target outcomes; `read()` is
-used for the pre-write audit/idempotency snapshot and for post-save verification
-(FR-6.2/6.4). A pre-read difference never blocks the write: the description-derived
-snapshot is not trusted, so the operator's proposal is authoritative.
+Edit button) → **clear each input**, fill the canonical value, read the widget value back
+and verify it **before Save** → Save → return per-target outcomes; `read()` is used for
+the pre-write audit/idempotency snapshot and for post-save verification (FR-6.2/6.4). The
+clear-before-fill rule is mandatory: LWC inputs can concatenate a new value onto their
+existing formatted text if filled while non-empty. A mismatch aborts the write before any
+Save. A pre-read difference never blocks the write: the description-derived snapshot is
+not trusted, so the operator's proposal is authoritative.
 Targets carry the page `section`, so the same label (`New value`) can be resolved on the
 LMS 2.0 contract form without workflow-specific branching in the pipeline. Adapters
 depend on `TabProvider` (two async methods), not on the concrete `TabGroup`, so pipelines
@@ -1019,6 +1022,9 @@ Each should have a test.
 10. **I10** A failed submission does not roll back values that were already written; it
     records per-target truth, moves the item to `NEEDS_REVIEW`, and notifies the operator
     (FR-6.15).
+11. **I11** Every write clears the input, fills it, reads the widget value back, and
+    compares it with the intended canonical value before clicking Save. A mismatch aborts
+    the write, so a formatted/concatenated input can never be saved.
 
 ## 13. Test seams
 

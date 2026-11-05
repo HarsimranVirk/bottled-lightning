@@ -32,6 +32,7 @@ from app.salesforce.adapters import (
 from app.salesforce.tabs import TabProvider
 from app.utils.dom import (
     absolute_url,
+    clear_and_fill,
     click_first_visible,
     poll,
     safe_inner_text,
@@ -86,6 +87,19 @@ def _tenure_months(raw: str | None) -> str | None:
         return None
     text = raw.strip().lower().removesuffix("months").strip()
     return text or None
+
+
+def _same_value(target: FieldTarget, raw: str | None, intended: str) -> bool:
+    """Whether a Contract Modification input equals the intended value."""
+    if raw is None:
+        return False
+    value_type = (
+        ValueType.TENURE_MONTHS if target.section == "Tenure" else ValueType.AMOUNT
+    )
+    try:
+        return normalise(raw, value_type) == normalise(intended, value_type)
+    except ValueError:
+        return raw.strip() == intended.strip()
 
 
 class _Lms2Adapter(AdapterBase):
@@ -196,7 +210,11 @@ class Lms2ClContractAdapter(_Lms2Adapter):
                 if card is None:
                     outcomes[target] = WriteOutcome.UNKNOWN
                     continue
-                await card.locator("input").first.fill(value)
+                actual = await clear_and_fill(card.locator("input").first, value)
+                if not _same_value(target, actual, value):
+                    return {
+                        pending: WriteOutcome.UNKNOWN for pending in values
+                    }
                 outcomes[target] = WriteOutcome.SAVED
             save = page.get_by_role("button", name="Save Changes", exact=True)
             if not await click_first_visible(save, self._timeout_ms):
@@ -304,7 +322,11 @@ class Lms2CollateralAdapter(_Lms2Adapter):
             return {target: WriteOutcome.UNKNOWN for target in values}
         try:
             for target, value in values.items():
-                await input_locator.first.fill(value)
+                actual = await clear_and_fill(input_locator.first, value)
+                if not _same_amount(actual, value):
+                    return {
+                        pending: WriteOutcome.UNKNOWN for pending in values
+                    }
                 outcomes[target] = WriteOutcome.SAVED
             save = page.get_by_role("button", name="Save", exact=True)
             if not await click_first_visible(save, self._timeout_ms):
@@ -323,9 +345,26 @@ class Lms2CollateralAdapter(_Lms2Adapter):
             return {target: WriteOutcome.UNKNOWN for target in values}
 
     async def _read_view(self, page: Page, target: FieldTarget) -> str | None:
-        """Read the Financials stat value in view mode."""
-        stat = page.locator("div.stat-item").filter(has_text=target.label).first
-        if not await poll(lambda: _has_count(stat, 1), self._timeout_ms):
+        """
+        Read the Financials stat value in view mode.
+
+        Find the exact ``div.stat-label`` first, then its ``div.stat-item`` parent and
+        the sibling ``.stat-value``. Filtering whole stat rows by text can match a
+        container with several values; matching the label element avoids reading or
+        writing a concatenated amount.
+        """
+        edit_input = page.locator(
+            f'lightning-input[data-field="{_COLLATERAL_PROPERTY_FIELD}"] input'
+        )
+        if await edit_input.count() > 0:
+            # Still in edit mode; the caller reads the input value directly. Reading
+            # the stat value here can concatenate the input and the hidden display.
+            return None
+        label = page.locator("div.stat-label", has_text=target.label).first
+        if not await poll(lambda: _has_count(label, 1), self._timeout_ms):
+            return None
+        stat = label.locator("xpath=ancestor::div[contains(@class,'stat-item')][1]")
+        if await stat.count() == 0:
             return None
         value = stat.locator(".stat-value").first
         if not await poll(lambda: _has_count(value, 1), 10_000):

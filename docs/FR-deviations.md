@@ -458,10 +458,10 @@ used to disambiguate repeated labels.
 | `tenure` | LMS 2.0 CL contract | `Tenure` | `New value` (months) |
 | `emi_incl_hffc` | Opportunity | `BUDGET ANALYSIS & SAVINGS PATTERN` | `EMIs & other fixed pmts inc HFFC Loan` |
 
-The CL-contract record is a Classic Visualforce page (`tabbedLoanAccount`) inside the
-Lightning record's iframe. Submission opens it through the org's Classic host
-(`https://<org>.my.salesforce.com/<record-id>`) and uses Classic inline edit
-(double-click, fill, Save).
+The CL-contract record is a Lightning `loan__Loan_Account__c` page that embeds the
+Classic Visualforce form (`tabbedLoanAccount`) in a `vfFrameId_*` iframe. Submission
+opens the Lightning ref URL directly, resolves that iframe, and uses Classic inline edit
+(double-click, clear the input, fill, verify, Save).
 
 ## Appendix C — Change log
 
