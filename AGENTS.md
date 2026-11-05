@@ -171,6 +171,7 @@ refresh; the watcher also refreshes every `SF_RESYNC_INTERVAL_SECONDS`.
                        today (catalog, description, product map, adapters,
                        extraction, submission)
     app/devtools/      dev-only read-only DB explorer service and exports
+    app/maintenance.py manual retention policy (current 24 h, history 90 d)
     app/utils/         shared async DOM helpers and the JsonValue type
     app/main.py        FastAPI app + `main()` entry point (serves frontend/dist)
     app/updater.py     GitHub-release self-update: check → verify wheel
@@ -274,6 +275,10 @@ saved session — run the manual login once; snapshots refresh automatically.
   and never expose or query the `sessions` table (the read-only authorizer must keep
   denying it). `SF_DEV_TOOLS=0` is the explicit off switch. CSV/XLSX exports use the same
   guard. See `docs/dev-tools.md`.
+- Retention is manual: the DB explorer's current purge keeps 24 hours of work items and
+  the history purge keeps 90 days of approved snapshots. Keep the cutoffs fixed
+  server-side, keep both actions confirmed and dry-run first, and never let one purge
+  touch the other store, `sessions`, or an item with an active job.
 - Clean up any temporary/scratch files created during work, wherever on the system (e.g. /tmp, the OS temp dir, scratch dirs, worktrees) before finishing; don't leave throwaway scripts or artifacts behind.
 - Extraction code changes require re-verifying the header-total cross-check.
 - After every edit, run ruff (`ruff check app/ frontend/`) and resolve **all** reported issues (including import sorting I001) before considering the change complete. The project uses ruff for linting/formatting; no ruff warnings may remain.

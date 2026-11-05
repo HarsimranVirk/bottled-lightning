@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.19 |
+| **Version** | v5.20 |
 | **Date** | 2026-11-05 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -292,9 +292,24 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   implement result, and every skip or failure reason.
 - **FR-8.2** Closed deviations leave the queue and the working view but are retained in a
   read-only record (values, status, attribution, reason, page refs) for later lookup.
-  *Pending decision O-6: retain as archive, or hard-delete.*
+  Accepted deviations are retained in the segregated snapshot store; non-accepted
+  current items are removed by the 24-hour current purge (FR-11.1).
 - **FR-8.3** The previous archive-then-delete behaviour is superseded by status plus
   retained history.
+- **FR-8.4** Accepted deviations are copied into a separate approved-history store when
+  the accept decision is recorded. The snapshot contains the item identity, status at
+  snapshot time, SF approval date, reason, record URL, accepted decision, fields,
+  attributes, page refs and edit audit. The snapshot is refreshed when a submit starts,
+  when a submit job finishes, and when a closure resolves; undo or reject removes it.
+- **FR-8.5** The History tab and its detail drawer read only the approved-history store,
+  never `work_items` or `item_decisions`. A history row therefore remains readable after
+  its current work item is purged.
+- **FR-8.6** Current work items and approved history have independent retention windows.
+  The current work-item purge keeps the last 24 hours; the approved-history purge keeps
+  the last 3 months (90 days). Neither purge may erase the other store.
+- **FR-8.7** Both purges are manual. They are triggered from the hidden `/dev/db` page,
+  are localhost-only, and require an explicit confirmation with the cutoff and the
+  per-table counts shown before the destructive action.
 
 ### FR-9 API & frontend
 
@@ -350,6 +365,9 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   **Sync now** for an immediate watcher refresh, **Retry sync** in the untrusted-refresh
   banner, and **Reload deck** for a frontend list refetch. A bare “Refresh” button is not
   used.
+- **FR-9.17** The History view is a separate route from the deck (`?view=history`), and
+  opening a history row uses the history detail endpoint. The history detail is read-only
+  and never offers an Undo decision action.
 
 ### FR-10 Review decisions (accept / reject)
 
@@ -404,6 +422,26 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-10.11** Decisions never gate sync or extraction. An accepted or rejected item is
   still reconciled with the list view like any other.
 
+### FR-11 Retention & maintenance
+
+- **FR-11.1** **Purge current data** deletes work items whose latest activity
+  (`closed_at`, `last_seen` or `first_seen`) is older than 24 hours. It deletes that
+  item's fields, attributes, refs, decisions, edits and events with it. An item with an
+  active job (`queued`, `running` or `blocked_auth`) is never deleted. Jobs, job logs,
+  sync runs, sessions, session events and approved history are out of scope.
+- **FR-11.2** **Purge historical data** deletes approved-history rows whose accept
+  decision is older than 3 months (90 days) and cascades every snapshot child row.
+  Current work items and operational tables are out of scope.
+- **FR-11.3** Both purges are idempotent: a second run with the same cutoff deletes zero
+  rows. A dry run returns the same per-table counts without deleting anything.
+- **FR-11.4** The purge API is available only through the hidden dev explorer
+  (`/api/dev/db/purges`). `SF_DEV_TOOLS=0` and non-localhost requests get `404`, and the
+  token-bearing `sessions` table is never read or written by either purge.
+- **FR-11.5** The DB explorer shows both actions with a confirmation dialog, a dry-run
+  count, and a success/error result. The dialog must state that the action cannot be
+  undone and must require an explicit acknowledgement before the destructive button is
+  enabled.
+
 ---
 
 ## 6. Non-functional requirements
@@ -456,7 +494,7 @@ absence while a `SUBMIT` lease was held.
 | O-3 | Whether `z01`/`z03`/`z04` and `app/cancellations/` are live or dead scaffolding (proposed: delete). | Architecture |
 | O-4 | ~~Wipe the legacy `data/app.db` for the new schema.~~ **Resolved** — wiped; `data/` now holds the workflow store. | — |
 | O-5 | ~~Whether the deviation record page remains readable after implement.~~ **Resolved** — no record-page reconciliation; attribution is local (FR-6.12). | — |
-| O-6 | Archive or hard-delete closed deviations (FR-8.2). | FR-8.2, data model |
+| O-6 | ~~Archive or hard-delete closed deviations (FR-8.2).~~ **Resolved** — accepted history is snapshotted separately; current work items are purged after 24 hours and history after 90 days (FR-8.4–8.6, FR-11). | — |
 | O-7 | ~~Should accepted items auto-submit once Phase 6 lands, or wait for an explicit
   submit action?~~ **Resolved** — accepted items with at least one non-empty value
   auto-submit; empty cards record the decision only. | — |
@@ -487,6 +525,11 @@ opens the Lightning ref URL directly, resolves that iframe, and uses Classic inl
 (double-click, clear the input, fill, verify, Save).
 
 ## Appendix C — Change log
+
+- **v5.20** — approved-history snapshots are separated from current work items; the
+  History tab reads the snapshot store. Manual purges keep current work items for 24
+  hours and approved history for 90 days, with two confirmed actions in `/dev/db`
+  (FR-8.4–8.7, FR-11). O-6 resolved.
 
 - **v5.19** — refresh controls now pair the icon with context: **Sync now**,
   **Retry sync**, and **Reload deck**; the bare “Refresh” label is gone (FR-9.16).

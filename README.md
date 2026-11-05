@@ -98,8 +98,10 @@ navigation and linked from `/dev/states`:
 Set `SF_DEV_TOOLS=0` to disable it. It is localhost-only by default;
 `SF_DEV_TOOLS_ALLOW_REMOTE=1` is the explicit opt-in for LAN access. The token-bearing
 `sessions` table is hidden and blocked by the read-only authorizer. CSV and real Excel
-(`.xlsx`) exports are supported for the current query. See `docs/dev-tools.md` for the
-safety rules.
+(`.xlsx`) exports are supported for the current query. The same page has two manual
+retention actions: **Purge current data** keeps 24 hours of work items, and **Purge
+historical data** keeps 90 days of approved-deviation snapshots. See `docs/dev-tools.md`
+for the safety rules.
 
 ## Layout
 

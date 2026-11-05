@@ -17,6 +17,8 @@ import type {
   JobLogs,
   JobsPage,
   JobView,
+  PurgeResult,
+  PurgeScope,
   QueueView,
   SessionView,
   SyncView,
@@ -123,6 +125,40 @@ export function useItem(route: string | null, key: string | null): ReturnType<ty
   })
 }
 
+/** Approved-history rows; a separate snapshot read model from the deck. */
+export function useHistory(
+  route: string | null,
+  query: string | null,
+  limit = 25,
+  enabled = true,
+  offset = 0,
+): ReturnType<typeof useQuery<ItemsPage>> {
+  return useQuery({
+    queryKey: ['history', route ?? '', query ?? '', offset, limit],
+    queryFn: () =>
+      api.history(route ?? '', {
+        q: query ?? undefined,
+        limit,
+        offset,
+      }),
+    enabled: route !== null && enabled,
+    refetchInterval: poll(10_000),
+  })
+}
+
+/** One read-only approved-history detail. */
+export function useHistoryItem(
+  route: string | null,
+  key: string | null,
+): ReturnType<typeof useQuery<ItemDetail>> {
+  return useQuery({
+    queryKey: ['history-item', route ?? '', key ?? ''],
+    queryFn: () => api.historyItem(route ?? '', key ?? ''),
+    enabled: route !== null && key !== null,
+    refetchInterval: poll(10_000),
+  })
+}
+
 export function useJobs(
   filters: JobFilters,
   page: number,
@@ -200,6 +236,7 @@ export function useDecideDecision(
     onSuccess: (_detail, { key }) => {
       if (route === null) return
       void client.invalidateQueries({ queryKey: ['items', route] })
+      void client.invalidateQueries({ queryKey: ['history', route] })
       void client.invalidateQueries({ queryKey: keys.item(route, key) })
     },
   })
@@ -230,6 +267,7 @@ export function useSubmitJob(
     onSuccess: (_job, { key }) => {
       if (route === null) return
       void client.invalidateQueries({ queryKey: ['items', route] })
+      void client.invalidateQueries({ queryKey: ['history', route] })
       void client.invalidateQueries({ queryKey: keys.item(route, key) })
       void client.invalidateQueries({ queryKey: ['jobs'] })
     },
@@ -246,6 +284,7 @@ export function useUndoDecision(
     onSuccess: (_detail, { key }) => {
       if (route === null) return
       void client.invalidateQueries({ queryKey: ['items', route] })
+      void client.invalidateQueries({ queryKey: ['history', route] })
       void client.invalidateQueries({ queryKey: keys.item(route, key) })
     },
   })
@@ -285,5 +324,19 @@ export function useDevExport(): ReturnType<
 > {
   return useMutation({
     mutationFn: ({ sql, format }) => api.devExport(sql, format),
+  })
+}
+
+/** Manual retention action; call with ``dryRun`` first, then again to delete. */
+export function useDevPurge(): ReturnType<
+  typeof useMutation<PurgeResult, Error, { scope: PurgeScope; dryRun: boolean }>
+> {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ scope, dryRun }) => api.devPurge(scope, dryRun),
+    onSuccess: (result) => {
+      if (result.dryRun) return
+      void client.invalidateQueries({ queryKey: ['dev', 'db', 'tables'] })
+    },
   })
 }

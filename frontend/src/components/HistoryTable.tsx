@@ -1,6 +1,6 @@
 /**
- * Accepted-deviations history: every deviation the deck approved, newest decision
- * first. Salt DS table; pagination is server-side.
+ * Accepted-deviations history snapshot: every deviation the deck approved, newest
+ * accept first. Salt DS table; pagination is server-side.
  */
 
 import type { JSX } from 'react'

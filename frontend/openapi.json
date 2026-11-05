@@ -769,6 +769,71 @@
         "title": "PageRefView",
         "type": "object"
       },
+      "PurgeIn": {
+        "description": "One manual retention action; the server owns the cutoff.",
+        "properties": {
+          "dryRun": {
+            "default": false,
+            "title": "Dryrun",
+            "type": "boolean"
+          },
+          "scope": {
+            "enum": [
+              "current",
+              "history"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "title": "PurgeIn",
+        "type": "object"
+      },
+      "PurgeView": {
+        "description": "Per-table result of a dry-run or real purge.",
+        "properties": {
+          "cutoff": {
+            "format": "date-time",
+            "title": "Cutoff",
+            "type": "string"
+          },
+          "deleted": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Deleted",
+            "type": "object"
+          },
+          "dryRun": {
+            "title": "Dryrun",
+            "type": "boolean"
+          },
+          "scope": {
+            "enum": [
+              "current",
+              "history"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scope",
+          "cutoff",
+          "dryRun",
+          "deleted",
+          "total"
+        ],
+        "title": "PurgeView",
+        "type": "object"
+      },
       "QueueView": {
         "properties": {
           "concurrency": {
@@ -1201,6 +1266,49 @@
         ]
       }
     },
+    "/api/dev/db/purges": {
+      "post": {
+        "description": "Run one manual retention scope; ``dryRun`` only reports counts.",
+        "operationId": "purge_api_dev_db_purges_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurgeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Purge",
+        "tags": [
+          "admin",
+          "dev"
+        ]
+      }
+    },
     "/api/dev/db/queries": {
       "post": {
         "description": "Run one read-only statement and return a bounded preview.",
@@ -1391,6 +1499,124 @@
           }
         },
         "summary": "List Items",
+        "tags": [
+          "admin",
+          "deviations"
+        ]
+      }
+    },
+    "/api/deviations/history": {
+      "get": {
+        "description": "Accepted-deviation snapshots, newest accept first.\n\nThis is a separate read model from the live item list; it survives the current\nwork-item purge.",
+        "operationId": "list_history_api_deviations_history_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsPageView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List History",
+        "tags": [
+          "admin",
+          "deviations"
+        ]
+      }
+    },
+    "/api/deviations/history/{key}": {
+      "get": {
+        "description": "One approved snapshot with its attributes, refs, edits and accept decision.",
+        "operationId": "get_history_item_api_deviations_history__key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemDetailView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get History Item",
         "tags": [
           "admin",
           "deviations"

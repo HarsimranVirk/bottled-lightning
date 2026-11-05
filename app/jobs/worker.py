@@ -14,6 +14,7 @@ from typing import Protocol
 from app.core.errors import SessionExpired, TransientBrowserError
 from app.core.models import Job
 from app.core.registry import WorkflowRegistry
+from app.core.repo.approved_history import ApprovedHistoryRepository
 from app.core.repo.events import EventRepository
 from app.core.repo.jobs import JobRepository
 from app.core.repo.work_items import WorkItemRepository
@@ -63,6 +64,7 @@ class Worker:
         tabs: TabSessionFactory,
         closure: ClosureResolver,
         lease_ttl_s: float = 300.0,
+        history: ApprovedHistoryRepository | None = None,
     ) -> None:
         """Wire dependencies; ``name`` identifies this slot in logs."""
         self.name = name
@@ -74,6 +76,7 @@ class Worker:
         self._tabs = tabs
         self._closure = closure
         self._lease_ttl_s = lease_ttl_s
+        self._history = history
 
     async def execute(self, job: Job) -> None:
         """
@@ -129,6 +132,16 @@ class Worker:
             # job has reached a terminal state (FR-6.11).
             with suppress(Exception):
                 self._closure.release_lease(job.workflow, job.item)
+            self._refresh_history(job)
+
+    def _refresh_history(self, job: Job) -> None:
+        """Best-effort snapshot refresh; never changes the job result."""
+        if self._history is None:
+            return
+        try:
+            self._history.refresh(job.workflow, job.item)
+        except Exception:
+            logger.exception("approved-history refresh failed for %s/%s", job.workflow, job.item)
 
     def _finish_extract(
         self, job: Job, outcome: ExtractOutcome, log: RepositoryLogger

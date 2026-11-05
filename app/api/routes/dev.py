@@ -1,4 +1,4 @@
-"""Dev-only DB explorer endpoints: table list, read-only query and file export."""
+"""Dev-only DB explorer endpoints: table list, read-only query, export and purges."""
 
 from __future__ import annotations
 
@@ -13,8 +13,11 @@ from app.api.schemas import (
     DevQueryView,
     DevTablesView,
     DevTableView,
+    PurgeIn,
+    PurgeView,
 )
 from app.devtools.db import DevDbService, DevQueryError
+from app.maintenance import PurgeError, PurgeScope, PurgeService
 
 
 def _require(dev: DevDbService, request: Request) -> None:
@@ -26,7 +29,9 @@ def _require(dev: DevDbService, request: Request) -> None:
         raise ApiError(404, str(exc), "dev_tools_disabled") from exc
 
 
-def make_dev_router(dev: DevDbService) -> APIRouter:
+def make_dev_router(
+    dev: DevDbService, purges: PurgeService | None = None
+) -> APIRouter:
     """Build the dev database explorer under ``/dev/db``."""
     router = APIRouter(prefix="/dev/db", tags=["dev"])
 
@@ -85,5 +90,26 @@ def make_dev_router(dev: DevDbService) -> APIRouter:
             media_type=media,
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+
+    if purges is not None:
+
+        @router.post("/purges", response_model=PurgeView)
+        def purge(request: Request, body: PurgeIn) -> PurgeView:
+            """Run one manual retention scope; ``dryRun`` only reports counts."""
+            _require(dev, request)
+            try:
+                result = purges.purge(
+                    PurgeScope(body.scope),
+                    dry_run=body.dry_run,
+                )
+            except PurgeError as exc:
+                raise ApiError(409, str(exc), "purge_failed") from exc
+            return PurgeView(
+                scope=result.scope.value,
+                cutoff=result.cutoff,
+                dry_run=result.dry_run,
+                deleted=result.deleted,
+                total=result.total,
+            )
 
     return router

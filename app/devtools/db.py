@@ -3,8 +3,8 @@
 This module is deliberately defensive. ``data/app.db`` contains the Salesforce session
 snapshot in the ``sessions`` table, so the explorer uses a separate read-only connection,
 denies every write/DDL/ATTACH/PRAGMA action through SQLite's authorizer, and denies any
-read of ``sessions``. It is available only when ``SF_DEV_TOOLS=1`` and, by default, only
-from localhost.
+read of ``sessions``. It is enabled by default, hidden from the main UI and, by default,
+only reachable from localhost; ``SF_DEV_TOOLS=0`` disables it.
 """
 
 from __future__ import annotations

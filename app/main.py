@@ -20,6 +20,7 @@ from .api import create_app
 from .api.services import AdminService, WorkItemService
 from .config import Settings, load_settings
 from .core.registry import WorkflowRegistry
+from .core.repo.approved_history import ApprovedHistoryRepository
 from .core.repo.attributes import AttributeRepository
 from .core.repo.decisions import DecisionRepository
 from .core.repo.edits import EditRepository
@@ -36,6 +37,7 @@ from .devtools.db import DevDbService
 from .jobs.auth import AuthGate
 from .jobs.dispatcher import Dispatcher
 from .jobs.worker import Worker
+from .maintenance import PurgeService
 from .pipeline.closure import ClosureResolver
 from .pipeline.reconciler import Reconciler
 from .pipeline.watcher import ListWatcher, WorkflowListSource
@@ -91,9 +93,11 @@ class Stack:
         self.edits = EditRepository(self.database)
         self.events = EventRepository(self.database)
         self.decisions = DecisionRepository(self.database)
+        self.history = ApprovedHistoryRepository(self.database)
         self.jobs = JobRepository(self.database)
         self.sessions_repo = SessionRepository(self.database)
         self.sync_runs = SyncRunRepository(self.database)
+        self.purges = PurgeService(self.database)
 
         self.provider = SessionProvider(self.sessions_repo, settings)
         self.auth = AuthGate(self.jobs, self.events)
@@ -114,7 +118,9 @@ class Stack:
         )
         self.registry.register(self.workflow)
 
-        self.closure = ClosureResolver(self.items, self.jobs, self.events)
+        self.closure = ClosureResolver(
+            self.items, self.jobs, self.events, self.history
+        )
         self.reconciler = Reconciler(
             self.workflow,
             self.items,
@@ -144,6 +150,7 @@ class Stack:
             self.auth,
             self.runtime,
             self.closure,
+            history=self.history,
         )
         self.dispatcher = Dispatcher(self.jobs, self.worker, self.auth, settings)
 
@@ -158,6 +165,7 @@ class Stack:
             self.jobs,
             self.events,
             lambda: self.auth.paused,
+            self.history,
         )
         self.admin = AdminService(
             settings,
@@ -187,7 +195,11 @@ class Stack:
     def app(self) -> FastAPI:
         """Build the HTTP app around this stack."""
         app = create_app(
-            self.registry, self.items_service, self.admin, self.devtools
+            self.registry,
+            self.items_service,
+            self.admin,
+            self.devtools,
+            self.purges,
         )
         web = _web_dir()
         if web is None:

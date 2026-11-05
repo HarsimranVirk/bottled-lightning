@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.5 |
+| **Version** | v4.6 |
 | **Date** | 2026-11-05 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
@@ -134,7 +134,9 @@ decision only. **Skip** records only the decision and never writes to Salesforce
 ### 3.2b Deviations Z02 — accepted history (toggle)
 
 The history is the record of what the deck approved: one row per **accepted** deviation,
-newest decision first. It is not a working list and has no deck actions.
+newest accept first. It is read from the separate approved-history snapshot, not from the
+live work items, so it survives the current-data purge. It is not a working list and has
+no deck actions.
 
 | State | Content | Actions |
 |---|---|---|
@@ -145,9 +147,11 @@ newest decision first. It is not a working list and has no deck actions.
 | page overflow | `1–25 of N`, page buttons, rows-per-page | Page |
 
 The search field is a Salt `FormField`; pagination is server-side ordered by the newest
-decision (`sort=decision&order=desc`). Clicking a row opens the Salt detail panel; the
-deviation number is an absolute Salesforce link. Undo decision in the detail returns the
-item to the deck and removes it from history on the next refetch.
+accept (`decided_at DESC`). The view lives at `?view=history` so a history row can be
+linked directly. Clicking a row opens the read-only snapshot detail; the deviation number
+is an absolute Salesforce link. There is no **Undo decision** action in history — undo is
+a current-item action and removes the snapshot when it is used from the deck. The history
+detail keeps working after the current work item is purged.
 
 ### 3.3 Item detail (drawer or full page on narrow screens)
 
@@ -235,6 +239,22 @@ CSV** / **Export Excel**. On narrow screens the columns stack.
 | query rejected | error banner with the server message |
 | export running | Export buttons disabled |
 | export failed | error banner; no file is produced |
+| purge preview | Salt dialog: scope, cutoff, per-table counts, acknowledgement checkbox |
+| purge running | destructive button disabled, "Purging…" |
+| purge succeeded | success banner with the deleted total and cutoff |
+| purge failed | error banner; transaction rolled back |
+
+Below the query results is a **Maintenance** section with two actions:
+
+- **Purge current data** — deletes work items last active more than 24 hours ago, plus
+  their fields, attributes, refs, decisions, edits and events. Items with an active job
+  are skipped. Approved history is untouched.
+- **Purge historical data** — deletes approved snapshots accepted more than 90 days ago
+  and their child rows. Current work items are untouched.
+
+Each action first runs a dry run and opens a Salt `Dialog` with the cutoff and per-table
+counts. The destructive button stays disabled until the operator checks “I understand
+this cannot be undone”. The server computes the cutoff; the UI never sends one.
 
 Filtering and pagination are client-side over the preview (500 rows by default); exports
 run the full query server-side, not the filtered view. The SQL editor is a Salt
@@ -276,8 +296,10 @@ Server state is the only state that matters; everything else is UI.
 | `["version"]` | `GET /api/version` | on boot | footer only; never refetched |
 | `["workflows"]` | `GET /api/workflows` | on boot | catalogue + labels, never refetched during a session |
 | `["sync", workflow]` | `GET /api/syncs?workflow=` | 10 s | header/rows/valid/warning |
-| `["items", workflow, filters, offset]` | `GET /api/deviations` | 10 s | deck (all rows for the tallies) and history (`decision=accept&sort=decision`) |
-| `["item", workflow, key]` | `GET /api/deviations/{key}` | 10 s, paused while editing | detail |
+| `["items", workflow, filters, offset]` | `GET /api/deviations` | 10 s | deck (all rows for the tallies) |
+| `["item", workflow, key]` | `GET /api/deviations/{key}` | 10 s, paused while editing | current detail |
+| `["history", workflow, query, offset]` | `GET /api/deviations/history` | 10 s | approved-history snapshot table |
+| `["history-item", workflow, key]` | `GET /api/deviations/history/{key}` | 10 s | read-only snapshot detail |
 | `["jobs", filters, page, size, sort, order]` | `GET /api/jobs` | 2 s while visible | paginated queue |
 | `["job", id]` | `GET /api/jobs/{id}/logs` | 2 s while visible | expanded job |
 | `["items", …]` mutation | `POST` / `DELETE …/decisions` | on action | invalidates the list and item keys |
@@ -440,8 +462,15 @@ combinations hit the server, the total reflects the filters, and a running job's
 duration ticks.
 
 **Slice F — history** (done). The general list view is replaced by the accepted-deviations
-history table (Salt Table, newest decision first, search + server pagination). The deck
+history table (Salt Table, newest accept first, search + server pagination). The deck
 completion card links to it.
+
+**Slice G — segregated history + retention** (approved). History moves to the
+`approved_*` snapshot read model with its own route and detail endpoint. The dev DB
+explorer gains the two confirmed purge actions. Acceptance: an accepted item remains
+readable after its current work item is purged; the current purge skips active jobs and
+leaves jobs/sessions/history intact; the history purge removes only snapshots older than
+90 days.
 
 **Slice D — review deck** (done). Default deck view in the legacy card shape, accept/reject
 decisions, editable prefilled values stored on accept and submitted when at least one is

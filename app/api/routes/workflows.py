@@ -38,6 +38,24 @@ def make_router(workflow: Workflow, service: WorkItemService) -> APIRouter:
             workflow.name, status, q, limit, offset, decision, sort, order
         )
 
+    @router.get("/history", response_model=ItemsPageView)
+    def list_history(
+        q: str | None = None,
+        limit: int = Query(default=25, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+    ) -> ItemsPageView:
+        """Accepted-deviation snapshots, newest accept first.
+
+        This is a separate read model from the live item list; it survives the current
+        work-item purge.
+        """
+        return service.list_history(workflow.name, q, limit, offset)
+
+    @router.get("/history/{key}", response_model=ItemDetailView)
+    def get_history_item(key: str) -> ItemDetailView:
+        """One approved snapshot with its attributes, refs, edits and accept decision."""
+        return service.get_history_item(workflow.name, key)
+
     @router.get("/{key}", response_model=ItemDetailView)
     def get_item(key: str) -> ItemDetailView:
         """One item with attributes, object links and edit history."""

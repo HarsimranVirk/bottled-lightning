@@ -6,14 +6,24 @@ job, auth pause) lives here so it can be unit-tested without an HTTP client.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from typing import Protocol
 
 from app.config import Settings
 from app.core.field import normalise
-from app.core.models import Decision, Job, WorkItem, job_duration_ms, utcnow
+from app.core.models import (
+    ApprovedDeviation,
+    Decision,
+    FieldValue,
+    Job,
+    WorkItem,
+    job_duration_ms,
+    utcnow,
+)
 from app.core.registry import WorkflowRegistry
+from app.core.repo.approved_history import ApprovedHistoryRepository
 from app.core.repo.attributes import AttributeRepository
 from app.core.repo.decisions import DecisionRepository
 from app.core.repo.edits import EditRepository
@@ -67,6 +77,7 @@ _SUBMITTABLE = _EDITABLE
 _TERMINAL = frozenset(
     {WorkItemStatus.COMPLETED, WorkItemStatus.CLOSED, WorkItemStatus.SKIPPED}
 )
+logger = logging.getLogger(__name__)
 
 
 def workflow_view(workflow: Workflow) -> WorkflowView:
@@ -138,6 +149,7 @@ class WorkItemService:
         jobs: JobRepository,
         events: EventRepository,
         is_paused: Callable[[], bool],
+        history: ApprovedHistoryRepository | None = None,
     ) -> None:
         self._registry = registry
         self._items = items
@@ -149,6 +161,7 @@ class WorkItemService:
         self._jobs = jobs
         self._events = events
         self._is_paused = is_paused
+        self._history = history
 
     # -- reads -------------------------------------------------------------
     def list_workflows(self) -> list[WorkflowView]:
@@ -209,6 +222,47 @@ class WorkItemService:
         workflow = self._workflow(workflow_name)
         item = self._item(workflow, key)
         return self._detail_view(workflow, item)
+
+    def list_history(
+        self,
+        workflow_name: str,
+        query: str | None = None,
+        limit: int = 25,
+        offset: int = 0,
+    ) -> ItemsPageView:
+        """
+        Page the approved-history snapshots, newest accept first.
+
+        Reads only the segregated snapshot store, so a purged work item cannot remove a
+        row from this response.
+        """
+        workflow = self._workflow(workflow_name)
+        if self._history is None:
+            return ItemsPageView(
+                workflow=workflow.name, count=0, total=0, rows=[]
+            )
+        items, total = self._history.page(workflow.name, query, limit, offset)
+        return ItemsPageView(
+            workflow=workflow.name,
+            count=len(items),
+            total=total,
+            rows=[
+                self._history_row_view(
+                    workflow, item, self._history.fields(workflow.name, item.key)
+                )
+                for item in items
+            ],
+        )
+
+    def get_history_item(self, workflow_name: str, key: str) -> ItemDetailView:
+        """One history snapshot with its read-only attributes, refs and edit audit."""
+        workflow = self._workflow(workflow_name)
+        if self._history is None:
+            raise ApiError(404, f"unknown history item: {key}", "unknown_history_item")
+        item = self._history.get(workflow.name, key)
+        if item is None:
+            raise ApiError(404, f"unknown history item: {key}", "unknown_history_item")
+        return self._history_detail_view(workflow, item)
 
     # -- writes ------------------------------------------------------------
     def patch_fields(
@@ -288,6 +342,11 @@ class WorkItemService:
         note = reason.strip() if reason is not None else None
         at = utcnow()
         self._decisions.record(workflow.name, key, kind, note or None, at)
+        if self._history is not None:
+            if kind is DecisionKind.ACCEPT:
+                self._history.record_accept(workflow.name, key, note or None, at)
+            else:
+                self._history.remove(workflow.name, key)
         self._events.emit(
             kind.value,
             workflow=workflow.name,
@@ -309,6 +368,8 @@ class WorkItemService:
         self._decisions.record(
             workflow.name, key, DecisionKind.PENDING, None, utcnow()
         )
+        if self._history is not None:
+            self._history.remove(workflow.name, key)
         self._events.emit("decision_cleared", workflow=workflow.name, item=key)
         return self._detail_view(workflow, self._item(workflow, key))
 
@@ -349,6 +410,15 @@ class WorkItemService:
                 submitted_at,
                 job.id,
             )
+        if self._history is not None:
+            try:
+                self._history.refresh(workflow.name, key)
+            except Exception:
+                logger.exception(
+                    "approved-history refresh failed for %s/%s",
+                    workflow.name,
+                    key,
+                )
         self._events.emit(
             "submitted", workflow=workflow.name, item=key, job_id=job.id
         )
@@ -400,7 +470,90 @@ class WorkItemService:
         item: WorkItem,
         decision: Decision | None = None,
     ) -> ItemRowView:
-        stored = self._fields.for_item(workflow.name, item.key)
+        active = self._jobs.active_for(workflow.name, item.key)
+        return ItemRowView(
+            key=item.key,
+            status=item.status.value,
+            present=item.present,
+            epoch=item.epoch,
+            record_url=item.record_url,
+            approved_at=item.approved_at,
+            reason=item.reason,
+            fields=self._field_views(
+                workflow, self._fields.for_item(workflow.name, item.key)
+            ),
+            decision=(
+                decision_view(decision) if decision is not None else None
+            ),
+            active_job=job_view(active) if active is not None else None,
+        )
+
+    def _history_row_view(
+        self,
+        workflow: Workflow,
+        item: ApprovedDeviation,
+        stored: Mapping[str, FieldValue],
+    ) -> ItemRowView:
+        """Project one snapshot parent into the same row shape as the current list."""
+        return ItemRowView(
+            key=item.key,
+            status=item.status.value,
+            present=item.present,
+            epoch=item.epoch,
+            record_url=item.record_url,
+            approved_at=item.approved_at,
+            reason=item.reason,
+            fields=self._field_views(workflow, stored),
+            decision=DecisionView(
+                decision=DecisionKind.ACCEPT.value,
+                reason=item.decision_reason,
+                at=item.decided_at,
+            ),
+            active_job=None,
+        )
+
+    def _history_detail_view(
+        self, workflow: Workflow, item: ApprovedDeviation
+    ) -> ItemDetailView:
+        """Project a snapshot parent and its children into the current detail shape."""
+        if self._history is None:
+            raise ApiError(
+                404, f"unknown history item: {item.key}", "unknown_history_item"
+            )
+        row = self._history_row_view(
+            workflow, item, self._history.fields(workflow.name, item.key)
+        )
+        refs = self._history.refs(workflow.name, item.key)
+        edits = self._history.edits(workflow.name, item.key)
+        return ItemDetailView(
+            **row.model_dump(),
+            attributes=self._history.attributes(workflow.name, item.key),
+            refs=[
+                PageRefView(kind=ref.kind, name=ref.name, url=ref.url)
+                for ref in refs.values()
+            ],
+            edits=[
+                EditView(
+                    field=field,
+                    old_value=old,
+                    new_value=new,
+                    at=datetime.fromisoformat(at),
+                )
+                for field, old, new, at in edits
+            ],
+            decisions=[
+                DecisionView(
+                    decision=DecisionKind.ACCEPT.value,
+                    reason=item.decision_reason,
+                    at=item.decided_at,
+                )
+            ],
+        )
+
+    def _field_views(
+        self, workflow: Workflow, stored: Mapping[str, FieldValue]
+    ) -> dict[str, FieldView]:
+        """Build one view per catalogue field, including fields with no stored row."""
         fields: dict[str, FieldView] = {}
         for spec in workflow.catalog:
             value = stored.get(spec.key)
@@ -415,21 +568,7 @@ class WorkItemService:
                 if value is not None
                 else FieldView(extracted=None, status="extracted")
             )
-        active = self._jobs.active_for(workflow.name, item.key)
-        return ItemRowView(
-            key=item.key,
-            status=item.status.value,
-            present=item.present,
-            epoch=item.epoch,
-            record_url=item.record_url,
-            approved_at=item.approved_at,
-            reason=item.reason,
-            fields=fields,
-            decision=(
-                decision_view(decision) if decision is not None else None
-            ),
-            active_job=job_view(active) if active is not None else None,
-        )
+        return fields
 
     def _detail_view(self, workflow: Workflow, item: WorkItem) -> ItemDetailView:
         latest = self._decisions.latest(workflow.name, item.key)

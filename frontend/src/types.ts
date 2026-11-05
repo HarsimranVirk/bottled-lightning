@@ -24,6 +24,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dev/db/purges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Purge
+         * @description Run one manual retention scope; ``dryRun`` only reports counts.
+         */
+        post: operations["purge_api_dev_db_purges_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/dev/db/queries": {
         parameters: {
             query?: never;
@@ -79,6 +99,49 @@ export interface paths {
          *     is ``accept``, ``reject`` or ``undecided``.
          */
         get: operations["list_items_api_deviations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/deviations/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List History
+         * @description Accepted-deviation snapshots, newest accept first.
+         *
+         *     This is a separate read model from the live item list; it survives the current
+         *     work-item purge.
+         */
+        get: operations["list_history_api_deviations_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/deviations/history/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get History Item
+         * @description One approved snapshot with its attributes, refs, edits and accept decision.
+         */
+        get: operations["get_history_item_api_deviations_history__key__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -693,6 +756,46 @@ export interface components {
             /** Url */
             url: string;
         };
+        /**
+         * PurgeIn
+         * @description One manual retention action; the server owns the cutoff.
+         */
+        PurgeIn: {
+            /**
+             * Dryrun
+             * @default false
+             */
+            dryRun: boolean;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "current" | "history";
+        };
+        /**
+         * PurgeView
+         * @description Per-table result of a dry-run or real purge.
+         */
+        PurgeView: {
+            /**
+             * Cutoff
+             * Format: date-time
+             */
+            cutoff: string;
+            /** Deleted */
+            deleted: {
+                [key: string]: number;
+            };
+            /** Dryrun */
+            dryRun: boolean;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "current" | "history";
+            /** Total */
+            total: number;
+        };
         /** QueueView */
         QueueView: {
             /** Concurrency */
@@ -867,6 +970,39 @@ export interface operations {
             };
         };
     };
+    purge_api_dev_db_purges_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PurgeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurgeView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     query_api_dev_db_queries_post: {
         parameters: {
             query?: never;
@@ -947,6 +1083,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ItemsPageView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_history_api_deviations_history_get: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemsPageView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_history_item_api_deviations_history__key__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetailView"];
                 };
             };
             /** @description Validation Error */

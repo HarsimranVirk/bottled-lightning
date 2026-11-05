@@ -17,7 +17,7 @@ import {
 } from '@salt-ds/core'
 import { useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { api } from '../api'
 import type { DecisionKind, ItemRow } from '../api'
@@ -28,6 +28,8 @@ import { DECIDABLE_STATUSES, isDeckRow } from '../deck'
 import { acceptAndSubmit } from '../submit'
 import {
   useDecideDecision,
+  useHistory,
+  useHistoryItem,
   useItem,
   useItems,
   usePatchFields,
@@ -42,13 +44,14 @@ const Z02_WORKFLOW = 'deviations_z02'
 export function DeviationsPage(): JSX.Element {
   const { key } = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const view = searchParams.get('view') === 'history' ? 'history' : 'deck'
   const client = useQueryClient()
   const workflows = useWorkflows()
   // The Z02 tab is concrete; the registry only supplies labels and fields.
   const workflow = workflows.data?.find((item) => item.name === Z02_WORKFLOW) ?? workflows.data?.[0]
   const route = workflow?.route ?? null
 
-  const [view, setView] = useState<'deck' | 'history'>('deck')
   const [historyQuery, setHistoryQuery] = useState('')
   const [historyPage, setHistoryPage] = useState(1)
   const [historySize, setHistorySize] = useState(25)
@@ -59,15 +62,17 @@ export function DeviationsPage(): JSX.Element {
   const sync = useSync(workflow?.name ?? null)
   // One unfiltered page powers the deck and the tallies, like the legacy deck.
   const deck = useItems(route, {}, 500, view === 'deck')
-  // History is the accepted set, newest decision first, paginated by the server.
-  const history = useItems(
+  // History is the approved snapshot store, newest accept first, paginated by the server.
+  const history = useHistory(
     route,
-    { decision: 'accept', q: historyQuery || undefined, sort: 'decision', order: 'desc' },
+    historyQuery || null,
     historySize,
     view === 'history',
     (historyPage - 1) * historySize,
   )
-  const detail = useItem(route, key ?? null)
+  const currentDetail = useItem(route, view === 'deck' ? key ?? null : null)
+  const historyDetail = useHistoryItem(route, view === 'history' ? key ?? null : null)
+  const detail = view === 'history' ? historyDetail : currentDetail
 
   const allRows = useMemo(() => deck.data?.rows ?? [], [deck.data])
   const deckRows = useMemo(() => allRows.filter(isDeckRow), [allRows])
@@ -82,6 +87,10 @@ export function DeviationsPage(): JSX.Element {
 
   const topKey = deckRows[0]?.key ?? null
   const cardDetail = useItem(route, view === 'deck' ? topKey : null)
+
+  function showView(next: 'deck' | 'history'): void {
+    navigate(next === 'history' ? '/deviations-z02?view=history' : '/deviations-z02')
+  }
 
   const decide = useDecideDecision(route)
   const patch = usePatchFields(route)
@@ -176,7 +185,7 @@ export function DeviationsPage(): JSX.Element {
             value={view}
             onChange={(event) => {
               const next = event.currentTarget.value
-              if (next === 'deck' || next === 'history') setView(next)
+              if (next === 'deck' || next === 'history') showView(next)
             }}
           >
             <ToggleButton value="deck">Deck</ToggleButton>
@@ -198,7 +207,7 @@ export function DeviationsPage(): JSX.Element {
           onDecide={handleDecide}
           onReplay={() => void replaySkipped()}
           replaying={replaying}
-          onHistory={() => setView('history')}
+          onHistory={() => showView('history')}
           onRefresh={() => void deck.refetch()}
           refreshing={deck.isFetching}
         />
@@ -222,7 +231,11 @@ export function DeviationsPage(): JSX.Element {
             setHistoryPage(1)
           }}
           loading={history.isLoading}
-          onOpen={(itemKey) => navigate(`/deviations-z02/${encodeURIComponent(itemKey)}`)}
+          onOpen={(itemKey) =>
+            navigate(
+              `/deviations-z02/${encodeURIComponent(itemKey)}?view=history`,
+            )
+          }
         />
       )}
 
@@ -233,8 +246,10 @@ export function DeviationsPage(): JSX.Element {
             fields={workflow.fields}
             refKinds={workflow.refKinds}
             terminalLabels={workflow.terminalLabels}
-            onClose={() => navigate('/deviations-z02')}
-            onUndoDecision={() => handleUndo(detail.data.key)}
+            onClose={() => showView(view)}
+            onUndoDecision={
+              view === 'deck' ? () => handleUndo(detail.data.key) : undefined
+            }
             undoing={undo.isPending}
           />
         ) : detail.error ? (

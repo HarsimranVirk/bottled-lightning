@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.3 |
-| **Date** | 2026-11-04 |
+| **Version** | v4.4 |
+| **Date** | 2026-11-05 |
 | **Companions** | `docs/FR-deviations.md` (v3), `docs/data-model-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
 | **Change** | Introduced the workflow abstraction; earlier drafts were deviations-only |
 | **Implemented so far** | Phases 1–5, 7 and the apply/validate half of 6: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,adapters}`, `app/jobs/{dispatcher,worker,auth,logger}`, `app/pipeline/{watcher,reconciler,closure}`,
@@ -67,7 +67,7 @@ app/
     connection.py                 Database: engine, thread-local conns, transaction()
     schema.py                     DDL + PRAGMA user_version migrations
   core/                           shared mechanism — knows no workflow
-    models.py                     WorkItem, FieldValue, Attribute, PageRef, Job, SyncRun
+    models.py                     WorkItem, ApprovedDeviation, FieldValue, Attribute, PageRef, Job, SyncRun
     status.py                     WorkItemStatus, JobKind, JobStatus, Phase, ClosureSource
     logging.py                    SF_LOG_LEVEL (default INFO; DEBUG for per-row noise)
   utils/
@@ -86,6 +86,10 @@ app/
       sessions.py                 SessionRepository
       sync_runs.py                SyncRunRepository
       events.py                   EventRepository
+      decisions.py                DecisionRepository
+      approved_history.py         ApprovedHistoryRepository (snapshot + reads)
+      purge.py                    PurgeRepository (bulk retention deletes)
+  maintenance.py                  PurgeScope, PurgeResult, PurgeService
   salesforce/
     runtime.py                    BrowserRuntime
     session.py                    SessionProvider (+ is_login_page, cookie decoding)
@@ -363,6 +367,22 @@ class Decision:
     reason: str | None
     created_at: datetime
 
+@dataclass(frozen=True, slots=True)
+class ApprovedDeviation:
+    """A frozen copy of an accepted deviation, independent of the current tables."""
+    workflow: str
+    key: str
+    epoch: int
+    status: WorkItemStatus
+    source: ClosureSource | None
+    present: bool
+    record_url: str | None
+    approved_at: str | None
+    reason: str | None
+    decided_at: datetime
+    decision_reason: str | None
+    snapshot_at: datetime
+
 class FieldValue:
     workflow: str
     item: str
@@ -562,7 +582,34 @@ class DecisionRepository:
     def latest_for(self, workflow: str,
                    keys: Sequence[str]) -> dict[str, Decision]: ...
     def history(self, workflow: str, key: str, limit: int = 50) -> list[Decision]: ...
+
+class ApprovedHistoryRepository:
+    def record_accept(self, workflow: str, key: str, reason: str | None,
+                      at: datetime) -> None: ...
+    def refresh(self, workflow: str, key: str) -> None: ...
+    def remove(self, workflow: str, key: str) -> None: ...
+    def page(self, workflow: str, query: str | None, limit: int,
+             offset: int) -> tuple[list[ApprovedDeviation], int]: ...
+    def get(self, workflow: str, key: str) -> ApprovedDeviation | None: ...
+    def fields(self, workflow: str, key: str) -> dict[str, FieldValue]: ...
+    def attributes(self, workflow: str, key: str) -> dict[str, str | None]: ...
+    def refs(self, workflow: str, key: str) -> dict[str, PageRef]: ...
+    def edits(self, workflow: str, key: str, limit: int = 50) -> list[tuple[str, str | None, str | None, str]]: ...
+
+class PurgeRepository:
+    def current(self, cutoff: datetime, dry_run: bool) -> dict[str, int]: ...
+    def history(self, cutoff: datetime, dry_run: bool) -> dict[str, int]: ...
 ```
+
+`ApprovedHistoryRepository` owns every `approved_*` table. `record_accept` copies the
+current parent and all children in one transaction; `refresh` updates only an existing
+snapshot; `remove` deletes it. The History read model therefore never joins
+`work_items` or `item_decisions`.
+
+`PurgeRepository` owns the two bulk-delete statements. `PurgeService` chooses the cutoff
+(`now - 24h` for current, `now - 90d` for history), runs the dry-run or real transaction,
+and returns an immutable `PurgeResult` with per-table counts. The repository is the only
+class that issues destructive SQL; the API and frontend never supply a cutoff.
 
 `JobPage` is `(jobs, total)`; `JobQuery` carries the optional column filters, the
 sort column + direction and the page window. The sort column is a whitelist mapped
@@ -762,9 +809,16 @@ page).
 
 ```python
 class ClosureResolver:
+    def __init__(self, items: WorkItemRepository, jobs: JobRepository,
+                 events: EventRepository,
+                 history: ApprovedHistoryRepository | None = None) -> None: ...
     def close_if_absent(self, item: WorkItem, observed_at: datetime) -> None: ...
     def release_lease(self, workflow: str, item: str) -> None: ...
 ```
+
+After a closure, `ClosureResolver` calls `history.refresh(workflow, key)` so an accepted
+item's snapshot records its final status. The call is best-effort and never changes the
+closure outcome.
 
 Decision table (FR-2.8, FR-6.11):
 
@@ -945,9 +999,14 @@ stale leases at boot and on a timer (FR-7.2).
 ```python
 class Worker:
     def __init__(self, name: str, registry: WorkflowRegistry, jobs: JobRepository,
-                 auth: AuthGate, events: EventRepository) -> None: ...
+                 auth: AuthGate, events: EventRepository,
+                 history: ApprovedHistoryRepository | None = None) -> None: ...
     async def execute(self, job: Job) -> None: ...
 ```
+
+The worker refreshes the approved-history snapshot in its `finally` block, after any
+deferred closure is released, so the snapshot sees the final item status. A snapshot
+failure is logged and never changes the job result.
 
 Routes `(job.workflow, job.kind)` → `workflow.extraction` / `workflow.submission`;
 owns the `TabGroup` lifecycle, phase markers, log lines, exception translation, and
@@ -974,6 +1033,9 @@ class WorkItemService:
     def list(self, workflow: str, status: WorkItemStatus | None, query: str | None,
              limit: int, offset: int) -> WorkItemPage: ...
     def get(self, workflow: str, key: str) -> WorkItemDetail: ...
+    def list_history(self, workflow: str, query: str | None,
+                     limit: int, offset: int) -> ItemPage: ...
+    def get_history_item(self, workflow: str, key: str) -> ItemDetail: ...
     def patch_fields(self, workflow: str, key: str,
                      changes: Mapping[str, str | None]) -> WorkItemDetail: ...
     def discard_fields(self, workflow: str, key: str) -> WorkItemDetail: ...
@@ -1030,6 +1092,11 @@ Each should have a test.
 11. **I11** Every write clears the input, fills it, reads the widget value back, and
     compares it with the intended canonical value before clicking Save. A mismatch aborts
     the write, so a formatted/concatenated input can never be saved.
+12. **I12** The History read model uses only `approved_*` tables. It never joins or falls
+    back to `work_items`/`item_decisions`, so deleting current data cannot blank history.
+13. **I13** A current purge never deletes an item with an active job and never touches an
+    `approved_*` table; a history purge never touches a current or operational table.
+14. **I14** Both purges are idempotent, and a dry run performs no permanent delete.
 
 ## 13. Test seams
 

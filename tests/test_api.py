@@ -23,12 +23,14 @@ from app.config import Settings
 from app.core.list_view import ListRow
 from app.core.models import utcnow
 from app.core.registry import WorkflowRegistry
+from app.core.repo.approved_history import ApprovedHistoryRepository
 from app.core.repo.decisions import DecisionRepository
 from app.core.repo.edits import EditRepository
 from app.core.repo.jobs import JobRepository
 from app.core.status import WorkItemStatus
 from app.core.workflow import Workflow
 from app.devtools.db import DevDbService
+from app.maintenance import PurgeService
 from app.workflows.deviations_z02 import build_workflow
 from app.workflows.deviations_z02.adapters import build_adapters
 from tests.support import DbTestCase
@@ -79,6 +81,7 @@ class ApiTestCase(DbTestCase):
             jobs,
             deps.events,
             lambda: paused,
+            ApprovedHistoryRepository(self.db),
         )
         return service, registry, workflow, jobs, edits
 
@@ -370,6 +373,59 @@ class _FakeAdmin:
         raise ApiError(409, "not queued", "job_not_queued")
 
 
+class HistoryServiceTests(ApiTestCase):
+    """The History read model is independent from current item deletion."""
+
+    def test_accept_writes_snapshot_and_history_survives_deletion(self) -> None:
+        """History returns the accept snapshot even after work_items is emptied."""
+        self.make_ready_item()
+        service, _registry, _workflow, _jobs, _edits = self.build()
+        service.decide(WORKFLOW, KEY, "accept")
+
+        page = service.list_history(WORKFLOW)
+        self.assertEqual(page.total, 1)
+        self.assertEqual(page.rows[0].key, KEY)
+        assert page.rows[0].decision is not None
+        self.assertEqual(page.rows[0].decision.decision, "accept")
+
+        conn = self.db.connect()
+        for table in ("work_item_fields", "item_decisions", "work_items"):
+            conn.execute(f"DELETE FROM {table}")
+        conn.commit()
+
+        detail = service.get_history_item(WORKFLOW, KEY)
+        self.assertEqual(detail.key, KEY)
+        self.assertEqual(detail.status, "ready")
+        self.assertEqual(detail.fields["loan_amount"].extracted, "1300000")
+
+    def test_submit_refreshes_the_snapshot_with_edit_audit(self) -> None:
+        """The edit audit written at submit time reaches the history detail."""
+        self.make_ready_item()
+        service, _registry, _workflow, _jobs, _edits = self.build()
+        service.patch_fields(WORKFLOW, KEY, {"loan_amount": "25,50,000"})
+        service.decide(WORKFLOW, KEY, "accept")
+        service.submit(WORKFLOW, KEY)
+
+        detail = service.get_history_item(WORKFLOW, KEY)
+        self.assertEqual(detail.status, "submitting")
+        self.assertEqual(len(detail.edits), 1)
+        self.assertEqual(detail.edits[0].new_value, "2550000")
+
+    def test_history_endpoint_returns_snapshot(self) -> None:
+        """The HTTP history routes return the same shapes as the current item routes."""
+        self.make_ready_item()
+        service, registry, _workflow, _jobs, _edits = self.build()
+        service.decide(WORKFLOW, KEY, "accept")
+        client = TestClient(create_app(registry, service, _FakeAdmin()))
+
+        page = client.get(f"/api/deviations/history?q={KEY}")
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(page.json()["total"], 1)
+        detail = client.get(f"/api/deviations/history/{KEY}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["decision"]["decision"], "accept")
+
+
 class RouteTests(ApiTestCase):
     def test_route_table_matches_the_api_document(self) -> None:
         service, registry, _workflow, _jobs, _edits = self.build()
@@ -378,6 +434,8 @@ class RouteTests(ApiTestCase):
         for expected in [
             ("GET", "/api/workflows"),
             ("GET", "/api/deviations"),
+            ("GET", "/api/deviations/history"),
+            ("GET", "/api/deviations/history/{key}"),
             ("GET", "/api/deviations/{key}"),
             ("PATCH", "/api/deviations/{key}/field-values"),
             ("DELETE", "/api/deviations/{key}/field-values"),
@@ -434,7 +492,15 @@ class DevApiTests(ApiTestCase):
             enabled=enabled,
             allow_remote=True,
         )
-        return TestClient(create_app(registry, service, _FakeAdmin(), dev))
+        return TestClient(
+            create_app(
+                registry,
+                service,
+                _FakeAdmin(),
+                dev,
+                PurgeService(self.db),
+            )
+        )
 
     def test_disabled_hides_the_surface(self) -> None:
         response = self._client(enabled=False).get("/api/dev/db/tables")
@@ -457,6 +523,45 @@ class DevApiTests(ApiTestCase):
         body = response.json()
         self.assertEqual(body["columns"], ["item_key"])
         self.assertEqual(body["rows"][0][0], KEY)
+
+    def test_purge_dry_run_then_real(self) -> None:
+        """The dev purge route previews and then deletes the same rows."""
+        self.make_ready_item()
+        conn = self.db.connect()
+        conn.execute(
+            "UPDATE work_items SET first_seen = ?, last_seen = ?",
+            ["2000-01-01T00:00:00+00:00", "2000-01-01T00:00:00+00:00"],
+        )
+        conn.commit()
+        client = self._client()
+
+        preview = client.post(
+            "/api/dev/db/purges",
+            json={"scope": "current", "dryRun": True},
+        )
+        self.assertEqual(preview.status_code, 200)
+        self.assertGreater(preview.json()["total"], 0)
+        still_there = client.post(
+            "/api/dev/db/queries",
+            json={"sql": "SELECT COUNT(*) AS n FROM work_items", "limit": 10},
+        )
+        self.assertEqual(still_there.json()["rows"][0][0], 1)
+
+        real = client.post(
+            "/api/dev/db/purges",
+            json={"scope": "current", "dryRun": False},
+        )
+        self.assertEqual(real.status_code, 200)
+        self.assertEqual(real.json()["deleted"], preview.json()["deleted"])
+        self.assertEqual(real.json()["dryRun"], False)
+
+    def test_purge_is_hidden_when_disabled(self) -> None:
+        """The purge endpoint follows the same dev/localhost guard."""
+        response = self._client(enabled=False).post(
+            "/api/dev/db/purges",
+            json={"scope": "history", "dryRun": True},
+        )
+        self.assertEqual(response.status_code, 404)
 
     def test_sessions_query_is_rejected(self) -> None:
         response = self._client().post(

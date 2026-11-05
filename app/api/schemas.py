@@ -228,3 +228,20 @@ class DevExportIn(ApiModel):
 
     sql: str
     format: Literal["csv", "xlsx"]
+
+
+class PurgeIn(ApiModel):
+    """One manual retention action; the server owns the cutoff."""
+
+    scope: Literal["current", "history"]
+    dry_run: bool = False
+
+
+class PurgeView(ApiModel):
+    """Per-table result of a dry-run or real purge."""
+
+    scope: Literal["current", "history"]
+    cutoff: datetime
+    dry_run: bool
+    deleted: dict[str, int]
+    total: int

@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { DevQueryView } from '../api'
+import type { DevQueryView, PurgeResult } from '../api'
 import { DevDbPage } from './DevDbPage'
 
 interface TableState {
@@ -48,6 +48,11 @@ const mocks = vi.hoisted(() => {
       error: null,
       mutateAsync: vi.fn(),
     },
+    purge: {
+      isPending: false,
+      error: null,
+      mutateAsync: vi.fn(),
+    },
   }
 })
 
@@ -55,6 +60,7 @@ vi.mock('../queries', () => ({
   useDevTables: () => mocks.tables,
   useDevQuery: () => mocks.query,
   useDevExport: () => mocks.exporter,
+  useDevPurge: () => mocks.purge,
 }))
 
 function sampleRows(count: number): DevQueryView {
@@ -124,6 +130,71 @@ describe('DevDbPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Next' }))
     expect(screen.getByText('26–30 of 30')).toBeInTheDocument()
+  })
+
+  it('previews and confirms a current-data purge', async () => {
+    const user = userEvent.setup()
+    const preview: PurgeResult = {
+      scope: 'current',
+      cutoff: '2026-11-04T18:20:00Z',
+      dryRun: true,
+      deleted: { work_items: 2, work_item_fields: 5 },
+      total: 7,
+    }
+    const done: PurgeResult = {
+      ...preview,
+      dryRun: false,
+    }
+    mocks.purge.mutateAsync.mockImplementation(
+      ({ dryRun }: { dryRun: boolean }) =>
+        Promise.resolve(dryRun ? preview : done),
+    )
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'Purge current data' }))
+    expect(await screen.findByText(/7 rows/)).toBeInTheDocument()
+    expect(screen.getByText('work_item_fields')).toBeInTheDocument()
+
+    const confirm = screen.getByRole('button', { name: 'Purge' })
+    expect(confirm).toBeDisabled()
+    await user.click(
+      screen.getByRole('checkbox', {
+        name: 'I understand this cannot be undone.',
+      }),
+    )
+    expect(confirm).not.toBeDisabled()
+    await user.click(confirm)
+
+    expect(mocks.purge.mutateAsync).toHaveBeenLastCalledWith({
+      scope: 'current',
+      dryRun: false,
+    })
+    expect(
+      await screen.findByText(/Purged 7 rows from current data/),
+    ).toBeInTheDocument()
+  })
+
+  it('offers the historical purge separately', async () => {
+    const user = userEvent.setup()
+    mocks.purge.mutateAsync.mockResolvedValue({
+      scope: 'history',
+      cutoff: '2026-08-07T18:20:00Z',
+      dryRun: true,
+      deleted: { approved_deviations: 1 },
+      total: 1,
+    } satisfies PurgeResult)
+    renderPage()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Purge historical data' }),
+    )
+    expect(
+      await screen.findByText(/accepted more than 90 days ago/),
+    ).toBeInTheDocument()
+    expect(mocks.purge.mutateAsync).toHaveBeenCalledWith({
+      scope: 'history',
+      dryRun: true,
+    })
   })
 
   it('shows the disabled hint when the backend rejects the table list', () => {

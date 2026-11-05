@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v3.3 |
-| **Date** | 2026-11-04 |
+| **Version** | v3.4 |
+| **Date** | 2026-11-05 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/api-deviations.md` |
 | **Implemented by** | `app/db/schema.py`, `app/core/repo/*` |
@@ -38,11 +38,15 @@ change that alters the code (see AGENTS.md, plan-mode rules).
 
 ## 3. Schema version and migration
 
-- `PRAGMA user_version = 4` after `Database.migrate()`.
+- `PRAGMA user_version = 5` after `Database.migrate()`.
 - v3 is additive: `item_decisions` (4.12) is created with `CREATE TABLE IF NOT EXISTS`
   on the next boot. No backfill — every existing item is simply undecided.
 - v4 is additive: indexes for the jobs table (`item_key`, `started_at`) support the
   new filters. No column changes; duration stays derived from `started_at`/`finished_at`.
+- v5 is additive: the `approved_deviations` snapshot tables (4.13–4.17). On the first
+  boot from an older schema, `Database.migrate()` backfills a snapshot for every current
+  item whose latest `item_decisions` row is `accept`. The backfill is one transaction and
+  is skipped once `user_version` is 5.
 - **Fresh database only.** `migrate()` detects a legacy database (its `jobs` table has
   no `kind` column) and raises instead of half-applying the schema.
 - Cutover has happened: `data/app.db` now holds the workflow schema. The legacy
@@ -75,7 +79,8 @@ change that alters the code (see AGENTS.md, plan-mode rules).
 **Key** `(workflow, item_key)`. **Index** `(workflow, status)` for the working view.
 
 Semantics:
-- Rows are never deleted by normal operation (retention pending O-6).
+- Rows are never deleted by normal operation; the manual current purge (7.1) removes
+  items whose latest activity is older than 24 hours.
 - `extracted_at` makes extraction one-shot; `force` or a new epoch clears it.
 - Terminal status is written only by the submission pipeline / closure resolver, and
   never while a live job lease exists (enforced in `WorkItemRepository.transition`).
@@ -237,8 +242,65 @@ Semantics:
 - The table never changes `work_items.status` and never triggers a job. Accept/reject is
   a review decision, not a pipeline transition (FR-10.2).
 - Decisions survive refresh, extraction retries, and presence epochs; they are cleared
-  only by an explicit undo. This is deliberate: a refresh must not resurrect a card the
-  operator already dismissed.
+  only by an explicit undo or by the current purge when their item is removed. This is
+  deliberate: a refresh must not resurrect a card the operator already dismissed, and a
+  purged item must not return with a stale accept.
+
+### 4.13 `approved_deviations` — approved-history parent (snapshot)
+
+| Column | Type | Null | Meaning |
+|---|---|---|---|
+| `workflow`, `item_key` | TEXT | no | Primary key; one snapshot per item |
+| `epoch` | INTEGER | no | Presence epoch at snapshot time |
+| `status` | TEXT | no | `WorkItemStatus` at snapshot time |
+| `source` | TEXT | yes | `ClosureSource` if terminal |
+| `present` | INTEGER | no | Presence at snapshot time |
+| `record_url` | TEXT | yes | SF record URL |
+| `approved_at` | TEXT | yes | Approval Date shown in SF |
+| `reason` | TEXT | yes | Item reason at snapshot time |
+| `decided_at` | TEXT | no | When the operator accepted; history sort key |
+| `decision_reason` | TEXT | yes | Optional note on the accept |
+| `snapshot_at` | TEXT | no | Last snapshot refresh |
+
+**Indexes** `(decided_at)` for the history purge and `(workflow, decided_at DESC)` for
+the newest-first history page.
+
+The parent row is written on accept and refreshed on submit/closure. Re-accepting the
+same item replaces its snapshot (same primary key); undoing or rejecting removes it. It
+is copied, not derived at read time, so a current-data purge cannot erase it.
+
+### 4.14 `approved_deviation_fields` — accepted field values (snapshot)
+
+| Column | Type | Null | Meaning |
+|---|---|---|---|
+| `workflow`, `item_key`, `field_key` | TEXT | no | Composite key |
+| `extracted`, `last_synced`, `proposed`, `applied` | TEXT | yes | Same meaning as 4.2 |
+| `status` | TEXT | no | `FieldStatus` |
+| `updated_at` | TEXT | no | Copied from the current field row |
+
+Foreign key to `approved_deviations` with `ON DELETE CASCADE`.
+
+### 4.15 `approved_deviation_attributes` — context values (snapshot)
+
+Same shape as 4.3 (`workflow`, `item_key`, `name`, `value`), with a cascading foreign
+key to the parent.
+
+### 4.16 `approved_deviation_refs` — object links (snapshot)
+
+Same shape as 4.4 (`workflow`, `item_key`, `kind`, `name`, `url`), with a cascading
+foreign key to the parent.
+
+### 4.17 `approved_deviation_edits` — submitted edits (snapshot)
+
+| Column | Type | Null | Meaning |
+|---|---|---|---|
+| `id` | INTEGER | no | PK |
+| `workflow`, `item_key`, `field_key` | TEXT | no | Subject |
+| `old_value`, `new_value` | TEXT | yes | Before / after |
+| `created_at` | TEXT | no | Original edit timestamp |
+
+Cascades with the parent. The snapshot is replaced as a whole on accept/refresh; edits
+are never updated in place.
 
 ## 5. Relationships
 
@@ -256,6 +318,12 @@ work_items (workflow, item_key)
 sync_runs    (per workflow, independent history)
 sessions     (latest snapshot wins)
 session_events
+
+approved_deviations (workflow, item_key)   ← independent snapshot, no FK to current
+   ├── approved_deviation_fields
+   ├── approved_deviation_attributes
+   ├── approved_deviation_refs
+   └── approved_deviation_edits
 ```
 
 There are no SQL foreign keys from the item tables (SQLite + workflow-scoped
@@ -273,13 +341,38 @@ repositories made them more friction than value); `job_logs.job_id` is the one F
 | `jobs` | mutable until terminal | Terminal rows are history; stale leases are requeued |
 | `work_item_edits`, `work_item_events`, `item_decisions`, `job_logs`, `sync_runs`, `session_events` | append-only | Never updated or deleted by normal operation |
 | `sessions` | append-only | Latest row wins; `clear()` removes all |
+| `approved_deviations` | snapshot | Written on accept, refreshed on submit/closure, removed on undo/reject |
+| `approved_deviation_*` | snapshot children | Replaced with the parent; cascade on delete |
 
 ## 7. Retention
 
-- Closed and skipped items stay in `work_items` (O-6 decides archive vs hard delete;
-  the current design keeps them for history and re-entry detection).
-- Logs and events grow without bound. Acceptable for a single-operator tool; if it
-  becomes a problem, prune `job_logs` for jobs older than N days in a maintenance task.
+Two manual purges keep the two stores independent.
+
+### 7.1 Current work items — 24 hours
+
+`PurgeService.purge(CURRENT)` deletes `work_items` whose latest activity
+(`COALESCE(closed_at, last_seen, first_seen)`) is older than `now - 24h`, except items
+with an active job (`queued`, `running`, `blocked_auth`). It deletes the item's
+`work_item_fields`, `work_item_attributes`, `work_item_refs`, `work_item_edits`,
+`work_item_events` and `item_decisions` in the same transaction.
+
+Deleting the old decisions is deliberate: a deviation that disappears and later returns
+must not inherit a stale accept that would keep it out of the deck. Jobs, job logs, sync
+runs, sessions, session events and every `approved_*` table are out of scope.
+
+### 7.2 Approved history — 90 days
+
+`PurgeService.purge(HISTORY)` deletes `approved_deviations` rows whose `decided_at` is
+older than `now - 90d`, then deletes the four snapshot child tables. Current work items
+and operational tables are untouched.
+
+### 7.3 Properties
+
+- Both purges are idempotent and support a dry run that returns the same counts.
+- The cutoff is computed server-side; the UI never supplies or changes it.
+- No automatic retention loop exists yet; both actions are operator-triggered.
+- `VACUUM` is not run automatically; SQLite may keep free pages until a later manual
+  maintenance step.
 
 ## 8. Repository ownership map
 
@@ -295,6 +388,8 @@ repositories made them more friction than value); `job_logs.job_id` is the one F
 | `jobs`, `job_logs` | `JobRepository` |
 | `sync_runs` | `SyncRunRepository` |
 | `sessions`, `session_events` | `SessionRepository` |
+| `approved_deviations`, `approved_deviation_*` | `ApprovedHistoryRepository` |
+| current/history purge SQL | `PurgeRepository` |
 
 No other module contains SQL. The API layer (`app/api`) talks to these repositories
 through `WorkItemService`/`AdminService` and never issues SQL itself.

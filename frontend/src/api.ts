@@ -28,6 +28,8 @@ export type DevTableView = components['schemas']['DevTableView']
 export type DevTablesView = components['schemas']['DevTablesView']
 export type DevQueryView = components['schemas']['DevQueryView']
 export type DevCell = DevQueryView['rows'][number][number]
+export type PurgeScope = components['schemas']['PurgeIn']['scope']
+export type PurgeResult = components['schemas']['PurgeView']
 
 /** A failed request, normalised from the API's `{detail: {code, message}}` body. */
 export class ApiError extends Error {
@@ -181,6 +183,12 @@ export const api = {
     request(`/api/${route}${itemsQuery(params)}`),
   item: (route: string, key: string): Promise<ItemDetail> =>
     request(`/api/${route}/${encodeURIComponent(key)}`),
+  history: (
+    route: string,
+    params: { q?: string; limit?: number; offset?: number } = {},
+  ): Promise<ItemsPage> => request(`/api/${route}/history${query(params)}`),
+  historyItem: (route: string, key: string): Promise<ItemDetail> =>
+    request(`/api/${route}/history/${encodeURIComponent(key)}`),
   patchFields: (
     route: string,
     key: string,
@@ -222,5 +230,10 @@ export const api = {
     requestBlob('/api/dev/db/exports', {
       method: 'POST',
       body: JSON.stringify({ sql, format }),
+    }),
+  devPurge: (scope: PurgeScope, dryRun: boolean): Promise<PurgeResult> =>
+    request('/api/dev/db/purges', {
+      method: 'POST',
+      body: JSON.stringify({ scope, dryRun }),
     }),
 }

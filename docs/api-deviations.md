@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v2.4 |
-| **Date** | 2026-11-04 |
+| **Version** | v2.5 |
+| **Date** | 2026-11-05 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/data-model-deviations.md` |
 | **Implemented by** | `app/api/*` (refactor Phase 7) — live |
@@ -153,10 +153,23 @@ Requests an immediate refresh instead of waiting for the 30 s cycle.
 - `decision` filters by review decision: `accept`, `reject`, or `undecided` (no decision,
   or the latest decision was undone). Omitted means any.
 - `q` matches the key or the reason.
-- `sort` is `last_seen` (default) or `decision`; `order` is `asc`/`desc`. History calls
-  `?decision=accept&sort=decision&order=desc` to show the newest approvals first.
+- `sort` is `last_seen` (default) or `decision`; `order` is `asc`/`desc`.
 - `recordUrl` is an absolute Salesforce URL. Rows stored before the sync fix may still
   hold a root-relative path; the UI resolves it against the workflow's `listUrl`.
+
+### `GET /api/deviations/history?q=&limit=25&offset=0`
+
+The approved-history read model. Returns the same `ItemsPageView` shape as the item list,
+but every row comes from `approved_deviations`, not `work_items`. `q` matches the
+deviation key, the item reason or the accept note. Rows are always newest accept first;
+the endpoint has no `status` or `decision` filter because only accepted snapshots exist.
+`activeJob` is always `null`.
+
+### `GET /api/deviations/history/{key}`
+
+The snapshot detail: same `ItemDetailView` shape as the current item detail, including
+attributes, refs, edits and the accept decision. It stays available after the current
+work item is purged. `404` with `code: "unknown_history_item"` when no snapshot exists.
 
 ### `GET /api/deviations/{key}`
 
@@ -349,6 +362,7 @@ Requests are localhost-only unless `SF_DEV_TOOLS_ALLOW_REMOTE=1`. All routes ret
 | `GET` | `/api/dev/db/tables` | table names, columns, row counts; `sessions` is never listed |
 | `POST` | `/api/dev/db/queries` | one read-only statement; preview capped at 5,000 rows |
 | `POST` | `/api/dev/db/exports` | the same statement as a `csv` or real `xlsx` file |
+| `POST` | `/api/dev/db/purges` | manual current (24 h) or history (90 d) purge |
 
 ```json
 // POST /api/dev/db/queries
@@ -375,6 +389,40 @@ The export is an attachment named `bottled-lightning-export-<timestamp>.<ext>`.
 `textarea` query errors return `422`. The `sessions` table is blocked by a SQLite
 authorizer and must never be added to the allowlist. The full design and safety rules are
 in `docs/dev-tools.md`.
+
+### `POST /api/dev/db/purges`
+
+Manual retention. The server computes the cutoff; the body cannot override it.
+
+```json
+{ "scope": "current", "dryRun": true }
+```
+
+- `scope=current` deletes work items last active more than 24 hours ago (except items
+  with an active job) plus their fields, attributes, refs, decisions, edits and events.
+- `scope=history` deletes approved snapshots accepted more than 90 days ago plus their
+  child rows.
+- `dryRun` returns the counts without deleting. A real run is one transaction.
+- `409` with `code: "purge_failed"` if SQLite rejects the transaction; `404` when dev
+  tools are disabled or the request is not localhost.
+
+```json
+{
+  "scope": "current",
+  "cutoff": "2026-11-04T18:20:00Z",
+  "dryRun": false,
+  "deleted": {
+    "work_items": 3,
+    "work_item_fields": 12,
+    "work_item_attributes": 30,
+    "work_item_refs": 15,
+    "work_item_edits": 2,
+    "work_item_events": 4,
+    "item_decisions": 3
+  },
+  "total": 69
+}
+```
 
 ## 9. Updates (unchanged)
 
@@ -481,6 +529,15 @@ export interface ItemsPage {
   rows: ItemRow[];
 }
 
+export type PurgeScope = "current" | "history";
+export interface PurgeResult {
+  scope: PurgeScope;
+  cutoff: string;
+  dryRun: boolean;
+  deleted: Record<string, number>;
+  total: number;
+}
+
 export interface SyncView {
   workflow: string;
   capturedAt: string | null;
@@ -518,7 +575,9 @@ export interface VersionView {
 The deck calls `GET /api/deviations?status=ready&status=editing&status=needs_review
 &decision=undecided&limit=200`. The list view passes the operator's selections. There is
 no separate `/review` resource: a decision is a property of the item, so it is filtered
-on the item collection and written as an item sub-resource.
+on the item collection and written as an item sub-resource. History is the exception: it
+is a separate read model served by `/api/deviations/history`, so a current-data purge
+cannot blank it.
 
 ## 11. Removed from v1
 

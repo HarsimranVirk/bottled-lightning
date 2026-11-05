@@ -12,6 +12,7 @@ from app.api.schemas import WorkflowView
 from app.api.services import AdminPort, WorkItemService
 from app.core.registry import WorkflowRegistry
 from app.devtools.db import DevDbService
+from app.maintenance import PurgeService
 
 
 def _api_error_handler(_request: Request, exc: Exception) -> JSONResponse:
@@ -31,6 +32,7 @@ def create_app(
     items: WorkItemService,
     admin: AdminPort,
     devtools: DevDbService | None = None,
+    purges: PurgeService | None = None,
 ) -> FastAPI:
     """Build the API app: one workflow router per registered workflow plus admin.
 
@@ -50,7 +52,7 @@ def create_app(
     for workflow in registry.all():
         api_router.include_router(make_workflow_router(workflow, items))
     if devtools is not None:
-        api_router.include_router(make_dev_router(devtools))
+        api_router.include_router(make_dev_router(devtools, purges))
 
     app.include_router(api_router, prefix="/api")
     return app

@@ -11,6 +11,11 @@ import {
   Banner,
   BannerContent,
   Button,
+  Checkbox,
+  Dialog,
+  DialogCloseButton,
+  DialogContent,
+  DialogHeader,
   FlexLayout,
   H1,
   Input,
@@ -28,9 +33,10 @@ import {
 } from '@salt-ds/core'
 import { Link } from 'react-router-dom'
 
-import type { DevCell } from '../api'
+import type { DevCell, PurgeResult, PurgeScope } from '../api'
 import { Pagination } from '../components/Pagination'
-import { useDevExport, useDevQuery, useDevTables } from '../queries'
+import { formatDateTime } from '../format'
+import { useDevExport, useDevPurge, useDevQuery, useDevTables } from '../queries'
 
 const DEFAULT_SQL = 'SELECT * FROM work_items LIMIT 100;'
 
@@ -54,9 +60,15 @@ export function DevDbPage(): JSX.Element {
   const [filters, setFilters] = useState<Record<string, string>>({})
   const [page, setPage] = useState(1)
   const [size, setSize] = useState(25)
+  const [confirmScope, setConfirmScope] = useState<PurgeScope | null>(null)
+  const [preview, setPreview] = useState<PurgeResult | null>(null)
+  const [acknowledged, setAcknowledged] = useState(false)
+  const [purgeResult, setPurgeResult] = useState<PurgeResult | null>(null)
+  const [purgeError, setPurgeError] = useState<string | null>(null)
   const tables = useDevTables()
   const query = useDevQuery()
   const exporter = useDevExport()
+  const purge = useDevPurge()
 
   const error = query.error ?? exporter.error ?? tables.error
 
@@ -96,6 +108,54 @@ export function DevDbPage(): JSX.Element {
     download(blob, format)
   }
 
+  function scopeLabel(scope: PurgeScope): string {
+    return scope === 'current' ? 'current data' : 'historical data'
+  }
+
+  function scopeDescription(scope: PurgeScope): string {
+    return scope === 'current'
+      ? 'Deletes work items last active more than 24 hours ago, plus their fields, attributes, refs, decisions, edits and events. Items with an active job are skipped. Approved history is untouched.'
+      : 'Deletes approved-deviation snapshots accepted more than 90 days ago, plus their fields, attributes, refs and edits. Current work items are untouched.'
+  }
+
+  async function openPurge(scope: PurgeScope): Promise<void> {
+    setConfirmScope(scope)
+    setPreview(null)
+    setAcknowledged(false)
+    setPurgeResult(null)
+    setPurgeError(null)
+    try {
+      const result = await purge.mutateAsync({ scope, dryRun: true })
+      setPreview(result)
+    } catch (caught) {
+      setPurgeError(caught instanceof Error ? caught.message : 'purge preview failed')
+    }
+  }
+
+  function closePurge(): void {
+    if (purge.isPending) return
+    setConfirmScope(null)
+    setPreview(null)
+    setAcknowledged(false)
+  }
+
+  async function runPurge(): Promise<void> {
+    if (confirmScope === null || !acknowledged) return
+    setPurgeError(null)
+    try {
+      const result = await purge.mutateAsync({
+        scope: confirmScope,
+        dryRun: false,
+      })
+      setPurgeResult(result)
+      setConfirmScope(null)
+      setPreview(null)
+      setAcknowledged(false)
+    } catch (caught) {
+      setPurgeError(caught instanceof Error ? caught.message : 'purge failed')
+    }
+  }
+
   return (
     <StackLayout gap={2}>
       <FlexLayout justify="space-between" align="center" gap={2} wrap>
@@ -103,8 +163,9 @@ export function DevDbPage(): JSX.Element {
         <Link to="/dev/states">Back to state harness</Link>
       </FlexLayout>
       <Text color="secondary">
-        Read-only. The <code>sessions</code> table is hidden and blocked; exports use the
-        same query and limits.
+        Read-only queries. The <code>sessions</code> table is hidden and blocked; exports
+        use the same query and limits. Maintenance purges are explicit and confirmed
+        below.
       </Text>
 
       {tables.isError ? (
@@ -253,6 +314,121 @@ export function DevDbPage(): JSX.Element {
           />
         </StackLayout>
       ) : null}
+
+      <StackLayout gap={1}>
+        <Text styleAs="h3">Maintenance</Text>
+        <Text color="secondary">
+          Manual retention only. Current work items are kept for 24 hours; approved
+          history is kept for 3 months.
+        </Text>
+        <FlexLayout gap={1} wrap>
+          <Button
+            appearance="bordered"
+            sentiment="negative"
+            onClick={() => void openPurge('current')}
+            disabled={confirmScope !== null || purge.isPending}
+          >
+            Purge current data
+          </Button>
+          <Button
+            appearance="bordered"
+            sentiment="negative"
+            onClick={() => void openPurge('history')}
+            disabled={confirmScope !== null || purge.isPending}
+          >
+            Purge historical data
+          </Button>
+        </FlexLayout>
+        {purgeError && confirmScope === null ? (
+          <Banner status="error">
+            <BannerContent>{purgeError}</BannerContent>
+          </Banner>
+        ) : null}
+        {purgeResult ? (
+          <Banner status="success">
+            <BannerContent>
+              Purged {purgeResult.total} rows from {scopeLabel(purgeResult.scope)}. Cutoff{' '}
+              {formatDateTime(purgeResult.cutoff)}.
+            </BannerContent>
+          </Banner>
+        ) : null}
+      </StackLayout>
+
+      <Dialog
+        open={confirmScope !== null}
+        onOpenChange={(open) => {
+          if (!open) closePurge()
+        }}
+        size="medium"
+      >
+        <DialogHeader
+          header={
+            confirmScope === null
+              ? 'Purge data'
+              : `Purge ${scopeLabel(confirmScope)}?`
+          }
+          actions={<DialogCloseButton onClick={closePurge} />}
+        />
+        <DialogContent>
+          <StackLayout gap={1}>
+            <Text>{confirmScope === null ? '' : scopeDescription(confirmScope)}</Text>
+            {preview === null && purge.isPending ? (
+              <FlexLayout gap={1} align="center">
+                <Spinner size="small" />
+                <Text color="secondary">Calculating the cutoff and counts…</Text>
+              </FlexLayout>
+            ) : null}
+            {preview ? (
+              <>
+                <Text color="secondary">
+                  Cutoff {formatDateTime(preview.cutoff)} · {preview.total} rows
+                </Text>
+                <TableContainer>
+                  <Table>
+                    <THead>
+                      <TR>
+                        <TH>Table</TH>
+                        <TH textAlign="right">Rows</TH>
+                      </TR>
+                    </THead>
+                    <TBody>
+                      {Object.entries(preview.deleted).map(([table, count]) => (
+                        <TR key={table}>
+                          <TD>{table}</TD>
+                          <TD textAlign="right">{count}</TD>
+                        </TR>
+                      ))}
+                    </TBody>
+                  </Table>
+                </TableContainer>
+                <Checkbox
+                  checked={acknowledged}
+                  onChange={(event) => setAcknowledged(event.target.checked)}
+                  label="I understand this cannot be undone."
+                />
+              </>
+            ) : null}
+            {purgeError ? (
+              <Banner status="error">
+                <BannerContent>{purgeError}</BannerContent>
+              </Banner>
+            ) : null}
+            <FlexLayout gap={1} justify="end">
+              <Button appearance="bordered" onClick={closePurge} disabled={purge.isPending}>
+                Cancel
+              </Button>
+              <Button
+                appearance="solid"
+                sentiment="negative"
+                onClick={() => void runPurge()}
+                disabled={!acknowledged || preview === null || purge.isPending}
+              >
+                {purge.isPending && preview !== null ? 'Purging…' : 'Purge'}
+              </Button>
+            </FlexLayout>
+          </StackLayout>
+        </DialogContent>
+      </Dialog>
     </StackLayout>
   )
 }
