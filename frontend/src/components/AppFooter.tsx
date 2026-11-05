@@ -2,6 +2,7 @@
 
 import type { JSX } from 'react'
 import { Button, Divider, FlexLayout, Text } from '@salt-ds/core'
+import { RefreshIcon } from '@salt-ds/icons'
 
 import type { SessionView, SyncView } from '../api'
 import { relativeTime } from '../format'
@@ -38,7 +39,7 @@ export function AppFooter({
             {statusText(session, sync)}
           </Text>
           <Button appearance="transparent" onClick={onRefresh} disabled={refreshing}>
-            Refresh
+            <RefreshIcon aria-hidden /> Sync now
           </Button>
         </FlexLayout>
       </FlexLayout>

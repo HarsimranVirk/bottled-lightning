@@ -22,7 +22,7 @@ import {
   StatusIndicator,
   Text,
 } from '@salt-ds/core'
-import { DoubleChevronLeftIcon, SuccessIcon } from '@salt-ds/icons'
+import { DoubleChevronLeftIcon, RefreshIcon, SuccessIcon } from '@salt-ds/icons'
 import { useEffect, useRef, useState } from 'react'
 
 import type { DecisionKind, ItemDetail, ItemRow, WorkflowFieldView } from '../api'
@@ -150,7 +150,7 @@ export function DecisionDeck({
           </FlexLayout>
         </FlexLayout>
         <Button appearance="bordered" onClick={onRefresh} disabled={refreshing}>
-          Refresh
+          <RefreshIcon aria-hidden /> Reload deck
         </Button>
       </FlexLayout>
 
@@ -186,7 +186,7 @@ export function DecisionDeck({
                   View history
                 </Button>
                 <Button appearance="bordered" onClick={onRefresh} disabled={refreshing}>
-                  Refresh
+                  <RefreshIcon aria-hidden /> Reload deck
                 </Button>
               </FlexLayout>
             </StackLayout>

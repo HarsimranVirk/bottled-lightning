@@ -2,6 +2,7 @@
 
 import type { JSX } from 'react'
 import { Banner, BannerContent, Button } from '@salt-ds/core'
+import { RefreshIcon } from '@salt-ds/icons'
 
 import type { SessionView, SyncView } from '../api'
 import { relativeTime } from '../format'
@@ -34,7 +35,9 @@ export function SyncBanner({ session, sync, onLogin, onRefresh, refreshing }: Pr
         <BannerContent>
           Last refresh is untrusted ({sync.warning ?? 'header/row mismatch'}) — checked{' '}
           {relativeTime(sync.capturedAt)}. Showing the previous valid list.
-          <Button appearance="transparent" onClick={onRefresh} disabled={refreshing}>Refresh</Button>
+          <Button appearance="transparent" onClick={onRefresh} disabled={refreshing}>
+            <RefreshIcon aria-hidden /> Retry sync
+          </Button>
         </BannerContent>
       </Banner>
     )

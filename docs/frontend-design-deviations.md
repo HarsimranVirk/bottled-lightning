@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.3 |
+| **Version** | v4.4 |
 | **Date** | 2026-11-05 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
@@ -116,7 +116,7 @@ accepted/skipped/to-review tallies, then Skip and Accept & update. The header ke
 | decision in flight | Skip/Accept & update disabled until the PATCH + decision + job finish | — |
 | decision failed | card stays, the server message appears above it | Retry |
 | leaving | card slides out right (accept) or left (skip) for 420 ms | — |
-| complete | `Deck complete 🎉`, accepted/skipped counts, **Replay skipped**, Refresh | undo all skips |
+| complete | `Deck complete 🎉`, accepted/skipped counts, **Replay skipped**, **Reload deck** | undo all skips |
 | paused session | Skip stays local; Accept & update is blocked by the auth banner and the card stays actionable | Skip |
 | absent from Salesforce | no card: the deck requires `present=true`, so a row that left the list disappears immediately while the backend closure retry finishes it | — |
 
@@ -174,13 +174,18 @@ missing refs render "not found" instead of being hidden) → **history** (edits 
 | State | Content | Actions |
 |---|---|---|
 | connecting | brand + version, "connecting…" | — |
-| healthy | brand + `v<version>`, "Session active · synced 12s ago · 7 rows" | Refresh |
-| untrusted sync | "Session active · last refresh untrusted" (banner carries the detail) | Refresh |
-| session invalid | "Session expired" / "Session not set" (banner carries the login) | Refresh |
+| healthy | brand + `v<version>`, "Session active · synced 12s ago · 7 rows" | **Sync now** |
+| untrusted sync | "Session active · last refresh untrusted" (banner carries the detail) | **Sync now** |
+| session invalid | "Session expired" / "Session not set" (banner carries the login) | **Sync now** |
 
 The footer is the only always-present status surface; the top banner appears only when
 something is wrong. Keeping the version here means no release can be confused with a
 stale UI.
+
+Refresh actions always pair the Salt refresh icon with their context: **Sync now** in the
+footer (request an immediate list refresh), **Retry sync** in the untrusted-refresh
+banner, and **Reload deck** in the review deck (refetch the frontend list, not Salesforce).
+A bare “Refresh” label is not used.
 
 ### 3.5 Jobs
 
