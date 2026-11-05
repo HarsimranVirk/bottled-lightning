@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.1 |
+| **Version** | v4.2 |
 | **Date** | 2026-11-05 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
@@ -34,9 +34,16 @@ second workflow later means adding a second tab deliberately, not genericising t
 | Language | TypeScript `strict`, no `any` | matches AGENTS.md |
 | Review decisions | append-only SQLite rows (`accept`/`reject`/undo); Accept may enqueue one `SUBMIT` job | one operator, reversible; Skip stays local, Accept writes when the card has values; see FR-10 |
 | Deck input | **Skip / Accept & update buttons only** | gestures could write by mistake; the buttons span the card width |
+| Theme | `SaltProviderNext mode`; `localStorage["bl-theme-mode"]` | OS `prefers-color-scheme` on a first visit; an explicit toggle wins afterwards; client-only |
 
 Rejected: Redux (server state dominates), Storybook (a `/dev/states` harness gives most of
 the value), client-side business rules (the backend owns them).
+
+**Theme.** The header's icon button switches `SaltProviderNext mode` between `light` and
+`dark`. A first visit follows the OS `prefers-color-scheme`; an explicit toggle is saved
+in `localStorage["bl-theme-mode"]` and wins on later visits. The icon is decorative and
+the accessible name/tooltip says “Switch to dark mode” or “Switch to light mode”. This is
+a client-only preference; no API or database state is involved.
 
 ## 2. UX flows
 

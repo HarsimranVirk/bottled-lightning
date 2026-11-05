@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.17 |
+| **Version** | v5.18 |
 | **Date** | 2026-11-05 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -341,6 +341,11 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   filters, Card/Panel for surfaces, Banner for messages, StatusIndicator for status, and
   Button for actions. CSS is limited to layout (widths, padding, responsive column
   hiding, motion); no bespoke control look may be introduced.
+- **FR-9.15** The header has a light/dark theme toggle. A first visit follows the OS
+  `prefers-color-scheme`; after the operator toggles, the explicit choice is persisted in
+  `localStorage` and wins on later visits. The theme is client-only and changes no backend
+  state. The control is keyboard reachable and its accessible name describes the action
+  (“Switch to dark mode” / “Switch to light mode”).
 
 ### FR-10 Review decisions (accept / reject)
 
@@ -478,6 +483,9 @@ opens the Lightning ref URL directly, resolves that iframe, and uses Classic inl
 (double-click, clear the input, fill, verify, Save).
 
 ## Appendix C — Change log
+
+- **v5.18** — header light/dark theme toggle: OS `prefers-color-scheme` on the first
+  visit, explicit choice saved in `localStorage`; client-only (FR-9.15).
 
 - **v5.17** — absence closure is retried and `needs_review` can defer through
   `absent_pending`; the reconciler revisits already-absent non-terminal items and the deck
