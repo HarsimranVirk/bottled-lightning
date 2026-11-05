@@ -77,6 +77,11 @@ describe('DecisionDeck', () => {
     expect(screen.getByText('next up: Deviation-2-2')).toBeInTheDocument()
   })
 
+  it('labels the deck refresh by context', () => {
+    render(<DecisionDeck {...deckProps()} />)
+    expect(screen.getByRole('button', { name: 'Reload deck' })).toBeInTheDocument()
+  })
+
   it('shows the missing approval date instead of hiding the line', () => {
     render(<DecisionDeck {...deckProps({ rows: [row('Deviation-1-1', { approvedAt: null })] })} />)
     expect(screen.getByText('SF approval date: —')).toBeInTheDocument()

@@ -63,6 +63,12 @@ class TransitionTests(unittest.TestCase):
                 self.assertTrue(can_transition(status, WorkItemStatus.PRESENT))
                 self.assertFalse(can_transition(status, WorkItemStatus.READY))
 
+    def test_needs_review_can_be_deferred_for_closure(self) -> None:
+        """A disappeared needs_review item can still pass through absent_pending."""
+        self.assertTrue(
+            can_transition(WorkItemStatus.NEEDS_REVIEW, WorkItemStatus.ABSENT_PENDING)
+        )
+
     def test_absent_pending_resolves_only_to_terminal(self) -> None:
         """A deferred closure resolves to a terminal state, never back to work."""
         self.assertTrue(

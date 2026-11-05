@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import unittest
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+
+from fastapi.testclient import TestClient
 
 from app.api.app import create_app
 from app.api.errors import ApiError
@@ -21,13 +24,15 @@ from app.config import Settings
 from app.core.list_view import ListRow
 from app.core.models import utcnow
 from app.core.registry import WorkflowRegistry
+from app.core.repo.approved_history import ApprovedHistoryRepository
 from app.core.repo.decisions import DecisionRepository
 from app.core.repo.edits import EditRepository
 from app.core.repo.jobs import JobRepository
 from app.core.status import WorkItemStatus
 from app.core.workflow import Workflow
+from app.devtools.db import DevDbService
+from app.maintenance import PurgeService
 from app.workflows.deviations_z02 import build_workflow
-from app.workflows.deviations_z02.adapters import build_adapters
 from tests.support import DbTestCase
 
 WORKFLOW = "deviations_z02"
@@ -46,8 +51,6 @@ def settings_for(root: Path) -> Settings:
         login_wait_s=1,
         headless=True,
         update_policy="auto",
-        deviations_z02_list_url="https://example/list",
-        deviations_z02_pattern=r"Deviation-\d+-\d+",
     )
 
 
@@ -56,11 +59,7 @@ class ApiTestCase(DbTestCase):
         self, *, paused: bool = False
     ) -> tuple[WorkItemService, WorkflowRegistry, Workflow, JobRepository, EditRepository]:
         deps = self.deps()
-        workflow = build_workflow(
-            settings_for(self.tmp_path),
-            deps,
-            build_adapters("https://example", 1000),
-        )
+        workflow = build_workflow(settings_for(self.tmp_path), deps)
         registry = WorkflowRegistry()
         registry.register(workflow)
         jobs = JobRepository(self.db)
@@ -76,6 +75,7 @@ class ApiTestCase(DbTestCase):
             jobs,
             deps.events,
             lambda: paused,
+            ApprovedHistoryRepository(self.db),
         )
         return service, registry, workflow, jobs, edits
 
@@ -343,12 +343,18 @@ class _FakeAdmin:
     def jobs(
         self,
         workflow: str | None = None,
-        kind: str | None = None,
-        status: str | None = None,
-        phase: str | None = None,
+        kind: Sequence[str] | None = None,
+        status: Sequence[str] | None = None,
+        phase: Sequence[str] | None = None,
+        status_text: str | None = None,
+        kind_text: str | None = None,
+        phase_text: str | None = None,
         item: str | None = None,
+        item_in: Sequence[str] | None = None,
         job_id: str | None = None,
+        id_in: Sequence[str] | None = None,
         error: str | None = None,
+        error_in: Sequence[str] | None = None,
         started_after: str | None = None,
         started_before: str | None = None,
         duration_min_ms: int | None = None,
@@ -367,6 +373,74 @@ class _FakeAdmin:
         raise ApiError(409, "not queued", "job_not_queued")
 
 
+class HistoryServiceTests(ApiTestCase):
+    """The History read model is independent from current item deletion."""
+
+    def test_accept_writes_snapshot_and_history_survives_deletion(self) -> None:
+        """History returns the accept snapshot even after work_items is emptied."""
+        self.make_ready_item()
+        service, _registry, _workflow, _jobs, _edits = self.build()
+        service.decide(WORKFLOW, KEY, "accept")
+
+        page = service.list_history(WORKFLOW)
+        self.assertEqual(page.total, 1)
+        self.assertEqual(page.rows[0].key, KEY)
+        assert page.rows[0].decision is not None
+        self.assertEqual(page.rows[0].decision.decision, "accept")
+
+        conn = self.db.connect()
+        for table in ("work_item_fields", "item_decisions", "work_items"):
+            conn.execute(f"DELETE FROM {table}")
+        conn.commit()
+
+        detail = service.get_history_item(WORKFLOW, KEY)
+        self.assertEqual(detail.key, KEY)
+        self.assertEqual(detail.status, "ready")
+        self.assertEqual(detail.fields["loan_amount"].extracted, "1300000")
+
+    def test_submit_refreshes_the_snapshot_with_edit_audit(self) -> None:
+        """The edit audit written at submit time reaches the history detail."""
+        self.make_ready_item()
+        service, _registry, _workflow, _jobs, _edits = self.build()
+        service.patch_fields(WORKFLOW, KEY, {"loan_amount": "25,50,000"})
+        service.decide(WORKFLOW, KEY, "accept")
+        service.submit(WORKFLOW, KEY)
+
+        detail = service.get_history_item(WORKFLOW, KEY)
+        self.assertEqual(detail.status, "submitting")
+        self.assertEqual(len(detail.edits), 1)
+        self.assertEqual(detail.edits[0].new_value, "2550000")
+
+    def test_history_endpoint_returns_snapshot(self) -> None:
+        """The HTTP history routes return the same shapes as the current item routes."""
+        self.make_ready_item()
+        service, registry, _workflow, _jobs, _edits = self.build()
+        service.decide(WORKFLOW, KEY, "accept")
+        client = TestClient(create_app(registry, service, _FakeAdmin()))
+
+        page = client.get(f"/api/deviations/history?key={KEY}")
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(page.json()["total"], 1)
+        filtered = client.get(
+            "/api/deviations/history?status=ready&field=loan_amount:1300000"
+        )
+        self.assertEqual(filtered.status_code, 200)
+        self.assertEqual(filtered.json()["total"], 1)
+        miss = client.get("/api/deviations/history?status=closed")
+        self.assertEqual(miss.status_code, 200)
+        self.assertEqual(miss.json()["total"], 0)
+        invalid = client.get("/api/deviations/history?field=bad")
+        self.assertEqual(invalid.status_code, 422)
+        detail = client.get(f"/api/deviations/history/{KEY}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["decision"]["decision"], "accept")
+        ready = client.get("/api/deviations?status=ready")
+        self.assertEqual(ready.status_code, 200)
+        self.assertEqual(ready.json()["total"], 1)
+        closed = client.get("/api/deviations?status=closed")
+        self.assertEqual(closed.json()["total"], 0)
+
+
 class RouteTests(ApiTestCase):
     def test_route_table_matches_the_api_document(self) -> None:
         service, registry, _workflow, _jobs, _edits = self.build()
@@ -375,6 +449,8 @@ class RouteTests(ApiTestCase):
         for expected in [
             ("GET", "/api/workflows"),
             ("GET", "/api/deviations"),
+            ("GET", "/api/deviations/history"),
+            ("GET", "/api/deviations/history/{key}"),
             ("GET", "/api/deviations/{key}"),
             ("PATCH", "/api/deviations/{key}/field-values"),
             ("DELETE", "/api/deviations/{key}/field-values"),
@@ -419,6 +495,112 @@ class RouteTests(ApiTestCase):
         payload = row.model_dump(by_alias=True)
         self.assertIn("recordUrl", payload)
         self.assertIn("activeJob", payload)
+
+
+class DevApiTests(ApiTestCase):
+    """Dev DB explorer routes: hidden when disabled, read-only when enabled."""
+
+    def _client(self, *, enabled: bool = True) -> TestClient:
+        service, registry, _workflow, _jobs, _edits = self.build()
+        dev = DevDbService(
+            self.tmp_path / "test.db",
+            enabled=enabled,
+            allow_remote=True,
+        )
+        return TestClient(
+            create_app(
+                registry,
+                service,
+                _FakeAdmin(),
+                dev,
+                PurgeService(self.db),
+            )
+        )
+
+    def test_disabled_hides_the_surface(self) -> None:
+        response = self._client(enabled=False).get("/api/dev/db/tables")
+        self.assertEqual(response.status_code, 404)
+
+    def test_tables_and_query(self) -> None:
+        self.make_ready_item()
+        client = self._client()
+        tables = client.get("/api/dev/db/tables")
+        self.assertEqual(tables.status_code, 200)
+        names = [table["name"] for table in tables.json()["tables"]]
+        self.assertIn("work_items", names)
+        self.assertNotIn("sessions", names)
+
+        response = client.post(
+            "/api/dev/db/queries",
+            json={"sql": "SELECT item_key FROM work_items", "limit": 10},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["columns"], ["item_key"])
+        self.assertEqual(body["rows"][0][0], KEY)
+
+    def test_purge_dry_run_then_real(self) -> None:
+        """The dev purge route previews and then deletes the same rows."""
+        self.make_ready_item()
+        conn = self.db.connect()
+        conn.execute(
+            "UPDATE work_items SET first_seen = ?, last_seen = ?",
+            ["2000-01-01T00:00:00+00:00", "2000-01-01T00:00:00+00:00"],
+        )
+        conn.commit()
+        client = self._client()
+
+        preview = client.post(
+            "/api/dev/db/purges",
+            json={"scope": "current", "dryRun": True},
+        )
+        self.assertEqual(preview.status_code, 200)
+        self.assertGreater(preview.json()["total"], 0)
+        still_there = client.post(
+            "/api/dev/db/queries",
+            json={"sql": "SELECT COUNT(*) AS n FROM work_items", "limit": 10},
+        )
+        self.assertEqual(still_there.json()["rows"][0][0], 1)
+
+        real = client.post(
+            "/api/dev/db/purges",
+            json={"scope": "current", "dryRun": False},
+        )
+        self.assertEqual(real.status_code, 200)
+        self.assertEqual(real.json()["deleted"], preview.json()["deleted"])
+        self.assertEqual(real.json()["dryRun"], False)
+
+    def test_purge_is_hidden_when_disabled(self) -> None:
+        """The purge endpoint follows the same dev/localhost guard."""
+        response = self._client(enabled=False).post(
+            "/api/dev/db/purges",
+            json={"scope": "history", "dryRun": True},
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_sessions_query_is_rejected(self) -> None:
+        response = self._client().post(
+            "/api/dev/db/queries", json={"sql": "SELECT * FROM sessions"}
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_exports_are_files(self) -> None:
+        self.make_ready_item()
+        client = self._client()
+        csv = client.post(
+            "/api/dev/db/exports",
+            json={"sql": "SELECT item_key FROM work_items", "format": "csv"},
+        )
+        self.assertEqual(csv.status_code, 200)
+        self.assertIn("text/csv", csv.headers["content-type"])
+        self.assertIn(KEY, csv.text)
+
+        workbook = client.post(
+            "/api/dev/db/exports",
+            json={"sql": "SELECT item_key FROM work_items", "format": "xlsx"},
+        )
+        self.assertEqual(workbook.status_code, 200)
+        self.assertIn("spreadsheetml", workbook.headers["content-type"])
 
 
 if __name__ == "__main__":

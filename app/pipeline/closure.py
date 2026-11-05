@@ -7,9 +7,11 @@ item's lease so a worker is never writing to a row the queue considers closed.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from app.core.models import WorkItem, to_iso, utcnow
+from app.core.repo.approved_history import ApprovedHistoryRepository
 from app.core.repo.events import EventRepository
 from app.core.repo.jobs import JobRepository
 from app.core.repo.work_items import WorkItemRepository
@@ -22,6 +24,7 @@ from app.core.status import (
 
 _UNCONFIRMED_REASON = "implement_unconfirmed"
 _EXTERNAL_REASON = "already_implemented"
+logger = logging.getLogger(__name__)
 
 
 class ClosureResolver:
@@ -30,10 +33,12 @@ class ClosureResolver:
         items: WorkItemRepository,
         jobs: JobRepository,
         events: EventRepository,
+        history: ApprovedHistoryRepository | None = None,
     ) -> None:
         self._items = items
         self._jobs = jobs
         self._events = events
+        self._history = history
 
     def close_if_absent(self, item: WorkItem, observed_at: datetime) -> bool:
         """Close an item missing from a valid refresh. Returns whether it closed.
@@ -97,6 +102,15 @@ class ClosureResolver:
             item=item.key,
             detail=f"{status.value}/{source.value}",
         )
+        if self._history is not None:
+            try:
+                self._history.refresh(item.workflow, item.key)
+            except Exception:
+                logger.exception(
+                    "approved-history refresh failed for %s/%s",
+                    item.workflow,
+                    item.key,
+                )
         return True
 
     def _attribution(

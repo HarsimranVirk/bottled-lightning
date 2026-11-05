@@ -1,6 +1,7 @@
 /** App shell: Salt tabs for navigation, providers and the global health banner. */
 
 import type { JSX } from 'react'
+import { useState } from 'react'
 import {
   FlexItem,
   FlexLayout,
@@ -18,6 +19,8 @@ import { BrowserRouter, Outlet, Route, Routes, useLocation, useNavigate } from '
 import { AppFooter } from './components/AppFooter'
 import { QueueBar } from './components/QueueBar'
 import { SyncBanner } from './components/SyncBanner'
+import { ThemeToggle } from './components/ThemeToggle'
+import { DevDbPage } from './pages/DevDbPage'
 import { DevStates } from './pages/DevStates'
 import { DeviationsPage } from './pages/DeviationsPage'
 import { HomePage } from './pages/HomePage'
@@ -31,6 +34,8 @@ import {
   useWorkers,
   useWorkflows,
 } from './queries'
+import { initialMode, nextMode, persistMode } from './theme'
+import type { ThemeMode } from './theme'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: true } },
@@ -48,7 +53,12 @@ function tabFor(pathname: string): string {
   return 'home'
 }
 
-function Shell(): JSX.Element {
+interface ShellProps {
+  mode: ThemeMode
+  onToggleTheme: () => void
+}
+
+function Shell({ mode, onToggleTheme }: ShellProps): JSX.Element {
   const navigate = useNavigate()
   const location = useLocation()
   const workflows = useWorkflows()
@@ -88,7 +98,10 @@ function Shell(): JSX.Element {
             </Tabs>
             </FlexItem>
           </FlexLayout>
-          <QueueBar queue={workers.data} />
+          <FlexLayout gap={2} align="center">
+            <QueueBar queue={workers.data} />
+            <ThemeToggle mode={mode} onToggle={onToggleTheme} />
+          </FlexLayout>
         </FlexLayout>
       </header>
 
@@ -117,17 +130,26 @@ function Shell(): JSX.Element {
 }
 
 export default function App(): JSX.Element {
+  const [mode, setMode] = useState<ThemeMode>(initialMode)
+
+  function toggleTheme(): void {
+    const next = nextMode(mode)
+    setMode(next)
+    persistMode(next)
+  }
+
   return (
-    <SaltProviderNext>
+    <SaltProviderNext mode={mode}>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <Routes>
-            <Route element={<Shell />}>
+            <Route element={<Shell mode={mode} onToggleTheme={toggleTheme} />}>
               <Route index element={<HomePage />} />
               <Route path="deviations-z02" element={<DeviationsPage />} />
               <Route path="deviations-z02/:key" element={<DeviationsPage />} />
               <Route path="jobs" element={<JobsPage />} />
               <Route path="dev/states" element={<DevStates />} />
+              <Route path="dev/db" element={<DevDbPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

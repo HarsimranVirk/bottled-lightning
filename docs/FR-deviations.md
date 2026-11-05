@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.15 |
+| **Version** | v5.21 |
 | **Date** | 2026-11-05 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -238,6 +238,9 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-6.11** Closure is applied on the first valid refresh reporting absence, except
   while a `SUBMIT` lease is held: then `absent_pending` is recorded and the close is
   applied when the lease is released. Work is never yanked out from under a running job.
+  If a first close attempt cannot complete, the next valid refresh retries it; a
+  non-terminal item is never left in the working queue just because it is already marked
+  absent.
 - **FR-6.12** There is no record-page reconciliation. If the implement click was made but
   its outcome was never confirmed (page died, timeout), the closure is attributed
   `source=system` and carries an `implement_unconfirmed` flag for operator review.
@@ -281,6 +284,11 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   (id, status, kind, phase, item, started date range, duration range, error) placed
   directly in a second header row under the column label. Filters compose, the count
   reflects the filtered set, and changing a filter or sort returns to the first page.
+- **FR-7.11** Jobs filters follow the standard table-filter pattern (FR-9.18). Status,
+  kind and phase are multiselect checkbox lists; id, item and error combine a contains
+  text input with exact-value checkboxes. Repeated values are sent to the server so the
+  filtered total and every page are correct. Started and duration keep their range
+  inputs (FR-9.19).
 
 ### FR-8 History & audit
 
@@ -289,9 +297,28 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   implement result, and every skip or failure reason.
 - **FR-8.2** Closed deviations leave the queue and the working view but are retained in a
   read-only record (values, status, attribution, reason, page refs) for later lookup.
-  *Pending decision O-6: retain as archive, or hard-delete.*
+  Accepted deviations are retained in the segregated snapshot store; non-accepted
+  current items are removed by the 24-hour current purge (FR-11.1).
 - **FR-8.3** The previous archive-then-delete behaviour is superseded by status plus
   retained history.
+- **FR-8.4** Accepted deviations are copied into a separate approved-history store when
+  the accept decision is recorded. The snapshot contains the item identity, status at
+  snapshot time, SF approval date, reason, record URL, accepted decision, fields,
+  attributes, page refs and edit audit. The snapshot is refreshed when a submit starts,
+  when a submit job finishes, and when a closure resolves; undo or reject removes it.
+- **FR-8.5** The History tab and its detail drawer read only the approved-history store,
+  never `work_items` or `item_decisions`. A history row therefore remains readable after
+  its current work item is purged.
+- **FR-8.6** Current work items and approved history have independent retention windows.
+  The current work-item purge keeps the last 24 hours; the approved-history purge keeps
+  the last 3 months (90 days). Neither purge may erase the other store.
+- **FR-8.7** Both purges are manual. They are triggered from the hidden `/dev/db` page,
+  are localhost-only, and require an explicit confirmation with the cutoff and the
+  per-table counts shown before the destructive action.
+- **FR-8.8** History uses the same standard table-filter pattern as every other table:
+  deviation key, status, SF approval and each displayed value column have a text input
+  and exact-value checkboxes; the decided date uses the range variant. The filtered total
+  and pagination come from the server.
 
 ### FR-9 API & frontend
 
@@ -319,8 +346,10 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   polls: the next interval retries, so a restarted backend recovers without a reload. An
   untrusted-refresh warning always shows the age of the failed check, so a stale banner
   cannot be mistaken for a live failure.
-- **FR-9.9** Submitting a declaration requires an explicit confirmation naming the item
-  and the changed values; the button is disabled unless the item is submittable.
+- **FR-9.9** In the current phase Accept is the submission action and does not open a
+  separate confirmation dialog; its label is “Accept & update” and the card's values are
+  visible before it is pressed. The button is disabled unless the item is submittable. A
+  dedicated confirmation may return when Implement is enabled.
 - **FR-9.10** The full edit → save → submit path is keyboard-reachable, the detail panel
   traps focus while open, and status changes are announced to assistive technology.
 - **FR-9.11** `frontend/src/types.ts` is generated from the OpenAPI schema; a contract
@@ -336,41 +365,72 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   filters, Card/Panel for surfaces, Banner for messages, StatusIndicator for status, and
   Button for actions. CSS is limited to layout (widths, padding, responsive column
   hiding, motion); no bespoke control look may be introduced.
+- **FR-9.15** The header has a light/dark theme toggle. A first visit follows the OS
+  `prefers-color-scheme`; after the operator toggles, the explicit choice is persisted in
+  `localStorage` and wins on later visits. The theme is client-only and changes no backend
+  state. The control is keyboard reachable and its accessible name describes the action
+  (“Switch to dark mode” / “Switch to light mode”).
+- **FR-9.16** Refresh controls pair the refresh icon with a one- or two-word context:
+  **Sync now** for an immediate watcher refresh, **Retry sync** in the untrusted-refresh
+  banner, and **Reload deck** for a frontend list refetch. A bare “Refresh” button is not
+  used.
+- **FR-9.17** The History view is a separate route from the deck (`?view=history`), and
+  opening a history row uses the history detail endpoint. The history detail is read-only
+  and never offers an Undo decision action.
+- **FR-9.18** Every data table uses one shared table-filter pattern: a text input and a
+  multiselect dropdown with checkboxes for exact values. An empty selection means all
+  values; selected values are OR within one column, columns compose with AND, and the
+  text plus the selected values in the same column also compose with AND. The trigger
+  shows “All” or “N selected”. Date and duration ranges use the shared range variant
+  (two inputs) instead of a checkbox list.
+- **FR-9.19** The Dev DB results table applies the standard filter to every column,
+  using the distinct non-empty values in the current preview as checkbox options. This
+  filtering remains client-side over the bounded preview; exports still run the full SQL.
+  Future tables must reuse the shared filter components rather than adding bespoke
+  filter cells.
 
 ### FR-10 Review decisions (accept / reject)
 
 - **FR-10.1** Every deviation awaiting a decision is presented one card at a time. The
   operator accepts it (the values are right, it should be implemented) or rejects it
   (it should not be implemented as-is).
-- **FR-10.2** Accept records an `accepted` decision and first stores the card's corrected
-  field values as proposals. Reject records a `rejected` decision with an optional reason
-  and no values. Neither writes to Salesforce; the proposals are local edits awaiting the
-  submitter.
+- **FR-10.2** Accept records an `accepted` decision and stores the card's corrected field
+  values. If at least one value is non-empty, it also enqueues exactly one `SUBMIT` job.
+  A card with no values records the decision only. Reject records a `rejected` decision
+  with an optional reason and no values; it never writes to Salesforce. The submit job
+  writes and validates the accepted values but does not Implement during the current
+  phase (FR-6.14).
 - **FR-10.3** Decisions are reversible. Undoing a decision returns the item to undecided
   and it re-enters the deck.
-- **FR-10.4** A decided item leaves the deck immediately and stays out of it until it is
-  undone. Decided items remain visible in the list and detail view with their decision.
+- **FR-10.4** A decided item leaves the deck immediately, except an accepted item that
+  comes back in `needs_review` after a failed submit. That card stays in the deck with its
+  failure reason until it is corrected and accepted again or its decision is undone.
+  Decided items remain visible in the list and detail view with their decision.
 - **FR-10.5** The deck shows only items in a decidable status (`ready`, `editing`,
   `needs_review`). Terminal and in-flight items never appear.
-- **FR-10.6** Accepted items are the submission queue. When FR-6 exists, acceptance hands
-  the item to the submitter; acceptance alone never submits, never implies SF success,
-  and never marks the item terminal.
+- **FR-10.6** Accepted items with non-empty values are the submission queue: acceptance
+  enqueues the `SUBMIT` job immediately. Acceptance with no values is a local decision
+  only. Acceptance never implies Implement success; a successful validate-only run returns
+  the item to `ready` with a reason, and a failed run returns it to `needs_review`.
 - **FR-10.7** Rejection is not a skip. It does not alter extraction state or the pipeline
   status, and the item keeps syncing from Salesforce.
 - **FR-10.8** Every decision is audited with its kind, reason and timestamp, and is shown
   in the item detail history.
-- **FR-10.9** Decisions are made with two explicit buttons, **Skip** and **Accept**, that
-  span the card width. The buttons carry the shortcut in their labels (`Skip (Shift+←)`,
-  `Accept (Shift+→)`) and expose it through `aria-keyshortcuts`. `Shift+←` records a skip
-  and `Shift+→` an accept, exactly as the buttons do: only while a decidable card is on
-  screen and no decision is in flight, and never while a text field or an open dialog owns
-  the keystroke, with another modifier held, or on key auto-repeat. There is no drag or
-  swipe gesture. The buttons remain keyboard reachable through the normal tab order, and
-  the result is announced through `aria-live`.
+- **FR-10.9** Decisions are made with two explicit buttons, **Skip** and **Accept &
+  update**, that span the card width. The buttons carry the shortcut in their labels
+  (`Skip (Shift+←)`, `Accept & update (Shift+→)`) and expose it through
+  `aria-keyshortcuts`. `Shift+←` records a skip and `Shift+→` runs the same
+  accept-and-submit flow as the button: only while a decidable card is on screen and no
+  decision is in flight, and never while a text field or an open dialog owns the
+  keystroke, with another modifier held, or on key auto-repeat. `Shift+→` may enqueue a
+  Salesforce write when the card has values; there is no confirmation dialog in the
+  current phase. There is no drag or swipe gesture. The buttons remain keyboard reachable
+  through the normal tab order, and the result is announced through `aria-live`.
 - **FR-10.10** The card shows every editable value, prefilled from the extracted value,
   so missing or unparsed values are visible and correctable before a decision. Missing
   values are not an error and carry no warning: only one or two values may need an
-  update. Accept persists the card's values as proposals (FR-10.2).
+  update. Accept persists the card's values and, when at least one is non-empty, enqueues
+  the submit job (FR-10.2/10.6).
 - **FR-10.11** The raw description is shown in a bordered Salt card with no internal
   scroll. Short Old/New pairs render side by side; long descriptions flow into 3–5
   balanced newspaper columns (2 below 1024 px). At 1280×800 the deck (header, card and
@@ -381,6 +441,26 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   descriptions within the limit are always shown in full.
 - **FR-10.11** Decisions never gate sync or extraction. An accepted or rejected item is
   still reconciled with the list view like any other.
+
+### FR-11 Retention & maintenance
+
+- **FR-11.1** **Purge current data** deletes work items whose latest activity
+  (`closed_at`, `last_seen` or `first_seen`) is older than 24 hours. It deletes that
+  item's fields, attributes, refs, decisions, edits and events with it. An item with an
+  active job (`queued`, `running` or `blocked_auth`) is never deleted. Jobs, job logs,
+  sync runs, sessions, session events and approved history are out of scope.
+- **FR-11.2** **Purge historical data** deletes approved-history rows whose accept
+  decision is older than 3 months (90 days) and cascades every snapshot child row.
+  Current work items and operational tables are out of scope.
+- **FR-11.3** Both purges are idempotent: a second run with the same cutoff deletes zero
+  rows. A dry run returns the same per-table counts without deleting anything.
+- **FR-11.4** The purge API is available only through the hidden dev explorer
+  (`/api/dev/db/purges`). `SF_DEV_TOOLS=0` and non-localhost requests get `404`, and the
+  token-bearing `sessions` table is never read or written by either purge.
+- **FR-11.5** The DB explorer shows both actions with a confirmation dialog, a dry-run
+  count, and a success/error result. The dialog must state that the action cannot be
+  undone and must require an explicit acknowledgement before the destructive button is
+  enabled.
 
 ---
 
@@ -434,9 +514,10 @@ absence while a `SUBMIT` lease was held.
 | O-3 | Whether `z01`/`z03`/`z04` and `app/cancellations/` are live or dead scaffolding (proposed: delete). | Architecture |
 | O-4 | ~~Wipe the legacy `data/app.db` for the new schema.~~ **Resolved** — wiped; `data/` now holds the workflow store. | — |
 | O-5 | ~~Whether the deviation record page remains readable after implement.~~ **Resolved** — no record-page reconciliation; attribution is local (FR-6.12). | — |
-| O-6 | Archive or hard-delete closed deviations (FR-8.2). | FR-8.2, data model |
-| O-7 | Should accepted items auto-submit once Phase 6 lands, or wait for an explicit
-  submit action? (Default: explicit action; acceptance only queues.) | FR-10.6 |
+| O-6 | ~~Archive or hard-delete closed deviations (FR-8.2).~~ **Resolved** — accepted history is snapshotted separately; current work items are purged after 24 hours and history after 90 days (FR-8.4–8.6, FR-11). | — |
+| O-7 | ~~Should accepted items auto-submit once Phase 6 lands, or wait for an explicit
+  submit action?~~ **Resolved** — accepted items with at least one non-empty value
+  auto-submit; empty cards record the decision only. | — |
 
 ### Confirmed write mapping (O-1)
 
@@ -458,12 +539,38 @@ used to disambiguate repeated labels.
 | `tenure` | LMS 2.0 CL contract | `Tenure` | `New value` (months) |
 | `emi_incl_hffc` | Opportunity | `BUDGET ANALYSIS & SAVINGS PATTERN` | `EMIs & other fixed pmts inc HFFC Loan` |
 
-The CL-contract record is a Classic Visualforce page (`tabbedLoanAccount`) inside the
-Lightning record's iframe. Submission opens it through the org's Classic host
-(`https://<org>.my.salesforce.com/<record-id>`) and uses Classic inline edit
-(double-click, fill, Save).
+The CL-contract record is a Lightning `loan__Loan_Account__c` page that embeds the
+Classic Visualforce form (`tabbedLoanAccount`) in a `vfFrameId_*` iframe. Submission
+opens the Lightning ref URL directly, resolves that iframe, and uses Classic inline edit
+(double-click, clear the input, fill, verify, Save).
 
 ## Appendix C — Change log
+
+- **v5.21** — one standard table filter everywhere: text plus a multiselect checkbox
+  dropdown for exact values, with a range variant for dates/durations. Jobs sends
+  repeated values to the server; History gains per-column filters; the Dev DB result
+  table filters every column. Future tables must reuse the shared components
+  (FR-7.11, FR-8.8, FR-9.18/9.19).
+
+- **v5.20** — approved-history snapshots are separated from current work items; the
+  History tab reads the snapshot store. Manual purges keep current work items for 24
+  hours and approved history for 90 days, with two confirmed actions in `/dev/db`
+  (FR-8.4–8.7, FR-11). O-6 resolved.
+
+- **v5.19** — refresh controls now pair the icon with context: **Sync now**,
+  **Retry sync**, and **Reload deck**; the bare “Refresh” label is gone (FR-9.16).
+
+- **v5.18** — header light/dark theme toggle: OS `prefers-color-scheme` on the first
+  visit, explicit choice saved in `localStorage`; client-only (FR-9.15).
+
+- **v5.17** — absence closure is retried and `needs_review` can defer through
+  `absent_pending`; the reconciler revisits already-absent non-terminal items and the deck
+  hides `present=false` rows (FR-6.11, FR-10.5).
+
+- **v5.16** — Option C: **Accept & update** stores the card values, records the accept and
+  enqueues the `SUBMIT` job when at least one value is non-empty. There is no confirmation
+  dialog; `Shift+→` follows the same path. A failed accepted item returns to the deck in
+  `needs_review`. O-7 resolved (FR-10.2/10.4/10.6/10.9).
 
 - **v5.15** — the deck gains guarded keyboard decisions: `Shift+←` skips and `Shift+→`
   accepts, with the shortcut shown on the buttons; ignored while typing, in a dialog, with

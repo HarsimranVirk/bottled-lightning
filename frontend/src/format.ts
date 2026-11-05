@@ -138,6 +138,18 @@ export function draftDisplay(field: WorkflowFieldView, value: string): string {
 }
 
 /**
+ * Whether a PATCH body contains at least one non-empty value.
+ *
+ * Accept uses this to decide whether there is anything to submit: a card with every
+ * field blank records the decision only, while any real value queues the update.
+ */
+export function hasChanges(changes: Record<string, string | null>): boolean {
+  return Object.values(changes).some(
+    (value) => value !== null && value.trim() !== '',
+  )
+}
+
+/**
  * Build the PATCH body for an accept: every catalogue field as its cleaned display
  * value, or null when the operator left it empty.
  */

@@ -20,6 +20,7 @@ from .api import create_app
 from .api.services import AdminService, WorkItemService
 from .config import Settings, load_settings
 from .core.registry import WorkflowRegistry
+from .core.repo.approved_history import ApprovedHistoryRepository
 from .core.repo.attributes import AttributeRepository
 from .core.repo.decisions import DecisionRepository
 from .core.repo.edits import EditRepository
@@ -30,18 +31,26 @@ from .core.repo.refs import PageRefRepository
 from .core.repo.sessions import SessionRepository
 from .core.repo.sync_runs import SyncRunRepository
 from .core.repo.work_items import WorkItemRepository
-from .core.workflow import WorkflowDeps
+from .core.workflow import WorkflowBuilder, WorkflowDeps
 from .db.connection import Database
+from .devtools.db import DevDbService
 from .jobs.auth import AuthGate
 from .jobs.dispatcher import Dispatcher
 from .jobs.worker import Worker
+from .maintenance import PurgeService
 from .pipeline.closure import ClosureResolver
 from .pipeline.reconciler import Reconciler
 from .pipeline.watcher import ListWatcher, WorkflowListSource
 from .salesforce.runtime import BrowserRuntime
 from .salesforce.session import SessionProvider
 from .workflows.deviations_z02 import build_workflow
-from .workflows.deviations_z02.adapters import build_adapters
+
+#: Every workflow the process serves, in registration order.
+#:
+#: Adding a workflow is one import plus one tuple entry — no discovery, no entry
+#: points, no plugin loading (docs/class-design-deviations.md §3.3). Each builder
+#: constructs its own adapters and returns a registered-able ``Workflow``.
+BUILDERS: tuple[WorkflowBuilder, ...] = (build_workflow,)
 
 PACKAGED_WEB_DIR = Path(__file__).resolve().parent / "web"
 DEV_WEB_DIR = config.BASE_DIR / "frontend" / "dist"
@@ -77,6 +86,11 @@ class Stack:
         self.settings = settings
         self.database = Database(settings.db_path)
         self.database.migrate()
+        self.devtools = DevDbService(
+            settings.db_path,
+            enabled=settings.dev_tools,
+            allow_remote=settings.dev_tools_allow_remote,
+        )
 
         self.items = WorkItemRepository(self.database)
         self.fields = FieldValueRepository(self.database)
@@ -85,48 +99,55 @@ class Stack:
         self.edits = EditRepository(self.database)
         self.events = EventRepository(self.database)
         self.decisions = DecisionRepository(self.database)
+        self.history = ApprovedHistoryRepository(self.database)
         self.jobs = JobRepository(self.database)
         self.sessions_repo = SessionRepository(self.database)
         self.sync_runs = SyncRunRepository(self.database)
+        self.purges = PurgeService(self.database)
 
         self.provider = SessionProvider(self.sessions_repo, settings)
         self.auth = AuthGate(self.jobs, self.events)
         self.runtime = BrowserRuntime(settings, self.provider)
 
+        deps = WorkflowDeps(
+            items=self.items,
+            fields=self.fields,
+            attributes=self.attributes,
+            refs=self.refs,
+            events=self.events,
+        )
+        self.workflows = tuple(build(settings, deps) for build in BUILDERS)
         self.registry = WorkflowRegistry()
-        adapters = build_adapters(settings.org_base, settings.request_timeout_ms)
-        self.workflow = build_workflow(
-            settings,
-            WorkflowDeps(
-                items=self.items,
-                fields=self.fields,
-                attributes=self.attributes,
-                refs=self.refs,
-                events=self.events,
-            ),
-            adapters,
-        )
-        self.registry.register(self.workflow)
+        for workflow in self.workflows:
+            self.registry.register(workflow)
 
-        self.closure = ClosureResolver(self.items, self.jobs, self.events)
-        self.reconciler = Reconciler(
-            self.workflow,
-            self.items,
-            self.jobs,
-            self.attributes,
-            self.sync_runs,
-            self.closure,
+        self.closure = ClosureResolver(
+            self.items, self.jobs, self.events, self.history
         )
-        source = WorkflowListSource(self.runtime, self.workflow, settings, self.provider)
+        self.reconcilers: dict[str, Reconciler] = {
+            workflow.name: Reconciler(
+                workflow,
+                self.items,
+                self.jobs,
+                self.attributes,
+                self.sync_runs,
+                self.closure,
+            )
+            for workflow in self.workflows
+        }
+        # One persistent list page per workflow on the single serial browser runtime.
         self.watchers: dict[str, ListWatcher] = {
-            self.workflow.name: ListWatcher(
-                self.workflow,
-                source,
-                self.reconciler,
+            workflow.name: ListWatcher(
+                workflow,
+                WorkflowListSource(
+                    self.runtime, workflow, settings, self.provider
+                ),
+                self.reconcilers[workflow.name],
                 self.events,
                 self.auth,
                 settings.refresh_interval_s,
             )
+            for workflow in self.workflows
         }
 
         self.worker = Worker(
@@ -138,6 +159,7 @@ class Stack:
             self.auth,
             self.runtime,
             self.closure,
+            history=self.history,
         )
         self.dispatcher = Dispatcher(self.jobs, self.worker, self.auth, settings)
 
@@ -152,6 +174,7 @@ class Stack:
             self.jobs,
             self.events,
             lambda: self.auth.paused,
+            self.history,
         )
         self.admin = AdminService(
             settings,
@@ -180,7 +203,13 @@ class Stack:
 
     def app(self) -> FastAPI:
         """Build the HTTP app around this stack."""
-        app = create_app(self.registry, self.items_service, self.admin)
+        app = create_app(
+            self.registry,
+            self.items_service,
+            self.admin,
+            self.devtools,
+            self.purges,
+        )
         web = _web_dir()
         if web is None:
 

@@ -86,6 +86,15 @@ class Reconciler:
             if self._closure.close_if_absent(item, sample.captured_at):
                 closed += 1
 
+        # A closure that could not finish on the first absent pass leaves the item
+        # present=0, so the present() diff above would never revisit it. Retry every
+        # absent, non-terminal, not-yet-closed item on each valid cycle.
+        for item in self._items.absent_unclosed(self._workflow.name):
+            if item.key in seen:
+                continue
+            if self._closure.close_if_absent(item, sample.captured_at):
+                closed += 1
+
         return self._record(sample, added=added, updated=updated, closed=closed)
 
     def _record(

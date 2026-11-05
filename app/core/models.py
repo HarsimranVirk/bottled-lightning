@@ -92,6 +92,36 @@ class Decision:
 
 
 @dataclass(frozen=True, slots=True)
+class ApprovedDeviation:
+    """
+    A point-in-time copy of an accepted deviation, kept outside the current tables.
+
+    ``decided_at`` is the accept timestamp and the history sort key. The parent is
+    written on accept and refreshed on submit/closure, while ``snapshot_at`` records the
+    last refresh. Because the row lives in ``approved_deviations`` and has no foreign key
+    to ``work_items``, purging current data cannot erase it.
+
+    Example:
+        approved = history.get("deviations_z02", key)
+        if approved is not None:
+            print(approved.key, approved.decided_at)
+    """
+
+    workflow: str
+    key: str
+    epoch: int
+    status: WorkItemStatus
+    source: ClosureSource | None
+    present: bool
+    record_url: str | None
+    approved_at: str | None
+    reason: str | None
+    decided_at: datetime
+    decision_reason: str | None
+    snapshot_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class FieldValue:
     """
     State of one editable value for one item.

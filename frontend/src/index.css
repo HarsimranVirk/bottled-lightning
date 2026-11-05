@@ -208,11 +208,6 @@
   width: 100%;
 }
 
-.history-search {
-  width: 260px;
-  max-width: 100%;
-}
-
 @media (max-width: 900px) {
   .job-col-phase,
   .job-col-error,
@@ -226,6 +221,19 @@
   .job-col-item,
   .job-col-started {
     display: none;
+  }
+}
+
+.dev-db-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .dev-db-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

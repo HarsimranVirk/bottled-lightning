@@ -58,7 +58,7 @@ describe('SyncBanner', () => {
     )
     expect(screen.getByText(/header total not readable/)).toBeInTheDocument()
     expect(screen.getByText(/checked 2 min ago/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retry sync' })).toBeInTheDocument()
   })
 
   it('asks for a login when the session is not valid', () => {

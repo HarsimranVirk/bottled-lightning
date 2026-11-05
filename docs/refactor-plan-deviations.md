@@ -73,10 +73,12 @@ the workflow schema, repositories, workflow seam, Z02 catalog + description pars
 runtime, session snapshot/expiry, `ListPage`, login CLI, six Z02 adapters, the
 `DeviationsZ02Extraction` pipeline, the job dispatcher/worker/auth gate, and the
 `ListWatcher`/`Reconciler`/`ClosureResolver` refresh loop, and the `app/api` surface
-wired into `app.main`). Phase 6's apply/validate half is implemented and live-tested;
-the final Implement action is still blocked on O-2, so the workflow runs with
-`final_action=False` and returns `VALIDATED`. Phase 8 (frontend) is next; Phase 9's
-backend deletion remains.
+wired into `app.main`). Phase 6's apply/validate half is implemented and live-tested
+(the adapter-level no-op check passed on the test deviation); the final Implement action
+is still blocked on O-2, so the workflow runs with `final_action=False` and returns
+`VALIDATED`. Phase 8's validate-only submission UI is done (Accept & update); the
+Implement confirmation remains blocked on O-2. Phase 9's legacy backend modules are
+deleted; only the data wipe, version bump and tag remain.
 
 Live verification so far: list sample valid (7/7), full extraction of one deviation with
 all five refs, one `EXTRACT` job drained through the real dispatcher
@@ -249,13 +251,16 @@ parks jobs as `BLOCKED_AUTH` and resumes after re-login.
   Read-back verification; presence check twice (start of apply, last validation step).
 - O-1 is resolved (mapping in `docs/FR-deviations.md`, Appendix B): the adapters now
   implement `read`/`write` against the real pages — Opportunity inline edit, Collateral
-  double-click inline edit, CL contract Classic Visualforce inline edit, LMS 2.0
-  collateral Edit form, LMS 2.0 contract Contract Modification form.
+  double-click inline edit, CL contract Lightning iframe (`tabbedLoanAccount`) Classic
+  inline edit, LMS 2.0 collateral Edit form, LMS 2.0 contract Contract Modification form.
 - Final action: click `Implement`, modal confirm, observe page state, record
   `execute_attempted_at` / `execute_confirmed_at`. **Not implemented yet**; the pipeline
   runs with `final_action=False` and returns `VALIDATED` after read-back (FR-6.14).
 - Idempotency: applied values persisted per field; a retry skips targets whose applied
   and current values already match the intended value.
+- Write guard: every adapter clears the input, fills the canonical value, reads the
+  widget value back and verifies it before Save; a mismatch aborts the write (I11). This
+  prevents formatted LWC inputs from concatenating old and new amounts.
 - Failure gate: a rejected write or read-back mismatch moves the item to `NEEDS_REVIEW`
   and fails the job with a per-target reason. There is **no automatic rollback** in this
   phase (FR-6.15); the operator fixes the cause and resubmits.
@@ -298,11 +303,13 @@ Then reviewed slices, each shipping screenshots:
   Proves the contract, state mapping and layout without any item mutation.
 - **B — editing**: draft map, `PATCH …/field-values`, field-level `422`, discard,
   polling paused while dirty.
-- **C — submission** (blocked on O-1/O-2): confirmation dialog, `POST …/{key}/jobs`,
-  phase polling, `needs_review` recovery, terminal states.
+- **C — submission** (done for validate-only): Accept & update stores the card values,
+  records the accept and enqueues `POST …/{key}/jobs` when at least one value is present;
+  phase polling, `needs_review` recovery, no confirmation dialog, no Implement. Implement
+  remains blocked on O-2.
 - **D — review deck** (done): deck as the default view, accept/reject decisions
-  (`POST`/`DELETE …/decisions`), buttons only, undo, decision filters and history.
-  Reversible and local — no SF write (FR-10).
+  (`POST`/`DELETE …/decisions`), buttons only, undo, decision filters and history. Skip is
+  local; Accept is the submission action when the card has values (FR-10.6, Option C).
 - **E — jobs table** (done): duration, per-column filters **in the column headers**,
   sortable headers and server-side pagination over `GET /api/jobs` (FR-7.9, FR-7.10).
 - **F — history** (done): the general List view is replaced by the accepted-deviations

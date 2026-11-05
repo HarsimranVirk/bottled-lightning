@@ -3,11 +3,11 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.2 |
-| **Date** | 2026-11-04 |
+| **Version** | v4.5 |
+| **Date** | 2026-11-05 |
 | **Companions** | `docs/FR-deviations.md` (v3), `docs/data-model-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
 | **Change** | Introduced the workflow abstraction; earlier drafts were deviations-only |
-| **Implemented so far** | Phases 1–5, 7 and the apply/validate half of 6: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,adapters}`, `app/jobs/{dispatcher,worker,auth,logger}`, `app/pipeline/{watcher,reconciler,closure}`,
+| **Implemented so far** | Phases 1–5, 7 and the apply/validate half of 6: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,urls,adapters}`, `app/jobs/{dispatcher,worker,auth,logger}`, `app/pipeline/{watcher,reconciler,closure}`,
 `app/utils/dom`, `app/workflows/deviations_z02/{catalog,description,product_map,adapters,extraction,submission}` |
 
 This document describes the target class design. It separates the parts that are the
@@ -67,7 +67,7 @@ app/
     connection.py                 Database: engine, thread-local conns, transaction()
     schema.py                     DDL + PRAGMA user_version migrations
   core/                           shared mechanism — knows no workflow
-    models.py                     WorkItem, FieldValue, Attribute, PageRef, Job, SyncRun
+    models.py                     WorkItem, ApprovedDeviation, FieldValue, Attribute, PageRef, Job, SyncRun
     status.py                     WorkItemStatus, JobKind, JobStatus, Phase, ClosureSource
     logging.py                    SF_LOG_LEVEL (default INFO; DEBUG for per-row noise)
   utils/
@@ -86,13 +86,18 @@ app/
       sessions.py                 SessionRepository
       sync_runs.py                SyncRunRepository
       events.py                   EventRepository
+      decisions.py                DecisionRepository
+      approved_history.py         ApprovedHistoryRepository (snapshot + reads)
+      purge.py                    PurgeRepository (bulk retention deletes)
+  maintenance.py                  PurgeScope, PurgeResult, PurgeService
   salesforce/
     runtime.py                    BrowserRuntime
     session.py                    SessionProvider (+ is_login_page, cookie decoding)
     login.py                      `python -m app.salesforce.login` (headed, --reset)
     tabs.py                       TabGroup
     list_page.py                  ListPage (refresh/read for one ListViewSpec)
-    adapters.py                   ObjectAdapter protocol, AdapterRegistry
+    urls.py                       list_view_url(org_base, object_api, filter_name)
+    adapters.py                   ObjectAdapter protocol, AdapterRegistry (one per workflow)
   pipeline/
     watcher.py                    ListWatcher (one per registered workflow)
     reconciler.py                 Reconciler (generic)
@@ -111,7 +116,7 @@ app/
       jobs.py  sessions.py  syncs.py  workers.py  updates.py
   workflows/
     deviations_z02/
-      __init__.py                 build_workflow(settings, deps, adapters)
+      __init__.py                 build_workflow(settings, deps, *, force=False)
       catalog.py                  DeviationObject, FIELD_CATALOG
       description.py              parse_description_fields() (pure)
       product_map.py              CL_CONTRACT_PRODUCT_MAP (reference data)
@@ -211,10 +216,26 @@ class WorkflowRegistry:
     def all(self) -> tuple[Workflow, ...]: ...
 ```
 
-Registration happens by importing the package (`main.py` imports
-`app.workflows.deviations_z02`), whose `build_workflow(...)` returns the `Workflow` the
-registry is given. No dynamic discovery, no entry points, no plugin loading — the list of
-workflows is a literal in `main.py`.
+Registration is a literal list of builders in `app/main.py`:
+
+```python
+# app/core/workflow.py
+WorkflowBuilder = Callable[[Settings, WorkflowDeps], Workflow]
+
+# app/main.py
+BUILDERS: tuple[WorkflowBuilder, ...] = (build_workflow,)
+```
+
+`Stack` calls each builder once at boot, registers the returned `Workflow`, then builds
+one `Reconciler` and one `WorkflowListSource` + `ListWatcher` per workflow. Each builder
+constructs **its own** `AdapterRegistry` (adapters are per-workflow, never shared) and
+`Settings` carries no per-workflow Salesforce fields. `ClosureResolver` stays a single
+shared instance because it reads `item.workflow`.
+
+No dynamic discovery, no entry points, no plugin loading — adding a workflow is one
+import plus one tuple entry. N workflows means N persistent list pages and N resync
+loops on the one serial browser runtime; harmless at N=1, but the first thing to watch
+when a second workflow lands.
 
 ### 3.4 Adding a workflow
 
@@ -224,7 +245,10 @@ A checklist, so this stays a 5-file job and not a framework:
 2. `app/workflows/<name>/adapters/` — one `ObjectAdapter` per SF object.
 3. `app/workflows/<name>/extraction.py` — implements `ExtractionPipeline`.
 4. `app/workflows/<name>/submission.py` — implements `SubmissionPipeline`.
-5. `__init__.py` — build the `Workflow` and register it; add it to `main.py`.
+5. `__init__.py` — define `build_workflow(settings, deps, *, force=False)`: construct the
+   workflow's own `AdapterRegistry`, build its `ListViewSpec` from package constants via
+   `app.salesforce.urls.list_view_url`, and return the `Workflow`. Add the builder to
+   `BUILDERS` in `main.py`.
 6. Mount `make_router(workflow)`; the frontend picks up the workflow from
    `GET /api/workflows`.
 
@@ -249,7 +273,6 @@ interface does not force shared storage.
 @dataclass(frozen=True, slots=True)
 class Settings:
     org_base: str
-    deviations_list: ListViewSpec        # filter name + object path + pattern
     data_dir: Path
     db_path: Path
     workers: int                         # 1..5, default 3      (FR-7.4)
@@ -258,7 +281,15 @@ class Settings:
     login_wait_s: int
     headless: bool
     update_policy: str
+    dev_tools: bool = True
+    dev_tools_allow_remote: bool = False
 ```
+
+`Settings` is global configuration only: it does not know any workflow's Salesforce
+object, list filter or row pattern. Those live in the workflow package as constants
+(`LIST_OBJECT_API`, `LIST_FILTER`, `LIST_PATTERN`), and the URL is built with
+`app.salesforce.urls.list_view_url(settings.org_base, ...)` inside that workflow's
+builder.
 
 Constructed once in `main()` and injected. The worker count persists in `settings.json`;
 changing it at runtime restarts the dispatcher only.
@@ -362,6 +393,22 @@ class Decision:
     decision: DecisionKind
     reason: str | None
     created_at: datetime
+
+@dataclass(frozen=True, slots=True)
+class ApprovedDeviation:
+    """A frozen copy of an accepted deviation, independent of the current tables."""
+    workflow: str
+    key: str
+    epoch: int
+    status: WorkItemStatus
+    source: ClosureSource | None
+    present: bool
+    record_url: str | None
+    approved_at: str | None
+    reason: str | None
+    decided_at: datetime
+    decision_reason: str | None
+    snapshot_at: datetime
 
 class FieldValue:
     workflow: str
@@ -562,11 +609,45 @@ class DecisionRepository:
     def latest_for(self, workflow: str,
                    keys: Sequence[str]) -> dict[str, Decision]: ...
     def history(self, workflow: str, key: str, limit: int = 50) -> list[Decision]: ...
+
+class ApprovedHistoryRepository:
+    def record_accept(self, workflow: str, key: str, reason: str | None,
+                      at: datetime) -> None: ...
+    def refresh(self, workflow: str, key: str) -> None: ...
+    def remove(self, workflow: str, key: str) -> None: ...
+    def page(self, query: HistoryQuery) -> tuple[list[ApprovedDeviation], int]: ...
+    def get(self, workflow: str, key: str) -> ApprovedDeviation | None: ...
+    def fields(self, workflow: str, key: str) -> dict[str, FieldValue]: ...
+    def attributes(self, workflow: str, key: str) -> dict[str, str | None]: ...
+    def refs(self, workflow: str, key: str) -> dict[str, PageRef]: ...
+    def edits(self, workflow: str, key: str, limit: int = 50) -> list[tuple[str, str | None, str | None, str]]: ...
+
+class PurgeRepository:
+    def current(self, cutoff: datetime, dry_run: bool) -> dict[str, int]: ...
+    def history(self, cutoff: datetime, dry_run: bool) -> dict[str, int]: ...
 ```
 
+`ApprovedHistoryRepository` owns every `approved_*` table. `record_accept` copies the
+current parent and all children in one transaction; `refresh` updates only an existing
+snapshot; `remove` deletes it. The History read model therefore never joins
+`work_items` or `item_decisions`.
+
+`HistoryQuery` carries the standard filter row: key/status/approval contains and exact
+sets, a decided date range, and repeated `(field_key, text/value)` pairs. Field filters
+are correlated `EXISTS` clauses against `approved_deviation_fields`, using the same
+`proposed`, else `extracted`, else `applied` precedence as the table.
+
+`PurgeRepository` owns the two bulk-delete statements. `PurgeService` chooses the cutoff
+(`now - 24h` for current, `now - 90d` for history), runs the dry-run or real transaction,
+and returns an immutable `PurgeResult` with per-table counts. The repository is the only
+class that issues destructive SQL; the API and frontend never supply a cutoff.
+
 `JobPage` is `(jobs, total)`; `JobQuery` carries the optional column filters, the
-sort column + direction and the page window. The sort column is a whitelist mapped
-to SQL, and duration is the SQL expression
+sort column + direction and the page window. Enum filters (`kind`, `status`, `phase`)
+and exact text filters (`id_in`, `item_in`, `error_in`) are sequences so the standard
+multiselect UI can send every selected value; the existing singular fields and text
+contains filters remain for compatibility. The sort column is a whitelist mapped to
+SQL, and duration is the SQL expression
 `julianday(COALESCE(finished_at, 'now')) - julianday(started_at)`.
 
 Repositories never touch Playwright and never contain workflow-specific logic.
@@ -699,10 +780,13 @@ link, its read-only attributes, any catalogue values it is the source of, or a s
 reason (FR-3.7). It never persists and never decides item status.
 
 `write()` = open the record → enter edit mode (inline pencil/double-click or the page's
-Edit button) → fill the target inputs → Save → return per-target outcomes; `read()` is
-used for the pre-write audit/idempotency snapshot and for post-save verification
-(FR-6.2/6.4). A pre-read difference never blocks the write: the description-derived
-snapshot is not trusted, so the operator's proposal is authoritative.
+Edit button) → **clear each input**, fill the canonical value, read the widget value back
+and verify it **before Save** → Save → return per-target outcomes; `read()` is used for
+the pre-write audit/idempotency snapshot and for post-save verification (FR-6.2/6.4). The
+clear-before-fill rule is mandatory: LWC inputs can concatenate a new value onto their
+existing formatted text if filled while non-empty. A mismatch aborts the write before any
+Save. A pre-read difference never blocks the write: the description-derived snapshot is
+not trusted, so the operator's proposal is authoritative.
 Targets carry the page `section`, so the same label (`New value`) can be resolved on the
 LMS 2.0 contract form without workflow-specific branching in the pipeline. Adapters
 depend on `TabProvider` (two async methods), not on the concrete `TabGroup`, so pipelines
@@ -759,9 +843,16 @@ page).
 
 ```python
 class ClosureResolver:
+    def __init__(self, items: WorkItemRepository, jobs: JobRepository,
+                 events: EventRepository,
+                 history: ApprovedHistoryRepository | None = None) -> None: ...
     def close_if_absent(self, item: WorkItem, observed_at: datetime) -> None: ...
     def release_lease(self, workflow: str, item: str) -> None: ...
 ```
+
+After a closure, `ClosureResolver` calls `history.refresh(workflow, key)` so an accepted
+item's snapshot records its final status. The call is best-effort and never changes the
+closure outcome.
 
 Decision table (FR-2.8, FR-6.11):
 
@@ -772,6 +863,11 @@ elif execute_attempted_at is set       → COMPLETED, source=system, flag implem
 else                                   → CLOSED, source=external, reason=already_implemented
 then: cancel active jobs, emit event
 ```
+
+`ABSENT_PENDING` is legal from every non-terminal status, including `NEEDS_REVIEW`. The
+reconciler retries every `present = 0`, non-terminal, not-yet-closed item on each valid
+cycle, so a failed first close can never strand an item in the working queue just because
+it is already marked absent.
 
 ### 8.4 `AuthGate`
 
@@ -937,9 +1033,14 @@ stale leases at boot and on a timer (FR-7.2).
 ```python
 class Worker:
     def __init__(self, name: str, registry: WorkflowRegistry, jobs: JobRepository,
-                 auth: AuthGate, events: EventRepository) -> None: ...
+                 auth: AuthGate, events: EventRepository,
+                 history: ApprovedHistoryRepository | None = None) -> None: ...
     async def execute(self, job: Job) -> None: ...
 ```
+
+The worker refreshes the approved-history snapshot in its `finally` block, after any
+deferred closure is released, so the snapshot sees the final item status. A snapshot
+failure is logged and never changes the job result.
 
 Routes `(job.workflow, job.kind)` → `workflow.extraction` / `workflow.submission`;
 owns the `TabGroup` lifecycle, phase markers, log lines, exception translation, and
@@ -966,6 +1067,9 @@ class WorkItemService:
     def list(self, workflow: str, status: WorkItemStatus | None, query: str | None,
              limit: int, offset: int) -> WorkItemPage: ...
     def get(self, workflow: str, key: str) -> WorkItemDetail: ...
+    def list_history(self, workflow: str, query: str | None,
+                     limit: int, offset: int) -> ItemPage: ...
+    def get_history_item(self, workflow: str, key: str) -> ItemDetail: ...
     def patch_fields(self, workflow: str, key: str,
                      changes: Mapping[str, str | None]) -> WorkItemDetail: ...
     def discard_fields(self, workflow: str, key: str) -> WorkItemDetail: ...
@@ -996,6 +1100,39 @@ Pydantic models at the boundary only: `WorkflowView` (name, labels, catalogue),
 (extracted/last_synced/proposed/applied/status), `JobView`, `SyncView`, `AuthView`,
 `QueueView`. Domain dataclasses never leak into JSON.
 
+### 11.4 Shared table filter (frontend)
+
+```ts
+interface TableFilterOption { value: string; label: string }
+
+interface TableFilterProps {
+  label: string
+  text: string
+  onText: (text: string) => void
+  selected: string[]
+  onSelected: (values: string[]) => void
+  options: TableFilterOption[]
+  placeholder?: string
+  inputType?: 'text' | 'date' | 'number'
+}
+
+interface TableRangeFilterProps {
+  fromLabel: string
+  toLabel: string
+  from: string
+  to: string
+  onFrom: (value: string) => void
+  onTo: (value: string) => void
+  type?: 'text' | 'date' | 'number'
+}
+```
+
+`TableFilter` is the only per-column filter cell for new tables: text/date/number input
+plus a Salt multiselect `Dropdown` whose options render as checkboxes. The parent owns
+the filter state and decides whether filtering is client-side (Dev DB preview) or
+server-side (Jobs/History). `TableRangeFilter` is the range variant and deliberately has
+no checkbox list.
+
 ---
 
 ## 12. Invariants
@@ -1019,6 +1156,14 @@ Each should have a test.
 10. **I10** A failed submission does not roll back values that were already written; it
     records per-target truth, moves the item to `NEEDS_REVIEW`, and notifies the operator
     (FR-6.15).
+11. **I11** Every write clears the input, fills it, reads the widget value back, and
+    compares it with the intended canonical value before clicking Save. A mismatch aborts
+    the write, so a formatted/concatenated input can never be saved.
+12. **I12** The History read model uses only `approved_*` tables. It never joins or falls
+    back to `work_items`/`item_decisions`, so deleting current data cannot blank history.
+13. **I13** A current purge never deletes an item with an active job and never touches an
+    `approved_*` table; a history purge never touches a current or operational table.
+14. **I14** Both purges are idempotent, and a dry run performs no permanent delete.
 
 ## 13. Test seams
 

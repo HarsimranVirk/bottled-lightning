@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, Query
 from fastapi.responses import Response
 
@@ -17,7 +19,7 @@ from app.api.schemas import (
     VersionView,
 )
 from app.api.services import AdminPort
-from app.types import JsonValue
+from app.utils.json import JsonValue
 
 
 def _text(payload: dict[str, JsonValue], key: str) -> str | None:
@@ -72,12 +74,18 @@ def make_router(admin: AdminPort) -> APIRouter:
     @router.get("/jobs", response_model=JobsPageView)
     def list_jobs(
         workflow: str | None = None,
-        kind: str | None = None,
-        status: str | None = None,
-        phase: str | None = None,
+        kind: Annotated[list[str] | None, Query()] = None,
+        status: Annotated[list[str] | None, Query()] = None,
+        phase: Annotated[list[str] | None, Query()] = None,
+        status_text: str | None = None,
+        kind_text: str | None = None,
+        phase_text: str | None = None,
         item: str | None = None,
-        job_id: str | None = Query(default=None, alias="id"),
+        item_in: Annotated[list[str] | None, Query()] = None,
+        job_id: Annotated[str | None, Query(alias="id")] = None,
+        id_in: Annotated[list[str] | None, Query()] = None,
         error: str | None = None,
+        error_in: Annotated[list[str] | None, Query()] = None,
         started_after: str | None = None,
         started_before: str | None = None,
         duration_min_ms: int | None = Query(default=None, ge=0),
@@ -93,9 +101,15 @@ def make_router(admin: AdminPort) -> APIRouter:
             kind=kind,
             status=status,
             phase=phase,
+            status_text=status_text,
+            kind_text=kind_text,
+            phase_text=phase_text,
             item=item,
+            item_in=item_in,
             job_id=job_id,
+            id_in=id_in,
             error=error,
+            error_in=error_in,
             started_after=started_after,
             started_before=started_before,
             duration_min_ms=duration_min_ms,

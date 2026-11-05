@@ -86,8 +86,6 @@ def settings_for(path: Path) -> Settings:
         login_wait_s=600,
         headless=True,
         update_policy="auto",
-        deviations_z02_list_url="https://example/list",
-        deviations_z02_pattern=r"Deviation-\d+-\d+",
     )
 
 
@@ -126,7 +124,7 @@ class RegistryTests(unittest.TestCase):
                 refs=PageRefRepository(database),
                 events=EventRepository(database),
             )
-            workflow = build_workflow(settings_for(Path(tmp)), deps, AdapterRegistry([]))
+            workflow = build_workflow(settings_for(Path(tmp)), deps)
             database.close()
         self.assertEqual(workflow.name, WORKFLOW_NAME)
         self.assertEqual(workflow.list_view.pattern, r"Deviation-\d+-\d+")

@@ -17,38 +17,45 @@ import {
 } from '@salt-ds/core'
 import { useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { api } from '../api'
 import type { DecisionKind, ItemRow } from '../api'
 import { DecisionDeck } from '../components/DecisionDeck'
 import { HistoryTable } from '../components/HistoryTable'
 import { ItemDrawer } from '../components/ItemDrawer'
+import { DECIDABLE_STATUSES, isDeckRow } from '../deck'
+import { acceptAndSubmit } from '../submit'
+import type { HistoryFilters } from '../queries'
 import {
+  EMPTY_HISTORY_FILTERS,
   useDecideDecision,
+  useHistory,
+  useHistoryItem,
   useItem,
   useItems,
   usePatchFields,
+  useSubmitJob,
   useSync,
   useUndoDecision,
   useWorkflows,
 } from '../queries'
 
 const Z02_WORKFLOW = 'deviations_z02'
-/** Statuses the operator may decide on (FR-10.5). */
-const DECIDABLE = ['ready', 'editing', 'needs_review']
 
 export function DeviationsPage(): JSX.Element {
   const { key } = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const view = searchParams.get('view') === 'history' ? 'history' : 'deck'
   const client = useQueryClient()
   const workflows = useWorkflows()
   // The Z02 tab is concrete; the registry only supplies labels and fields.
   const workflow = workflows.data?.find((item) => item.name === Z02_WORKFLOW) ?? workflows.data?.[0]
   const route = workflow?.route ?? null
 
-  const [view, setView] = useState<'deck' | 'history'>('deck')
-  const [historyQuery, setHistoryQuery] = useState('')
+  const [historyFilters, setHistoryFilters] =
+    useState<HistoryFilters>(EMPTY_HISTORY_FILTERS)
   const [historyPage, setHistoryPage] = useState(1)
   const [historySize, setHistorySize] = useState(25)
   const [announcement, setAnnouncement] = useState('')
@@ -58,21 +65,20 @@ export function DeviationsPage(): JSX.Element {
   const sync = useSync(workflow?.name ?? null)
   // One unfiltered page powers the deck and the tallies, like the legacy deck.
   const deck = useItems(route, {}, 500, view === 'deck')
-  // History is the accepted set, newest decision first, paginated by the server.
-  const history = useItems(
+  // History is the approved snapshot store, newest accept first, paginated by the server.
+  const history = useHistory(
     route,
-    { decision: 'accept', q: historyQuery || undefined, sort: 'decision', order: 'desc' },
+    historyFilters,
     historySize,
     view === 'history',
     (historyPage - 1) * historySize,
   )
-  const detail = useItem(route, key ?? null)
+  const currentDetail = useItem(route, view === 'deck' ? key ?? null : null)
+  const historyDetail = useHistoryItem(route, view === 'history' ? key ?? null : null)
+  const detail = view === 'history' ? historyDetail : currentDetail
 
   const allRows = useMemo(() => deck.data?.rows ?? [], [deck.data])
-  const deckRows = useMemo(
-    () => allRows.filter((row) => DECIDABLE.includes(row.status) && row.decision === null),
-    [allRows],
-  )
+  const deckRows = useMemo(() => allRows.filter(isDeckRow), [allRows])
   const tally = useMemo(
     () => ({
       accept: allRows.filter((row) => row.decision?.decision === 'accept').length,
@@ -85,14 +91,22 @@ export function DeviationsPage(): JSX.Element {
   const topKey = deckRows[0]?.key ?? null
   const cardDetail = useItem(route, view === 'deck' ? topKey : null)
 
+  function showView(next: 'deck' | 'history'): void {
+    navigate(next === 'history' ? '/deviations-z02?view=history' : '/deviations-z02')
+  }
+
   const decide = useDecideDecision(route)
   const patch = usePatchFields(route)
   const undo = useUndoDecision(route)
+  const submit = useSubmitJob(route)
 
   /**
-   * Accept stores the card's edited values as proposals first, then records the
-   * decision — the legacy deck's behaviour on the new API (FR-10.6). Skip records the
-   * decision only. Returns false on failure so the deck keeps the card.
+   * Accept is the deck's submission action (Option C): it stores the card's cleaned
+   * values, records the decision, and enqueues the submit job when there is at least one
+   * non-empty value. A card with no changes records the decision only. If the job cannot
+   * be queued, the local accept is undone so the card stays actionable.
+   *
+   * Skip remains local: it records the decision and writes nothing to Salesforce.
    */
   async function handleDecide(
     row: ItemRow,
@@ -101,13 +115,21 @@ export function DeviationsPage(): JSX.Element {
   ): Promise<boolean> {
     setActionError(null)
     try {
-      if (decision === 'accept') {
-        await patch.mutateAsync({ key: row.key, changes: values })
-      }
-      await decide.mutateAsync({ key: row.key, decision })
+      const submitted = await acceptAndSubmit(decision, values, {
+        patch: (changes) => patch.mutateAsync({ key: row.key, changes }),
+        decide: (kind) => decide.mutateAsync({ key: row.key, decision: kind }),
+        submit: () => submit.mutateAsync({ key: row.key }),
+        undo: () => undo.mutateAsync({ key: row.key }),
+      })
       const left = Math.max(0, deckRows.length - 1)
+      const action =
+        decision === 'accept'
+          ? submitted
+            ? 'Accepted & queued for update'
+            : 'Accepted'
+          : 'Skipped'
       setAnnouncement(
-        `${decision === 'accept' ? 'Accepted' : 'Skipped'} ${row.key}` +
+        `${action} ${row.key}` +
           (left === 0 ? ' · deck complete' : ` · ${left} to review`),
       )
       return true
@@ -132,7 +154,9 @@ export function DeviationsPage(): JSX.Element {
   async function replaySkipped(): Promise<void> {
     if (route === null) return
     const skipped = allRows.filter(
-      (row) => row.decision?.decision === 'reject' && DECIDABLE.includes(row.status),
+      (row) =>
+        row.decision?.decision === 'reject' &&
+        DECIDABLE_STATUSES.has(row.status),
     )
     if (skipped.length === 0) return
     setReplaying(true)
@@ -164,7 +188,7 @@ export function DeviationsPage(): JSX.Element {
             value={view}
             onChange={(event) => {
               const next = event.currentTarget.value
-              if (next === 'deck' || next === 'history') setView(next)
+              if (next === 'deck' || next === 'history') showView(next)
             }}
           >
             <ToggleButton value="deck">Deck</ToggleButton>
@@ -186,7 +210,7 @@ export function DeviationsPage(): JSX.Element {
           onDecide={handleDecide}
           onReplay={() => void replaySkipped()}
           replaying={replaying}
-          onHistory={() => setView('history')}
+          onHistory={() => showView('history')}
           onRefresh={() => void deck.refetch()}
           refreshing={deck.isFetching}
         />
@@ -196,9 +220,9 @@ export function DeviationsPage(): JSX.Element {
           fields={workflow.fields}
           terminalLabels={workflow.terminalLabels}
           listUrl={workflow.listUrl}
-          query={historyQuery}
-          onQuery={(next) => {
-            setHistoryQuery(next)
+          filters={historyFilters}
+          onFilters={(next) => {
+            setHistoryFilters(next)
             setHistoryPage(1)
           }}
           page={historyPage}
@@ -210,7 +234,11 @@ export function DeviationsPage(): JSX.Element {
             setHistoryPage(1)
           }}
           loading={history.isLoading}
-          onOpen={(itemKey) => navigate(`/deviations-z02/${encodeURIComponent(itemKey)}`)}
+          onOpen={(itemKey) =>
+            navigate(
+              `/deviations-z02/${encodeURIComponent(itemKey)}?view=history`,
+            )
+          }
         />
       )}
 
@@ -221,8 +249,10 @@ export function DeviationsPage(): JSX.Element {
             fields={workflow.fields}
             refKinds={workflow.refKinds}
             terminalLabels={workflow.terminalLabels}
-            onClose={() => navigate('/deviations-z02')}
-            onUndoDecision={() => handleUndo(detail.data.key)}
+            onClose={() => showView(view)}
+            onUndoDecision={
+              view === 'deck' ? () => handleUndo(detail.data.key) : undefined
+            }
             undoing={undo.isPending}
           />
         ) : detail.error ? (

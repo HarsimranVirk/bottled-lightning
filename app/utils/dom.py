@@ -69,6 +69,20 @@ async def click_first_visible(locator: Locator, timeout_ms: int) -> bool:
     return False
 
 
+async def clear_and_fill(locator: Locator, value: str) -> str:
+    """
+    Clear an input before filling it, then return the value the widget reports.
+
+    Lightning/LWC inputs can retain their formatted text when ``fill()`` is called on a
+    non-empty field, which can concatenate the old and new amounts. Clearing first makes
+    every write deterministic. The caller must verify the returned value against the
+    intended value before clicking Save; a mismatch must abort the write.
+    """
+    await locator.fill("")
+    await locator.fill(value)
+    return await locator.input_value()
+
+
 async def safe_inner_text(locator: Locator, timeout_ms: int = 2000) -> str | None:
     """Element text, or ``None`` when the element detached."""
     try:

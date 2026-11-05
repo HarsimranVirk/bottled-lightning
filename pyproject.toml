@@ -12,6 +12,7 @@ dependencies = [
     "fastapi>=0.128",
     "uvicorn>=0.39",
     "playwright>=1.60",
+    "openpyxl>=3.1",
 ]
 
 [project.scripts]

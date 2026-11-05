@@ -57,7 +57,7 @@ describe('AppFooter', () => {
     const user = userEvent.setup()
     const onRefresh = vi.fn()
     render(<AppFooter {...props} onRefresh={onRefresh} />)
-    await user.click(screen.getByRole('button', { name: 'Refresh' }))
+    await user.click(screen.getByRole('button', { name: 'Sync now' }))
     expect(onRefresh).toHaveBeenCalled()
   })
 })

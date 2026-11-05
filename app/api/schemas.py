@@ -8,8 +8,9 @@ entities never leak into JSON.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, RootModel
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 from pydantic.alias_generators import to_camel
 
 
@@ -185,3 +186,62 @@ class UpdateStatusView(ApiModel):
     error: str | None = None
     latest: str | None = None
     download_url: str | None = None
+
+
+#: One scalar cell in a dev query result. SQLite blobs are converted to placeholders.
+DevCell = str | int | float | None
+
+
+class DevTableView(ApiModel):
+    """One table in the dev explorer list."""
+
+    name: str
+    rows: int
+    columns: list[str]
+
+
+class DevTablesView(ApiModel):
+    """The tables a dev explorer may query; the token table is never listed."""
+
+    tables: list[DevTableView]
+
+
+class DevQueryIn(ApiModel):
+    """One read-only SQL statement and the preview row cap."""
+
+    sql: str
+    limit: int = Field(default=500, ge=1, le=5_000)
+
+
+class DevQueryView(ApiModel):
+    """Bounded read-only result for the preview table."""
+
+    columns: list[str]
+    rows: list[list[DevCell]]
+    row_count: int
+    truncated: bool
+    duration_ms: int
+
+
+class DevExportIn(ApiModel):
+    """Export the same read-only query as CSV or a real Excel workbook."""
+
+    sql: str
+    format: Literal["csv", "xlsx"]
+
+
+class PurgeIn(ApiModel):
+    """One manual retention action; the server owns the cutoff."""
+
+    scope: Literal["current", "history"]
+    dry_run: bool = False
+
+
+class PurgeView(ApiModel):
+    """Per-table result of a dry-run or real purge."""
+
+    scope: Literal["current", "history"]
+    cutoff: datetime
+    dry_run: bool
+    deleted: dict[str, int]
+    total: int

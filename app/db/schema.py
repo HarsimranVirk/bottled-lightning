@@ -6,7 +6,7 @@ workflows share the same tables without interfering. See docs/class-design-devia
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS work_items (
@@ -148,4 +148,147 @@ CREATE TABLE IF NOT EXISTS item_decisions (
 );
 CREATE INDEX IF NOT EXISTS item_decisions_latest
     ON item_decisions(workflow, item_key, id DESC);
+
+CREATE TABLE IF NOT EXISTS approved_deviations (
+    workflow TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    epoch INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL,
+    source TEXT,
+    present INTEGER NOT NULL DEFAULT 1,
+    record_url TEXT,
+    approved_at TEXT,
+    reason TEXT,
+    decided_at TEXT NOT NULL,
+    decision_reason TEXT,
+    snapshot_at TEXT NOT NULL,
+    PRIMARY KEY (workflow, item_key)
+);
+CREATE INDEX IF NOT EXISTS approved_deviations_decided
+    ON approved_deviations(decided_at);
+CREATE INDEX IF NOT EXISTS approved_deviations_workflow_decided
+    ON approved_deviations(workflow, decided_at DESC);
+
+CREATE TABLE IF NOT EXISTS approved_deviation_fields (
+    workflow TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    field_key TEXT NOT NULL,
+    extracted TEXT,
+    last_synced TEXT,
+    proposed TEXT,
+    applied TEXT,
+    status TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (workflow, item_key, field_key),
+    FOREIGN KEY (workflow, item_key)
+        REFERENCES approved_deviations(workflow, item_key) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS approved_deviation_attributes (
+    workflow TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    name TEXT NOT NULL,
+    value TEXT,
+    PRIMARY KEY (workflow, item_key, name),
+    FOREIGN KEY (workflow, item_key)
+        REFERENCES approved_deviations(workflow, item_key) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS approved_deviation_refs (
+    workflow TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    url TEXT NOT NULL,
+    PRIMARY KEY (workflow, item_key, kind),
+    FOREIGN KEY (workflow, item_key)
+        REFERENCES approved_deviations(workflow, item_key) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS approved_deviation_edits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workflow TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    field_key TEXT NOT NULL,
+    old_value TEXT,
+    new_value TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (workflow, item_key)
+        REFERENCES approved_deviations(workflow, item_key) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS approved_deviation_edits_item
+    ON approved_deviation_edits(workflow, item_key, id DESC);
 """
+
+#: One-time v4 -> v5 backfill. Every statement is idempotent enough for a retry after a
+#: crash before ``user_version`` is bumped. Snapshot timestamps use SQLite's UTC clock
+#: because this script is executed before the Python repositories are built.
+BACKFILL_APPROVED_HISTORY = (
+    """
+    INSERT OR IGNORE INTO approved_deviations
+        (workflow, item_key, epoch, status, source, present, record_url, approved_at,
+         reason, decided_at, decision_reason, snapshot_at)
+    SELECT w.workflow, w.item_key, w.epoch, w.status, w.source, w.present,
+           w.record_url, w.approved_at, w.reason, d.created_at, d.reason,
+           strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')
+      FROM work_items w
+      JOIN item_decisions d
+        ON d.workflow = w.workflow AND d.item_key = w.item_key
+     WHERE d.id = (
+               SELECT MAX(m.id) FROM item_decisions m
+                WHERE m.workflow = w.workflow AND m.item_key = w.item_key
+           )
+       AND d.decision = 'accept'
+    """,
+    """
+    INSERT OR IGNORE INTO approved_deviation_fields
+        (workflow, item_key, field_key, extracted, last_synced, proposed, applied,
+         status, updated_at)
+    SELECT f.workflow, f.item_key, f.field_key, f.extracted, f.last_synced,
+           f.proposed, f.applied, f.status, f.updated_at
+      FROM work_item_fields f
+     WHERE EXISTS (
+               SELECT 1 FROM approved_deviations a
+                WHERE a.workflow = f.workflow AND a.item_key = f.item_key
+           )
+    """,
+    """
+    INSERT OR IGNORE INTO approved_deviation_attributes
+        (workflow, item_key, name, value)
+    SELECT a2.workflow, a2.item_key, a2.name, a2.value
+      FROM work_item_attributes a2
+     WHERE EXISTS (
+               SELECT 1 FROM approved_deviations a
+                WHERE a.workflow = a2.workflow AND a.item_key = a2.item_key
+           )
+    """,
+    """
+    INSERT OR IGNORE INTO approved_deviation_refs
+        (workflow, item_key, kind, name, url)
+    SELECT r.workflow, r.item_key, r.kind, r.name, r.url
+      FROM work_item_refs r
+     WHERE EXISTS (
+               SELECT 1 FROM approved_deviations a
+                WHERE a.workflow = r.workflow AND a.item_key = r.item_key
+           )
+    """,
+    """
+    INSERT INTO approved_deviation_edits
+        (workflow, item_key, field_key, old_value, new_value, created_at)
+    SELECT e.workflow, e.item_key, e.field_key, e.old_value, e.new_value, e.created_at
+      FROM work_item_edits e
+     WHERE EXISTS (
+               SELECT 1 FROM approved_deviations a
+                WHERE a.workflow = e.workflow AND a.item_key = e.item_key
+           )
+       AND NOT EXISTS (
+               SELECT 1 FROM approved_deviation_edits x
+                WHERE x.workflow = e.workflow
+                  AND x.item_key = e.item_key
+                  AND x.field_key = e.field_key
+                  AND x.created_at = e.created_at
+                  AND COALESCE(x.old_value, '') = COALESCE(e.old_value, '')
+                  AND COALESCE(x.new_value, '') = COALESCE(e.new_value, '')
+           )
+    """,
+)

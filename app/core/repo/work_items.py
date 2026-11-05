@@ -11,6 +11,7 @@ from app.core.list_view import ListRow
 from app.core.models import WorkItem, from_iso, to_iso, utcnow
 from app.core.status import (
     CLOSURE_STATUSES,
+    TERMINAL_STATUSES,
     ClosureSource,
     DecisionFilter,
     DecisionKind,
@@ -306,6 +307,31 @@ class WorkItemRepository:
             .execute(
                 f"SELECT {_COLUMNS} FROM work_items WHERE workflow = ? AND present = 1",
                 [workflow],
+            )
+            .fetchall()
+        )
+        return [_to_item(row) for row in rows]
+
+    def absent_unclosed(self, workflow: str) -> list[WorkItem]:
+        """
+        Items already marked absent but not terminal or closed, for the closure retry.
+
+        The first absent pass normally closes an item immediately. If that pass could
+        not finish (a transient lease, a state that was not yet closed, a process
+        restart), the item is already ``present = 0`` and the normal ``present()`` diff
+        would never revisit it. This is the retry set: absent, non-terminal and not yet
+        closed, so a valid refresh can finish the closure instead of leaving the item in
+        the working queue forever.
+        """
+        terminal = [status.value for status in TERMINAL_STATUSES]
+        placeholders = ", ".join("?" for _ in terminal)
+        rows = (
+            self._db.connect()
+            .execute(
+                f"SELECT {_COLUMNS} FROM work_items "
+                "WHERE workflow = ? AND present = 0 AND closed_at IS NULL "
+                f"AND status NOT IN ({placeholders})",
+                [workflow, *terminal],
             )
             .fetchall()
         )

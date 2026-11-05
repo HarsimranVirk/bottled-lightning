@@ -1,10 +1,10 @@
 """CL contract discovery and the editable Contract/Funding fields.
 
-The CL-contract record is a Classic Visualforce page (``tabbedLoanAccount``) embedded in
-an iframe on the Lightning record page. The iframe URL is reachable directly through the
-org's Classic host, so submission opens ``https://<org>.my.salesforce.com/<record-id>``
-and edits the Classic inline-edit cells (double-click, fill, Save). This avoids the
-Lightning wrapper page, which is not required to write the values.
+The CL-contract record is a Lightning ``loan__Loan_Account__c`` page that embeds the
+Classic Visualforce form (``tabbedLoanAccount``) in a ``vfFrameId_*`` iframe. Submission
+opens the Lightning ref URL directly and resolves that iframe. The top-level Classic
+fallback remains for a ref that is already a Classic URL. The fields are Classic
+inline-edit cells (double-click, fill, Save) inside the resolved frame.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping, Sequence
 
-from playwright.async_api import Locator, Page
+from playwright.async_api import Frame, Locator, Page
 
 from app.core.field import FieldTarget, ValueType, normalise
 from app.core.models import PageRef
@@ -26,6 +26,7 @@ from app.salesforce.adapters import (
 from app.salesforce.tabs import TabProvider
 from app.utils.dom import (
     absolute_url,
+    clear_and_fill,
     click_first_visible,
     poll,
     related_list_url,
@@ -40,31 +41,6 @@ logger = logging.getLogger(__name__)
 _RELATED_LIST = "CL_Contracts__r"
 _CONTRACT_PREFIX = "LAI-"
 _TENURE_LABEL = "Term"
-
-
-def _classic_base(org_base: str) -> str:
-    """The org's Classic host, used for the Visualforce page behind the iframe."""
-    if ".lightning.force.com" in org_base:
-        return org_base.replace(".lightning.force.com", ".my.salesforce.com")
-    return org_base
-
-
-def _record_id(url: str) -> str | None:
-    """
-    Extract the record id from a Lightning record URL.
-
-    Both URL shapes occur in this org: ``/lightning/r/<id>/view`` (custom objects) and
-    ``/lightning/r/<Object>/<id>/view`` (standard objects). The id is always the segment
-    immediately before the final ``view`` segment.
-    """
-    clean = url.split("?", 1)[0].rstrip("/")
-    marker = "/lightning/r/"
-    if marker not in clean:
-        return None
-    parts = clean.split(marker, 1)[1].split("/")
-    if len(parts) >= 2 and parts[-1] == "view":
-        return parts[-2] or None
-    return None
 
 
 def _value_type(target: FieldTarget) -> ValueType:
@@ -88,9 +64,30 @@ async def _has_input(cell: Locator) -> bool:
     return await cell.locator("input").count() > 0
 
 
-async def _has_labels(page: Page) -> bool:
-    """Whether the Classic page has rendered its field table."""
-    return await page.locator("td.labelCol").count() > 0
+async def _form_frame(page: Page, timeout_ms: int) -> Frame | None:
+    """
+    The frame that actually holds the Classic field table.
+
+    The Lightning ref redirects to the ``loan__Loan_Account__c`` record page and embeds
+    the Classic form in a ``tabbedLoanAccount`` iframe. A ref that is already a Classic
+    URL may serve the table top-level. Return the top-level frame when it has the labels;
+    otherwise wait for the iframe and return that.
+    """
+    waited = 0
+    while waited <= timeout_ms:
+        if await page.locator("td.labelCol").count() > 0:
+            return page.main_frame
+        for frame in page.frames:
+            if "tabbedLoanAccount" not in frame.url:
+                continue
+            try:
+                if await frame.locator("td.labelCol").count() > 0:
+                    return frame
+            except Exception as exc:  # noqa: BLE001 - frame may still be loading
+                logger.debug("CL contract frame check failed: %s", exc)
+        await page.wait_for_timeout(500)
+        waited += 500
+    return None
 
 
 class ClContractAdapter(AdapterBase):
@@ -98,24 +95,22 @@ class ClContractAdapter(AdapterBase):
     CL contract link for the opportunity's matching product.
 
     Extraction reads the ``CL_Contracts__r`` related list and keeps the contract whose
-    Product column matches the mapped opportunity product. Submission edits the same
-    contract's Loan Amount (Contract), Term (Contract) and Financed Amount (Funding)
-    through the Classic inline-edit cells.
+    Product column matches the mapped opportunity product. Submission opens the Lightning
+    ref URL and edits the same contract's Loan Amount (Contract), Term (Contract) and
+    Financed Amount (Funding) through the Classic inline-edit cells inside the embedded
+    ``tabbedLoanAccount`` iframe.
     """
 
     kind = DeviationObject.CL_CONTRACT.value
 
     def __init__(self, org_base: str, timeout_ms: int) -> None:
-        """Store org base, Classic host and page timeout."""
+        """Store org base and page timeout."""
         self._org_base = org_base
-        self._classic_base = _classic_base(org_base)
         self._timeout_ms = timeout_ms
 
     async def open(self, tabs: TabProvider, ref: PageRef) -> Page:
-        """Open the Classic Visualforce page that holds the editable cells."""
-        record_id = _record_id(ref.url)
-        url = f"{self._classic_base}/{record_id}" if record_id else ref.url
-        return await tabs.new_page(url)
+        """Open the Lightning record page that embeds the editable form."""
+        return await tabs.new_page(ref.url)
 
     async def discover(self, tabs: TabProvider, context: DiscoveryContext) -> Discovery:
         """Find the single CL contract matching the opportunity product."""
@@ -165,10 +160,12 @@ class ClContractAdapter(AdapterBase):
         self, page: Page, targets: Sequence[FieldTarget]
     ) -> dict[FieldTarget, str | None]:
         """Read the Classic cells for the requested targets."""
-        await poll(lambda: _has_labels(page), self._timeout_ms)
+        frame = await _form_frame(page, self._timeout_ms)
+        if frame is None:
+            return {target: None for target in targets}
         values: dict[FieldTarget, str | None] = {}
         for target in targets:
-            cell = await self._value_cell(page, target)
+            cell = await self._value_cell(frame, target)
             if cell is None:
                 values[target] = None
                 continue
@@ -179,23 +176,25 @@ class ClContractAdapter(AdapterBase):
         self, page: Page, values: Mapping[FieldTarget, str]
     ) -> dict[FieldTarget, WriteOutcome]:
         """Inline-edit and save each Classic cell, returning per-target outcomes."""
-        await poll(lambda: _has_labels(page), self._timeout_ms)
+        frame = await _form_frame(page, self._timeout_ms)
+        if frame is None:
+            return {target: WriteOutcome.UNKNOWN for target in values}
         outcomes: dict[FieldTarget, WriteOutcome] = {}
         for target, value in values.items():
-            cell = await self._value_cell(page, target)
+            cell = await self._value_cell(frame, target)
             if cell is None:
                 outcomes[target] = WriteOutcome.UNKNOWN
                 continue
-            outcomes[target] = await self._edit(page, cell, target, value)
+            outcomes[target] = await self._edit(frame, cell, target, value)
         return outcomes
 
-    async def _label_cell(self, page: Page, target: FieldTarget) -> Locator | None:
+    async def _label_cell(self, frame: Frame, target: FieldTarget) -> Locator | None:
         """Find the ``td.labelCol`` for a target, scoping by section if repeated."""
-        matches = await _matching_labels(page.locator("td.labelCol"), target.label)
+        matches = await _matching_labels(frame.locator("td.labelCol"), target.label)
         if len(matches) == 1:
             return matches[0]
         if len(matches) > 1 and target.section is not None:
-            header = page.get_by_text(target.section, exact=True).first
+            header = frame.get_by_text(target.section, exact=True).first
             if await header.count() > 0:
                 table = header.locator("xpath=ancestor::table[1]")
                 if await table.count() > 0:
@@ -206,28 +205,30 @@ class ClContractAdapter(AdapterBase):
                         return scoped[0]
         return matches[0] if matches else None
 
-    async def _value_cell(self, page: Page, target: FieldTarget) -> Locator | None:
+    async def _value_cell(self, frame: Frame, target: FieldTarget) -> Locator | None:
         """The value cell immediately following a target's label cell."""
-        label = await self._label_cell(page, target)
+        label = await self._label_cell(frame, target)
         if label is None:
             return None
         cell = label.locator("xpath=following-sibling::td[1]")
         return cell.first if await cell.count() > 0 else None
 
     async def _edit(
-        self, page: Page, cell: Locator, target: FieldTarget, value: str
+        self, frame: Frame, cell: Locator, target: FieldTarget, value: str
     ) -> WriteOutcome:
         """Double-click the cell, fill it, save and verify the read-back."""
         try:
             await cell.dblclick(timeout=self._timeout_ms)
             if not await poll(lambda: _has_input(cell), self._timeout_ms):
                 return WriteOutcome.UNKNOWN
-            await cell.locator("input").first.fill(value)
-            save = page.locator('input[name="inlineEditSave"]')
+            actual = await clear_and_fill(cell.locator("input").first, value)
+            if not _same(target, actual, value):
+                return WriteOutcome.UNKNOWN
+            save = frame.locator('input[name="inlineEditSave"]')
             if not await click_first_visible(save, self._timeout_ms):
                 return WriteOutcome.UNKNOWN
             if not await poll(
-                lambda: self._saved(page, target, value), self._timeout_ms
+                lambda: self._saved(frame, target, value), self._timeout_ms
             ):
                 return WriteOutcome.REJECTED
             return WriteOutcome.SAVED
@@ -235,9 +236,9 @@ class ClContractAdapter(AdapterBase):
             logger.debug("cl-contract write failed for %s: %s", target, exc)
             return WriteOutcome.UNKNOWN
 
-    async def _saved(self, page: Page, target: FieldTarget, value: str) -> bool:
+    async def _saved(self, frame: Frame, target: FieldTarget, value: str) -> bool:
         """Whether the cell left edit mode and reads back the intended value."""
-        cell = await self._value_cell(page, target)
+        cell = await self._value_cell(frame, target)
         if cell is None or await _has_input(cell):
             return False
         raw = await safe_inner_text(cell, 2000)

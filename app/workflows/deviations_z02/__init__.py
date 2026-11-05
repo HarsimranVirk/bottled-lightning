@@ -13,13 +13,18 @@ from app.config import Settings
 from app.core.list_view import ListRow, ListViewSpec
 from app.core.status import WorkItemStatus
 from app.core.workflow import Workflow, WorkflowDeps
-from app.salesforce.adapters import AdapterRegistry
+from app.salesforce.urls import list_view_url
 
+from .adapters import build_adapters
 from .catalog import FIELD_CATALOG
 from .extraction import DeviationsZ02Extraction
 from .submission import DeviationsZ02Submission
 
 WORKFLOW_NAME = "deviations_z02"
+LIST_OBJECT_API = "Consumer_Loan_Deviation__c"
+LIST_FILTER = "Z2_Loan_para_pricing1"
+#: Safe pattern: the middle segment is 8 digits, so ``\d{2,4}`` never matches.
+LIST_PATTERN = r"Deviation-\d+-\d+"
 
 
 def map_row(row: ListRow) -> Mapping[str, str]:
@@ -31,11 +36,22 @@ def map_row(row: ListRow) -> Mapping[str, str]:
 def build_workflow(
     settings: Settings,
     deps: WorkflowDeps,
-    adapters: AdapterRegistry,
     *,
     force: bool = False,
 ) -> Workflow:
-    """Build the Z02 workflow from settings, repositories and adapters."""
+    """
+    Build the Z02 workflow and its per-workflow adapter registry.
+
+    Called once at boot by ``Stack`` through the ``BUILDERS`` tuple, and by the dev
+    smoke tools. Adapters are constructed here (never shared between workflows):
+    each registry carries the concrete Salesforce object implementations for this
+    workflow only.
+
+    ``force`` re-extracts items that were already visited; the smoke tools use it,
+    the app leaves it ``False``. Raises only if an adapter implementation is missing
+    at import time; construction itself does no browser work.
+    """
+    adapters = build_adapters(settings.org_base, settings.request_timeout_ms)
     extraction = DeviationsZ02Extraction(
         WORKFLOW_NAME,
         deps.items,
@@ -60,8 +76,8 @@ def build_workflow(
         name=WORKFLOW_NAME,
         route="deviations",
         list_view=ListViewSpec(
-            url=settings.deviations_z02_list_url,
-            pattern=settings.deviations_z02_pattern,
+            url=list_view_url(settings.org_base, LIST_OBJECT_API, LIST_FILTER),
+            pattern=LIST_PATTERN,
         ),
         catalog=FIELD_CATALOG,
         adapters=adapters,

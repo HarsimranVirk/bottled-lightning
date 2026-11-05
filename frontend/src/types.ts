@@ -4,6 +4,86 @@
  */
 
 export interface paths {
+    "/api/dev/db/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export
+         * @description Export the same read-only query as CSV or a real Excel workbook.
+         */
+        post: operations["export_api_dev_db_exports_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/db/purges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Purge
+         * @description Run one manual retention scope; ``dryRun`` only reports counts.
+         */
+        post: operations["purge_api_dev_db_purges_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/db/queries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Query
+         * @description Run one read-only statement and return a bounded preview.
+         */
+        post: operations["query_api_dev_db_queries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/db/tables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tables
+         * @description Tables the explorer may query; ``sessions`` is never listed.
+         */
+        get: operations["tables_api_dev_db_tables_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/deviations": {
         parameters: {
             query?: never;
@@ -19,6 +99,49 @@ export interface paths {
          *     is ``accept``, ``reject`` or ``undecided``.
          */
         get: operations["list_items_api_deviations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/deviations/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List History
+         * @description Accepted-deviation snapshots with the standard server-side filter row.
+         *
+         *     This is a separate read model from the live item list; it survives the current
+         *     work-item purge.
+         */
+        get: operations["list_history_api_deviations_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/deviations/history/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get History Item
+         * @description One approved snapshot with its attributes, refs, edits and accept decision.
+         */
+        get: operations["get_history_item_api_deviations_history__key__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -406,6 +529,68 @@ export interface components {
             /** Reason */
             reason?: string | null;
         };
+        /**
+         * DevExportIn
+         * @description Export the same read-only query as CSV or a real Excel workbook.
+         */
+        DevExportIn: {
+            /**
+             * Format
+             * @enum {string}
+             */
+            format: "csv" | "xlsx";
+            /** Sql */
+            sql: string;
+        };
+        /**
+         * DevQueryIn
+         * @description One read-only SQL statement and the preview row cap.
+         */
+        DevQueryIn: {
+            /**
+             * Limit
+             * @default 500
+             */
+            limit: number;
+            /** Sql */
+            sql: string;
+        };
+        /**
+         * DevQueryView
+         * @description Bounded read-only result for the preview table.
+         */
+        DevQueryView: {
+            /** Columns */
+            columns: string[];
+            /** Durationms */
+            durationMs: number;
+            /** Rowcount */
+            rowCount: number;
+            /** Rows */
+            rows: (string | number | null)[][];
+            /** Truncated */
+            truncated: boolean;
+        };
+        /**
+         * DevTableView
+         * @description One table in the dev explorer list.
+         */
+        DevTableView: {
+            /** Columns */
+            columns: string[];
+            /** Name */
+            name: string;
+            /** Rows */
+            rows: number;
+        };
+        /**
+         * DevTablesView
+         * @description The tables a dev explorer may query; the token table is never listed.
+         */
+        DevTablesView: {
+            /** Tables */
+            tables: components["schemas"]["DevTableView"][];
+        };
         /** EditView */
         EditView: {
             /**
@@ -571,6 +756,46 @@ export interface components {
             /** Url */
             url: string;
         };
+        /**
+         * PurgeIn
+         * @description One manual retention action; the server owns the cutoff.
+         */
+        PurgeIn: {
+            /**
+             * Dryrun
+             * @default false
+             */
+            dryRun: boolean;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "current" | "history";
+        };
+        /**
+         * PurgeView
+         * @description Per-table result of a dry-run or real purge.
+         */
+        PurgeView: {
+            /**
+             * Cutoff
+             * Format: date-time
+             */
+            cutoff: string;
+            /** Deleted */
+            deleted: {
+                [key: string]: number;
+            };
+            /** Dryrun */
+            dryRun: boolean;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "current" | "history";
+            /** Total */
+            total: number;
+        };
         /** QueueView */
         QueueView: {
             /** Concurrency */
@@ -712,9 +937,129 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    export_api_dev_db_exports_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DevExportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    purge_api_dev_db_purges_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PurgeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurgeView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    query_api_dev_db_queries_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DevQueryIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevQueryView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tables_api_dev_db_tables_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevTablesView"];
+                };
+            };
+        };
+    };
     list_items_api_deviations_get: {
         parameters: {
             query?: {
+                status?: string[] | null;
                 decision?: string | null;
                 q?: string | null;
                 sort?: string;
@@ -726,11 +1071,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: {
-            content: {
-                "application/json": string[] | null;
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -739,6 +1080,80 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ItemsPageView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_history_api_deviations_history_get: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                key?: string | null;
+                key_in?: string[] | null;
+                status_text?: string | null;
+                status?: string[] | null;
+                approved_at?: string | null;
+                approved_at_in?: string[] | null;
+                decided_after?: string | null;
+                decided_before?: string | null;
+                field?: string[] | null;
+                field_text?: string[] | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemsPageView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_history_item_api_deviations_history__key__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetailView"];
                 };
             };
             /** @description Validation Error */
@@ -950,12 +1365,18 @@ export interface operations {
         parameters: {
             query?: {
                 workflow?: string | null;
-                kind?: string | null;
-                status?: string | null;
-                phase?: string | null;
+                kind?: string[] | null;
+                status?: string[] | null;
+                phase?: string[] | null;
+                status_text?: string | null;
+                kind_text?: string | null;
+                phase_text?: string | null;
                 item?: string | null;
+                item_in?: string[] | null;
                 id?: string | null;
+                id_in?: string[] | null;
                 error?: string | null;
+                error_in?: string[] | null;
                 started_after?: string | null;
                 started_before?: string | null;
                 duration_min_ms?: number | null;

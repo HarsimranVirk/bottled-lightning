@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from .schema import SCHEMA, SCHEMA_VERSION
+from .schema import BACKFILL_APPROVED_HISTORY, SCHEMA, SCHEMA_VERSION
 
 
 class _Local(threading.local):
@@ -81,11 +81,16 @@ class Database:
 
     def migrate(self) -> None:
         """
-        Create the workflow schema if needed; refuse a legacy database.
+        Create or upgrade the workflow schema; refuse a legacy database.
 
         Legacy databases (the pre-refactor ``jobs`` table has no ``kind`` column) are
         rejected before anything is created, so a migration can never half-apply to the
         wrong schema. Point ``SF_DATA_DIR`` at a new directory instead.
+
+        A database older than version 5 receives the approved-history tables and a
+        one-time backfill of every current item whose latest decision is ``accept``.
+        The backfill and the ``user_version`` bump commit together, so a crash retries
+        the copy instead of skipping it.
         """
         conn = self.connect()
         if self._is_legacy(conn):
@@ -95,9 +100,21 @@ class Database:
                 "point SF_DATA_DIR at a new directory or delete the existing app.db "
                 "(refactor plan, open item O-4)."
             )
+        version_row = conn.execute("PRAGMA user_version").fetchone()
+        version = int(str(version_row[0])) if version_row is not None else 0
         conn.executescript(SCHEMA)
-        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        conn.commit()
+        try:
+            if version < 5:
+                # ``executescript`` committed the additive DDL; the backfill and the
+                # version bump commit together so a crash retries the copy instead of
+                # skipping it.
+                for statement in BACKFILL_APPROVED_HISTORY:
+                    conn.execute(statement)
+            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
 
     def _is_legacy(self, conn: sqlite3.Connection) -> bool:
         """True when the file holds the pre-refactor schema (its ``jobs`` table has no

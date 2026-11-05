@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import unittest
 
-from app.deviations.extractors.common import parse_description_fields as legacy_parse
 from app.workflows.deviations_z02.catalog import FIELD_CATALOG
 from app.workflows.deviations_z02.description import (
     clean_description,
@@ -72,12 +71,6 @@ class DescriptionTests(unittest.TestCase):
                 "emi_incl_hffc": None,
             },
         )
-
-    def test_legacy_shape_still_uses_emi_key(self) -> None:
-        """The legacy extractor contract keeps its emi key."""
-        parsed = legacy_parse(DESCRIPTION)
-        self.assertEqual(parsed["emi"], "23,100")
-        self.assertEqual(parsed["loan_amount"], "25,50,000")
 
     def test_compact_parameter_block(self) -> None:
         """The LA/PP/EMI compact shape parses into the catalogue keys."""

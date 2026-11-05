@@ -17,3 +17,8 @@ if (!('ResizeObserver' in globalThis)) {
     },
   })
 }
+
+// jsdom does not implement scrolling; Salt's list control calls it when opening.
+if (typeof Element.prototype.scrollIntoView !== 'function') {
+  Element.prototype.scrollIntoView = function scrollIntoView(): void {}
+}

@@ -24,6 +24,12 @@ export type SessionView = components['schemas']['SessionView']
 export type SyncView = components['schemas']['SyncView']
 export type QueueView = components['schemas']['QueueView']
 export type VersionView = components['schemas']['VersionView']
+export type DevTableView = components['schemas']['DevTableView']
+export type DevTablesView = components['schemas']['DevTablesView']
+export type DevQueryView = components['schemas']['DevQueryView']
+export type DevCell = DevQueryView['rows'][number][number]
+export type PurgeScope = components['schemas']['PurgeIn']['scope']
+export type PurgeResult = components['schemas']['PurgeView']
 
 /** A failed request, normalised from the API's `{detail: {code, message}}` body. */
 export class ApiError extends Error {
@@ -79,6 +85,19 @@ function query(params: Record<string, string | number | undefined>): string {
   return text ? `?${text}` : ''
 }
 
+async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
+  const response = await fetch(path, {
+    ...init,
+    headers: { 'content-type': 'application/json', ...init?.headers },
+  })
+  if (!response.ok) {
+    const body: unknown = await response.json().catch(() => null)
+    const { message, code } = readDetail(response.status, body)
+    throw new ApiError(response.status, message, code)
+  }
+  return response.blob()
+}
+
 async function requestVoid(path: string, init?: RequestInit): Promise<void> {
   const response = await fetch(path, {
     ...init,
@@ -94,12 +113,18 @@ async function requestVoid(path: string, init?: RequestInit): Promise<void> {
 /** Query for the jobs table; camelCase here, snake_case on the wire. */
 export interface JobQuery {
   workflow?: string
-  kind?: string
-  status?: string
-  phase?: string
+  kind?: string[]
+  status?: string[]
+  phase?: string[]
+  statusText?: string
+  kindText?: string
+  phaseText?: string
   item?: string
+  itemIn?: string[]
   id?: string
+  idIn?: string[]
   error?: string
+  errorIn?: string[]
   startedAfter?: string
   startedBefore?: string
   durationMinMs?: number
@@ -123,9 +148,69 @@ function jobsQuery(params: JobQuery): string {
             ? 'duration_min_ms'
             : key === 'durationMaxMs'
               ? 'duration_max_ms'
-              : key
-    search.set(wire, String(value))
+              : key === 'itemIn'
+                ? 'item_in'
+                : key === 'idIn'
+                  ? 'id_in'
+                  : key === 'errorIn'
+                    ? 'error_in'
+                    : key === 'statusText'
+                      ? 'status_text'
+                      : key === 'kindText'
+                        ? 'kind_text'
+                        : key === 'phaseText'
+                          ? 'phase_text'
+                          : key
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item !== '') search.append(wire, item)
+      }
+    } else {
+      search.set(wire, String(value))
+    }
   }
+  const text = search.toString()
+  return text ? `?${text}` : ''
+}
+
+/** Standard History filter row; repeated values become repeated query params. */
+export interface HistoryQuery {
+  q?: string
+  key?: string
+  keyIn?: string[]
+  statusText?: string
+  statuses?: string[]
+  approvedAt?: string
+  approvedAtIn?: string[]
+  decidedAfter?: string
+  decidedBefore?: string
+  fields?: { key: string; value: string }[]
+  fieldText?: { key: string; text: string }[]
+  limit?: number
+  offset?: number
+}
+
+function historyQuery(params: HistoryQuery): string {
+  const search = new URLSearchParams()
+  if (params.q) search.set('q', params.q)
+  if (params.key) search.set('key', params.key)
+  for (const value of params.keyIn ?? []) search.append('key_in', value)
+  if (params.statusText) search.set('status_text', params.statusText)
+  for (const value of params.statuses ?? []) search.append('status', value)
+  if (params.approvedAt) search.set('approved_at', params.approvedAt)
+  for (const value of params.approvedAtIn ?? []) {
+    search.append('approved_at_in', value)
+  }
+  if (params.decidedAfter) search.set('decided_after', params.decidedAfter)
+  if (params.decidedBefore) search.set('decided_before', params.decidedBefore)
+  for (const filter of params.fields ?? []) {
+    search.append('field', `${filter.key}:${filter.value}`)
+  }
+  for (const filter of params.fieldText ?? []) {
+    search.append('field_text', `${filter.key}:${filter.text}`)
+  }
+  if (params.limit !== undefined) search.set('limit', String(params.limit))
+  if (params.offset !== undefined) search.set('offset', String(params.offset))
   const text = search.toString()
   return text ? `?${text}` : ''
 }
@@ -164,6 +249,10 @@ export const api = {
     request(`/api/${route}${itemsQuery(params)}`),
   item: (route: string, key: string): Promise<ItemDetail> =>
     request(`/api/${route}/${encodeURIComponent(key)}`),
+  history: (route: string, params: HistoryQuery = {}): Promise<ItemsPage> =>
+    request(`/api/${route}/history${historyQuery(params)}`),
+  historyItem: (route: string, key: string): Promise<ItemDetail> =>
+    request(`/api/${route}/history/${encodeURIComponent(key)}`),
   patchFields: (
     route: string,
     key: string,
@@ -185,6 +274,8 @@ export const api = {
     }),
   undoDecision: (route: string, key: string): Promise<ItemDetail> =>
     request(`/api/${route}/${encodeURIComponent(key)}/decisions`, { method: 'DELETE' }),
+  submitJob: (route: string, key: string): Promise<JobView> =>
+    request(`/api/${route}/${encodeURIComponent(key)}/jobs`, { method: 'POST' }),
   jobs: (params: JobQuery = {}): Promise<JobsPage> =>
     request(`/api/jobs${jobsQuery(params)}`),
   jobLogs: (id: number): Promise<JobLogs> => request(`/api/jobs/${id}/logs`),
@@ -193,4 +284,20 @@ export const api = {
   logout: (): Promise<void> => requestVoid('/api/sessions', { method: 'DELETE' }),
   requestSync: (workflow: string): Promise<{ status: string; workflow: string }> =>
     request(`/api/syncs${query({ workflow })}`, { method: 'POST' }),
+  devTables: (): Promise<DevTablesView> => request('/api/dev/db/tables'),
+  devQuery: (sql: string, limit = 500): Promise<DevQueryView> =>
+    request('/api/dev/db/queries', {
+      method: 'POST',
+      body: JSON.stringify({ sql, limit }),
+    }),
+  devExport: (sql: string, format: 'csv' | 'xlsx'): Promise<Blob> =>
+    requestBlob('/api/dev/db/exports', {
+      method: 'POST',
+      body: JSON.stringify({ sql, format }),
+    }),
+  devPurge: (scope: PurgeScope, dryRun: boolean): Promise<PurgeResult> =>
+    request('/api/dev/db/purges', {
+      method: 'POST',
+      body: JSON.stringify({ scope, dryRun }),
+    }),
 }

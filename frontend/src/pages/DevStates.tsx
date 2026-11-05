@@ -5,6 +5,7 @@
 
 import type { JSX } from 'react'
 import { FlexLayout, H1, H2, Panel, Spinner, StackLayout, Text } from '@salt-ds/core'
+import { Link } from 'react-router-dom'
 
 import type { ItemDetail, ItemRow, JobView, SessionView, SyncView, WorkflowFieldView } from '../api'
 import { DecisionDeck } from '../components/DecisionDeck'
@@ -13,6 +14,7 @@ import { HistoryTable } from '../components/HistoryTable'
 import { JobsPanel } from '../components/JobsPanel'
 import { StatusChip } from '../components/StatusChip'
 import { SyncBanner } from '../components/SyncBanner'
+import { EMPTY_HISTORY_FILTERS, EMPTY_JOB_FILTERS } from '../queries'
 
 const FIELDS: WorkflowFieldView[] = [
   { key: 'loan_amount', label: 'Loan Amount', valueType: 'amount', required: false, targets: ['cl_contract'] },
@@ -164,6 +166,7 @@ export function DevStates(): JSX.Element {
     <FlexLayout direction="column" gap={4}>
       <H1>State harness</H1>
       <Text color="secondary">Fixtures only. Screenshot at 390 / 768 / 1280 for review.</Text>
+      <Link to="/dev/db">Open the DB explorer</Link>
 
       <Section title="Status chips">
         <FlexLayout gap={1} wrap>
@@ -197,8 +200,8 @@ export function DevStates(): JSX.Element {
           fields={FIELDS}
           terminalLabels={TERMINAL_LABELS}
           listUrl="https://example.lightning.force.com/lightning/o/Deviation/list"
-          query=""
-          onQuery={() => {}}
+          filters={EMPTY_HISTORY_FILTERS}
+          onFilters={() => {}}
           page={1}
           size={25}
           total={2}
@@ -297,18 +300,7 @@ export function DevStates(): JSX.Element {
         <JobsPanel
           jobs={JOBS}
           total={JOBS.length}
-          filters={{
-            id: '',
-            status: '',
-            kind: '',
-            phase: '',
-            item: '',
-            error: '',
-            startedAfter: '',
-            startedBefore: '',
-            durationMinS: '',
-            durationMaxS: '',
-          }}
+          filters={EMPTY_JOB_FILTERS}
           onFilters={() => {}}
           sort="id"
           order="desc"

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, Query
 
+from app.api.errors import ApiError
 from app.api.schemas import (
     DecisionBody,
     FieldValuesBody,
@@ -12,7 +15,23 @@ from app.api.schemas import (
     JobView,
 )
 from app.api.services import WorkItemService
+from app.core.repo.approved_history import HistoryQuery
 from app.core.workflow import Workflow
+
+
+def _pairs(values: list[str] | None, name: str) -> tuple[tuple[str, str], ...]:
+    """Parse repeated ``key:value`` filter values, rejecting a missing separator."""
+    pairs: list[tuple[str, str]] = []
+    for raw in values or ():
+        key, separator, value = raw.partition(":")
+        if not separator or not key.strip():
+            raise ApiError(
+                422,
+                f"{name} must be field_key:value",
+                "invalid_history_filter",
+            )
+        pairs.append((key.strip(), value))
+    return tuple(pairs)
 
 
 def make_router(workflow: Workflow, service: WorkItemService) -> APIRouter:
@@ -21,7 +40,7 @@ def make_router(workflow: Workflow, service: WorkItemService) -> APIRouter:
 
     @router.get("", response_model=ItemsPageView)
     def list_items(
-        status: list[str] | None = None,
+        status: Annotated[list[str] | None, Query()] = None,
         decision: str | None = None,
         q: str | None = None,
         sort: str = "last_seen",
@@ -37,6 +56,53 @@ def make_router(workflow: Workflow, service: WorkItemService) -> APIRouter:
         return service.list_items(
             workflow.name, status, q, limit, offset, decision, sort, order
         )
+
+    @router.get("/history", response_model=ItemsPageView)
+    def list_history(
+        q: str | None = None,
+        key: str | None = None,
+        key_in: Annotated[list[str] | None, Query()] = None,
+        status_text: str | None = None,
+        status: Annotated[list[str] | None, Query()] = None,
+        approved_at: str | None = None,
+        approved_at_in: Annotated[list[str] | None, Query()] = None,
+        decided_after: str | None = None,
+        decided_before: str | None = None,
+        field: Annotated[list[str] | None, Query()] = None,
+        field_text: Annotated[list[str] | None, Query()] = None,
+        limit: int = Query(default=25, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+    ) -> ItemsPageView:
+        """Accepted-deviation snapshots with the standard server-side filter row.
+
+        This is a separate read model from the live item list; it survives the current
+        work-item purge.
+        """
+        return service.list_history(
+            workflow.name,
+            HistoryQuery(
+                q=q,
+                key=key,
+                keys=tuple(value for value in key_in or () if value.strip()),
+                status_text=status_text,
+                statuses=tuple(value for value in status or () if value.strip()),
+                approved_at=approved_at,
+                approved_values=tuple(
+                    value for value in approved_at_in or () if value.strip()
+                ),
+                decided_after=decided_after,
+                decided_before=decided_before,
+                field_text=_pairs(field_text, "field_text"),
+                field_values=_pairs(field, "field"),
+                limit=limit,
+                offset=offset,
+            ),
+        )
+
+    @router.get("/history/{key}", response_model=ItemDetailView)
+    def get_history_item(key: str) -> ItemDetailView:
+        """One approved snapshot with its attributes, refs, edits and accept decision."""
+        return service.get_history_item(workflow.name, key)
 
     @router.get("/{key}", response_model=ItemDetailView)
     def get_item(key: str) -> ItemDetailView:

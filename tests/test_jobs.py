@@ -141,8 +141,6 @@ class JobTestCase(DbTestCase):
             login_wait_s=1,
             headless=True,
             update_policy="auto",
-            deviations_z02_list_url="https://example/list",
-            deviations_z02_pattern=r"Deviation-\d+-\d+",
         )
 
     def create_item(self, key: str = "Deviation-1-1") -> WorkItem:
@@ -454,6 +452,45 @@ class JobQueryTests(DbTestCase):
         self.assertEqual(len(jobs.query(JobQuery(error="boo")).jobs), 1)
         job_id = jobs.query(JobQuery(item="3-3")).jobs[0].id
         self.assertEqual(len(jobs.query(JobQuery(job_id=str(job_id))).jobs), 1)
+
+    def test_multiselect_and_exact_value_filters(self) -> None:
+        """The standard table filter sends OR'd exact sets and text contains filters."""
+        seeded = self.seed()
+        jobs = JobRepository(self.db)
+
+        self.assertEqual(
+            jobs.query(
+                JobQuery(statuses=(JobStatus.FAILED, JobStatus.SUCCEEDED))
+            ).total,
+            3,
+        )
+        self.assertEqual(jobs.query(JobQuery(kinds=(JobKind.SUBMIT,))).total, 1)
+        self.assertEqual(jobs.query(JobQuery(phases=(Phase.APPLY,))).total, 1)
+        self.assertEqual(jobs.query(JobQuery(status_text="fail")).total, 1)
+        self.assertEqual(jobs.query(JobQuery(kind_text="ext")).total, 2)
+        self.assertEqual(jobs.query(JobQuery(phase_text="app")).total, 1)
+        self.assertEqual(
+            jobs.query(
+                JobQuery(job_ids_in=(str(seeded["Deviation-3-3"].id),))
+            ).total,
+            1,
+        )
+        self.assertEqual(
+            jobs.query(
+                JobQuery(items_in=("Deviation-1-1", "Deviation-3-3"))
+            ).total,
+            2,
+        )
+        self.assertEqual(jobs.query(JobQuery(errors_in=("boom",))).total, 1)
+        self.assertEqual(
+            jobs.query(
+                JobQuery(
+                    kinds=(JobKind.EXTRACT,),
+                    statuses=(JobStatus.FAILED,),
+                )
+            ).total,
+            1,
+        )
 
     def test_started_date_and_duration_ranges(self) -> None:
         """Date bounds are inclusive UTC days and duration bounds are milliseconds."""

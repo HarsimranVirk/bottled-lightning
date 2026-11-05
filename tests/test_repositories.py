@@ -29,6 +29,8 @@ from app.core.status import (
     WorkItemStatus,
 )
 from app.db.connection import Database
+from app.salesforce.urls import list_view_url
+from app.workflows.deviations_z02 import LIST_FILTER, LIST_OBJECT_API
 from tests.support import DbTestCase
 
 WORKFLOW = "deviations_z02"
@@ -389,13 +391,18 @@ class SupportingRepoTests(DbTestCase):
 
 class SettingsTests(unittest.TestCase):
     """Settings loading and database file creation."""
-    def test_list_url_is_built(self) -> None:
-        """The Z02 list URL is built from the org base and filter."""
+    def test_settings_carry_only_global_config(self) -> None:
+        """Settings has no per-workflow list URL or pattern; the workflow owns them."""
         settings = load_settings()
         self.assertGreaterEqual(settings.workers, 1)
-        self.assertIn("Consumer_Loan_Deviation__c", settings.deviations_z02_list_url)
-        self.assertIn("Z2_Loan_para_pricing1", settings.deviations_z02_list_url)
+        self.assertFalse(hasattr(settings, "deviations_z02_list_url"))
         self.assertIsInstance(settings, Settings)
+
+    def test_list_view_url_uses_the_workflow_constants(self) -> None:
+        """The Z02 list URL is built from its package constants, not Settings."""
+        url = list_view_url("https://example", LIST_OBJECT_API, LIST_FILTER)
+        self.assertIn("Consumer_Loan_Deviation__c", url)
+        self.assertIn("Z2_Loan_para_pricing1", url)
 
     def test_migrate_creates_the_file(self) -> None:
         """Migration creates missing parent directories."""
