@@ -25,35 +25,28 @@
 
 ### Start
 
-**macOS — use Terminal.** macOS quarantines unsigned downloads, and in practice running
-the script from Terminal is the only reliable path:
+Run the launcher from a terminal. Finder double-click can be blocked by Gatekeeper, and
+SmartScreen can block a Windows double-click, but a terminal launch is not blocked.
+
+**macOS**
 
 ```bash
 cd ~/bottled-lightning-launchers
-xattr -dr com.apple.quarantine .
-chmod +x start.command
 ./start.command
 ```
 
-If the folder is in `~/Downloads` and Terminal says **“Operation not permitted”**, move it
-to your home folder (`mv ~/Downloads/bottled-lightning-launchers ~/`) or grant Terminal
-access under **System Settings → Privacy & Security → Files and Folders**.
+If it says **“permission denied”**, run `chmod +x start.command` once. If macOS still
+blocks it, `xattr -dr com.apple.quarantine .` is the fallback.
 
-GUI alternatives (if they work on your macOS version): right-click `start.command` →
-**Open**, or **System Settings → Privacy & Security → Open Anyway**.
-
-**Windows — unblock the zip first, then run it:**
+**Windows** (PowerShell)
 
 ```powershell
-cd $HOME\Downloads
-Unblock-File .\bottled-lightning-launchers.zip
-Expand-Archive .\bottled-lightning-launchers.zip -DestinationPath .\bottled-lightning-launchers
-cd .\bottled-lightning-launchers
+cd $HOME\Downloads\bottled-lightning-launchers
 .\start.bat
 ```
 
-If SmartScreen still appears: **More info → Run anyway**. If you already extracted the
-zip, `Unblock-File .\start.bat`.
+If SmartScreen appears: **More info → Run anyway**. `Unblock-File .\start.bat` is the
+fallback if Windows refuses to run it.
 
 On first start the launcher waits until the app answers and then opens the browser
 automatically (`http://127.0.0.1:8765`, honouring `SF_PORT`). The terminal stays in the
@@ -62,32 +55,30 @@ opens the browser instead of starting a second server.
 
 ### First launch warnings (unsigned build)
 
-The launchers are not code-signed, so both operating systems warn about the download. The
-files are the ones from this repository; verify the wheel against `SHA256SUMS.txt`
-(`shasum -a 256` on macOS, `certutil -hashfile <file> SHA256` on Windows).
+The launchers are not code-signed, so Finder/Explorer may warn. Running from a terminal is
+the normal path and avoids both prompts.
 
 **macOS — “Apple could not verify … is free of malware”**
 
-The Terminal sequence above is the reliable fix. If you prefer the GUI:
-
-1. Control-click (right-click) `start.command` → **Open** → **Open**.
-2. No Open button: **System Settings → Privacy & Security**, scroll to **Security**, and
-   click **Open Anyway**.
-3. “Operation not permitted” in Terminal means macOS blocked folder access, not a missing
-   file: move the folder out of Downloads or grant access under **Privacy & Security →
-   Files and Folders**.
+1. Use the Terminal command above (`./start.command`).
+2. If it says “permission denied”: `chmod +x start.command`.
+3. If macOS still blocks it: `xattr -dr com.apple.quarantine .` in the folder.
+4. If Terminal says “Operation not permitted” while in `~/Downloads`, move the folder to
+   your home folder or grant Terminal access under **Privacy & Security → Files and
+   Folders**.
 
 **Windows — “Windows protected your PC” / “publisher could not be verified”**
 
-1. Unblock the zip **before** extracting:
-   `Unblock-File .\bottled-lightning-launchers.zip`.
-2. Already extracted? Run `Unblock-File .\start.bat`, or right-click the file →
-   **Properties** → tick **Unblock**.
-3. If SmartScreen still appears: **More info → Run anyway**.
-4. If antivirus quarantines the launcher, restore it and add a folder exclusion.
+1. Run `.\start.bat` from PowerShell, or double-click and choose **More info → Run
+   anyway**.
+2. If Windows refuses: `Unblock-File .\start.bat` (or right-click the file → **Properties**
+   → tick **Unblock**).
+3. If antivirus quarantines the launcher, restore it and add a folder exclusion.
 
-These warnings disappear when the launcher is signed (Developer ID + notarisation on
-macOS, Authenticode on Windows), which is planned for public distribution.
+Verify the wheel against `SHA256SUMS.txt` (`shasum -a 256` on macOS,
+`certutil -hashfile <file> SHA256` on Windows). The warnings disappear when the launcher
+is signed (Developer ID + notarisation on macOS, Authenticode on Windows), which is
+planned for public distribution.
 
 ### Update
 
