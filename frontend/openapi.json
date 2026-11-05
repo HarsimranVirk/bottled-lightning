@@ -69,6 +69,150 @@
         "title": "DecisionView",
         "type": "object"
       },
+      "DevExportIn": {
+        "description": "Export the same read-only query as CSV or a real Excel workbook.",
+        "properties": {
+          "format": {
+            "enum": [
+              "csv",
+              "xlsx"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "sql": {
+            "title": "Sql",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sql",
+          "format"
+        ],
+        "title": "DevExportIn",
+        "type": "object"
+      },
+      "DevQueryIn": {
+        "description": "One read-only SQL statement and the preview row cap.",
+        "properties": {
+          "limit": {
+            "default": 500,
+            "maximum": 5000.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "sql": {
+            "title": "Sql",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sql"
+        ],
+        "title": "DevQueryIn",
+        "type": "object"
+      },
+      "DevQueryView": {
+        "description": "Bounded read-only result for the preview table.",
+        "properties": {
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "durationMs": {
+            "title": "Durationms",
+            "type": "integer"
+          },
+          "rowCount": {
+            "title": "Rowcount",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "columns",
+          "rows",
+          "rowCount",
+          "truncated",
+          "durationMs"
+        ],
+        "title": "DevQueryView",
+        "type": "object"
+      },
+      "DevTableView": {
+        "description": "One table in the dev explorer list.",
+        "properties": {
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rows": {
+            "title": "Rows",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "rows",
+          "columns"
+        ],
+        "title": "DevTableView",
+        "type": "object"
+      },
+      "DevTablesView": {
+        "description": "The tables a dev explorer may query; the token table is never listed.",
+        "properties": {
+          "tables": {
+            "items": {
+              "$ref": "#/components/schemas/DevTableView"
+            },
+            "title": "Tables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tables"
+        ],
+        "title": "DevTablesView",
+        "type": "object"
+      },
       "EditView": {
         "properties": {
           "at": {
@@ -1016,6 +1160,113 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/dev/db/exports": {
+      "post": {
+        "description": "Export the same read-only query as CSV or a real Excel workbook.",
+        "operationId": "export_api_dev_db_exports_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DevExportIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export",
+        "tags": [
+          "admin",
+          "dev"
+        ]
+      }
+    },
+    "/api/dev/db/queries": {
+      "post": {
+        "description": "Run one read-only statement and return a bounded preview.",
+        "operationId": "query_api_dev_db_queries_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DevQueryIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DevQueryView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Query",
+        "tags": [
+          "admin",
+          "dev"
+        ]
+      }
+    },
+    "/api/dev/db/tables": {
+      "get": {
+        "description": "Tables the explorer may query; ``sessions`` is never listed.",
+        "operationId": "tables_api_dev_db_tables_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DevTablesView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Tables",
+        "tags": [
+          "admin",
+          "dev"
+        ]
+      }
+    },
     "/api/deviations": {
       "get": {
         "description": "Unified view: one row per item with its values and current decision.\n\n``status`` is repeatable (``?status=ready&status=needs_review``); ``decision``\nis ``accept``, ``reject`` or ``undecided``.",

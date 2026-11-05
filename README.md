@@ -86,6 +86,18 @@ Run the webapp (reachable on the local network):
     mypy --strict app tests                  # Python typecheck
     npm --prefix frontend run typecheck      # TypeScript typecheck (strict)
 
+## Dev tools
+
+A read-only SQLite explorer is available at `/dev/db` only when explicitly enabled:
+
+    SF_DEV_TOOLS=1 python -m app.main
+    # open http://localhost:8765/dev/db
+
+It is localhost-only by default; `SF_DEV_TOOLS_ALLOW_REMOTE=1` is the explicit opt-in for
+LAN access. The token-bearing `sessions` table is hidden and blocked by the read-only
+authorizer. CSV and real Excel (`.xlsx`) exports are supported for the current query.
+See `docs/dev-tools.md` for the safety rules.
+
 ## Layout
 
     app/main.py        FastAPI app + `main()` entry point, serves the SPA
@@ -98,6 +110,7 @@ Run the webapp (reachable on the local network):
     app/pipeline/      list watcher, reconciler, closure resolver
     app/api/           FastAPI routes, schemas, services
     app/workflows/     workflow implementations (deviations_z02 today)
+    app/devtools/      dev-only read-only DB explorer service
     app/utils/         shared async DOM helpers and JsonValue
     app/updater.py     GitHub-release self-update (check, verify, install, restart)
     launchers/         start.command (macOS), start.bat (Windows), release lookup

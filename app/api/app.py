@@ -7,10 +7,11 @@ from fastapi.responses import JSONResponse
 
 from app import __version__
 from app.api.errors import ApiError
-from app.api.routes import make_admin_router, make_workflow_router
+from app.api.routes import make_admin_router, make_dev_router, make_workflow_router
 from app.api.schemas import WorkflowView
 from app.api.services import AdminPort, WorkItemService
 from app.core.registry import WorkflowRegistry
+from app.devtools.db import DevDbService
 
 
 def _api_error_handler(_request: Request, exc: Exception) -> JSONResponse:
@@ -29,6 +30,7 @@ def create_app(
     registry: WorkflowRegistry,
     items: WorkItemService,
     admin: AdminPort,
+    devtools: DevDbService | None = None,
 ) -> FastAPI:
     """Build the API app: one workflow router per registered workflow plus admin.
 
@@ -47,6 +49,8 @@ def create_app(
 
     for workflow in registry.all():
         api_router.include_router(make_workflow_router(workflow, items))
+    if devtools is not None:
+        api_router.include_router(make_dev_router(devtools))
 
     app.include_router(api_router, prefix="/api")
     return app

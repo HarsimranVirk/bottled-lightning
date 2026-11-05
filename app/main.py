@@ -32,6 +32,7 @@ from .core.repo.sync_runs import SyncRunRepository
 from .core.repo.work_items import WorkItemRepository
 from .core.workflow import WorkflowDeps
 from .db.connection import Database
+from .devtools.db import DevDbService
 from .jobs.auth import AuthGate
 from .jobs.dispatcher import Dispatcher
 from .jobs.worker import Worker
@@ -77,6 +78,11 @@ class Stack:
         self.settings = settings
         self.database = Database(settings.db_path)
         self.database.migrate()
+        self.devtools = DevDbService(
+            settings.db_path,
+            enabled=settings.dev_tools,
+            allow_remote=settings.dev_tools_allow_remote,
+        )
 
         self.items = WorkItemRepository(self.database)
         self.fields = FieldValueRepository(self.database)
@@ -180,7 +186,9 @@ class Stack:
 
     def app(self) -> FastAPI:
         """Build the HTTP app around this stack."""
-        app = create_app(self.registry, self.items_service, self.admin)
+        app = create_app(
+            self.registry, self.items_service, self.admin, self.devtools
+        )
         web = _web_dir()
         if web is None:
 

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.2 |
+| **Version** | v4.3 |
 | **Date** | 2026-11-05 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
@@ -206,6 +206,30 @@ selectable; the log panel below shows the selected job and its full error.
 Filters: id (contains), status / kind / phase (selects), item (contains), started
 from/to (UTC dates), duration min/max (seconds), error (contains). Changing any filter
 or sort resets to page 1. Sortable headers toggle asc/desc and expose `aria-sort`.
+
+### 3.6 Dev DB explorer (dev-only)
+
+`/dev/db`, linked from `/dev/states`; not in the main navigation. It is disabled unless
+`SF_DEV_TOOLS=1` and, by default, localhost-only. The `sessions` table is never listed,
+queryable or exportable.
+
+Two-column layout on wide screens: a table list on the left (name, row count; clicking
+fills `SELECT * FROM "<table>" LIMIT 100;`) and the SQL editor on the right, followed by
+the results table and **Export CSV** / **Export Excel** buttons. On narrow screens the
+columns stack.
+
+| State | Content |
+|---|---|
+| loading tables | table-list skeleton |
+| disabled / remote | warning banner: start with `SF_DEV_TOOLS=1` |
+| query running | Run disabled, "Running…" |
+| results | row count, duration, truncation flag, Salt table |
+| query rejected | error banner with the server message |
+| export running | Export buttons disabled |
+| export failed | error banner; no file is produced |
+
+The SQL editor is a Salt `MultilineInput`; results use the Salt table primitives. The
+full safety rules and API shapes are in `docs/dev-tools.md`.
 
 ## 4. Component tree
 

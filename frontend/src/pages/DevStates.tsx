@@ -5,6 +5,7 @@
 
 import type { JSX } from 'react'
 import { FlexLayout, H1, H2, Panel, Spinner, StackLayout, Text } from '@salt-ds/core'
+import { Link } from 'react-router-dom'
 
 import type { ItemDetail, ItemRow, JobView, SessionView, SyncView, WorkflowFieldView } from '../api'
 import { DecisionDeck } from '../components/DecisionDeck'
@@ -164,6 +165,7 @@ export function DevStates(): JSX.Element {
     <FlexLayout direction="column" gap={4}>
       <H1>State harness</H1>
       <Text color="secondary">Fixtures only. Screenshot at 390 / 768 / 1280 for review.</Text>
+      <Link to="/dev/db">Open the DB explorer</Link>
 
       <Section title="Status chips">
         <FlexLayout gap={1} wrap>

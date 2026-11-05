@@ -24,6 +24,10 @@ export type SessionView = components['schemas']['SessionView']
 export type SyncView = components['schemas']['SyncView']
 export type QueueView = components['schemas']['QueueView']
 export type VersionView = components['schemas']['VersionView']
+export type DevTableView = components['schemas']['DevTableView']
+export type DevTablesView = components['schemas']['DevTablesView']
+export type DevQueryView = components['schemas']['DevQueryView']
+export type DevCell = DevQueryView['rows'][number][number]
 
 /** A failed request, normalised from the API's `{detail: {code, message}}` body. */
 export class ApiError extends Error {
@@ -77,6 +81,19 @@ function query(params: Record<string, string | number | undefined>): string {
   }
   const text = search.toString()
   return text ? `?${text}` : ''
+}
+
+async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
+  const response = await fetch(path, {
+    ...init,
+    headers: { 'content-type': 'application/json', ...init?.headers },
+  })
+  if (!response.ok) {
+    const body: unknown = await response.json().catch(() => null)
+    const { message, code } = readDetail(response.status, body)
+    throw new ApiError(response.status, message, code)
+  }
+  return response.blob()
 }
 
 async function requestVoid(path: string, init?: RequestInit): Promise<void> {
@@ -195,4 +212,15 @@ export const api = {
   logout: (): Promise<void> => requestVoid('/api/sessions', { method: 'DELETE' }),
   requestSync: (workflow: string): Promise<{ status: string; workflow: string }> =>
     request(`/api/syncs${query({ workflow })}`, { method: 'POST' }),
+  devTables: (): Promise<DevTablesView> => request('/api/dev/db/tables'),
+  devQuery: (sql: string, limit = 500): Promise<DevQueryView> =>
+    request('/api/dev/db/queries', {
+      method: 'POST',
+      body: JSON.stringify({ sql, limit }),
+    }),
+  devExport: (sql: string, format: 'csv' | 'xlsx'): Promise<Blob> =>
+    requestBlob('/api/dev/db/exports', {
+      method: 'POST',
+      body: JSON.stringify({ sql, format }),
+    }),
 }

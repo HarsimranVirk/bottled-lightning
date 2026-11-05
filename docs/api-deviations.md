@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v2.3 |
+| **Version** | v2.4 |
 | **Date** | 2026-11-04 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/data-model-deviations.md` |
@@ -338,12 +338,49 @@ independent of the update check.
 { "version": "0.4.5" }
 ```
 
-## 8. Updates (unchanged)
+## 8. Dev tools (dev-only)
+
+Disabled unless `SF_DEV_TOOLS=1`; requests are localhost-only unless
+`SF_DEV_TOOLS_ALLOW_REMOTE=1`. All routes return `404` when disabled or remote.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/dev/db/tables` | table names, columns, row counts; `sessions` is never listed |
+| `POST` | `/api/dev/db/queries` | one read-only statement; preview capped at 5,000 rows |
+| `POST` | `/api/dev/db/exports` | the same statement as a `csv` or real `xlsx` file |
+
+```json
+// POST /api/dev/db/queries
+{ "sql": "SELECT * FROM work_items LIMIT 50", "limit": 500 }
+```
+
+```json
+// response
+{
+  "columns": ["item_key"],
+  "rows": [["Deviation-03112026-486382"]],
+  "rowCount": 1,
+  "truncated": false,
+  "durationMs": 3
+}
+```
+
+```json
+// POST /api/dev/db/exports
+{ "sql": "SELECT * FROM work_items", "format": "xlsx" }
+```
+
+The export is an attachment named `bottled-lightning-export-<timestamp>.<ext>`.
+`textarea` query errors return `422`. The `sessions` table is blocked by a SQLite
+authorizer and must never be added to the allowlist. The full design and safety rules are
+in `docs/dev-tools.md`.
+
+## 9. Updates (unchanged)
 
 `GET /api/updates`, `POST /api/updates/checks`, `POST /api/updates/installations` keep
 their current behaviour and payloads (`app/updater.py`).
 
-## 9. TypeScript types (`frontend/src/types.ts`)
+## 10. TypeScript types (`frontend/src/types.ts`)
 
 These are the shapes the frontend consumes. The committed `frontend/src/types.ts` is
 **generated** from `tools/export_openapi.py` + `openapi-typescript`, so this section
@@ -482,13 +519,13 @@ The deck calls `GET /api/deviations?status=ready&status=editing&status=needs_rev
 no separate `/review` resource: a decision is a property of the item, so it is filtered
 on the item collection and written as an item sub-resource.
 
-## 10. Removed from v1
+## 11. Removed from v1
 
 Deleted rather than deprecated: `/api/views*`, `/api/views/{id}/run`,
 `/api/views/{id}/runs`, `/api/deviations/run`, `/api/deviations/runs`,
 `/api/deviations/sync`, `/api/deviations/jobs` (replaced by the item-level sub-resource).
 
-## 11. Acceptance checks
+## 12. Acceptance checks
 
 - Every handler is a thin adapter over `WorkItemService`/`AdminService`; no SQL and no
   Playwright in `app/api`.

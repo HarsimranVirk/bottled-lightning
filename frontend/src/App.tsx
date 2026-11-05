@@ -20,6 +20,7 @@ import { AppFooter } from './components/AppFooter'
 import { QueueBar } from './components/QueueBar'
 import { SyncBanner } from './components/SyncBanner'
 import { ThemeToggle } from './components/ThemeToggle'
+import { DevDbPage } from './pages/DevDbPage'
 import { DevStates } from './pages/DevStates'
 import { DeviationsPage } from './pages/DeviationsPage'
 import { HomePage } from './pages/HomePage'
@@ -148,6 +149,7 @@ export default function App(): JSX.Element {
               <Route path="deviations-z02/:key" element={<DeviationsPage />} />
               <Route path="jobs" element={<JobsPage />} />
               <Route path="dev/states" element={<DevStates />} />
+              <Route path="dev/db" element={<DevDbPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

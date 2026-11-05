@@ -6,6 +6,8 @@ import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 from app.api.app import create_app
 from app.api.errors import ApiError
 from app.api.schemas import (
@@ -26,6 +28,7 @@ from app.core.repo.edits import EditRepository
 from app.core.repo.jobs import JobRepository
 from app.core.status import WorkItemStatus
 from app.core.workflow import Workflow
+from app.devtools.db import DevDbService
 from app.workflows.deviations_z02 import build_workflow
 from app.workflows.deviations_z02.adapters import build_adapters
 from tests.support import DbTestCase
@@ -419,6 +422,65 @@ class RouteTests(ApiTestCase):
         payload = row.model_dump(by_alias=True)
         self.assertIn("recordUrl", payload)
         self.assertIn("activeJob", payload)
+
+
+class DevApiTests(ApiTestCase):
+    """Dev DB explorer routes: hidden when disabled, read-only when enabled."""
+
+    def _client(self, *, enabled: bool = True) -> TestClient:
+        service, registry, _workflow, _jobs, _edits = self.build()
+        dev = DevDbService(
+            self.tmp_path / "test.db",
+            enabled=enabled,
+            allow_remote=True,
+        )
+        return TestClient(create_app(registry, service, _FakeAdmin(), dev))
+
+    def test_disabled_hides_the_surface(self) -> None:
+        response = self._client(enabled=False).get("/api/dev/db/tables")
+        self.assertEqual(response.status_code, 404)
+
+    def test_tables_and_query(self) -> None:
+        self.make_ready_item()
+        client = self._client()
+        tables = client.get("/api/dev/db/tables")
+        self.assertEqual(tables.status_code, 200)
+        names = [table["name"] for table in tables.json()["tables"]]
+        self.assertIn("work_items", names)
+        self.assertNotIn("sessions", names)
+
+        response = client.post(
+            "/api/dev/db/queries",
+            json={"sql": "SELECT item_key FROM work_items", "limit": 10},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["columns"], ["item_key"])
+        self.assertEqual(body["rows"][0][0], KEY)
+
+    def test_sessions_query_is_rejected(self) -> None:
+        response = self._client().post(
+            "/api/dev/db/queries", json={"sql": "SELECT * FROM sessions"}
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_exports_are_files(self) -> None:
+        self.make_ready_item()
+        client = self._client()
+        csv = client.post(
+            "/api/dev/db/exports",
+            json={"sql": "SELECT item_key FROM work_items", "format": "csv"},
+        )
+        self.assertEqual(csv.status_code, 200)
+        self.assertIn("text/csv", csv.headers["content-type"])
+        self.assertIn(KEY, csv.text)
+
+        workbook = client.post(
+            "/api/dev/db/exports",
+            json={"sql": "SELECT item_key FROM work_items", "format": "xlsx"},
+        )
+        self.assertEqual(workbook.status_code, 200)
+        self.assertIn("spreadsheetml", workbook.headers["content-type"])
 
 
 if __name__ == "__main__":

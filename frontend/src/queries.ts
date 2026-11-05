@@ -10,6 +10,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './api'
 import type {
   DecisionKind,
+  DevQueryView,
+  DevTablesView,
   ItemDetail,
   ItemsPage,
   JobLogs,
@@ -258,5 +260,30 @@ export function useRequestSync(
     onSuccess: () => {
       if (workflow !== null) void client.invalidateQueries({ queryKey: keys.sync(workflow) })
     },
+  })
+}
+
+/** Dev-only DB explorer: table metadata, preview query and file export. */
+export function useDevTables(): ReturnType<typeof useQuery<DevTablesView>> {
+  return useQuery({
+    queryKey: ['dev', 'db', 'tables'],
+    queryFn: () => api.devTables(),
+    retry: false,
+  })
+}
+
+export function useDevQuery(): ReturnType<
+  typeof useMutation<DevQueryView, Error, { sql: string; limit?: number }>
+> {
+  return useMutation({
+    mutationFn: ({ sql, limit }) => api.devQuery(sql, limit),
+  })
+}
+
+export function useDevExport(): ReturnType<
+  typeof useMutation<Blob, Error, { sql: string; format: 'csv' | 'xlsx' }>
+> {
+  return useMutation({
+    mutationFn: ({ sql, format }) => api.devExport(sql, format),
   })
 }

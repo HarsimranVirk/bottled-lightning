@@ -4,6 +4,66 @@
  */
 
 export interface paths {
+    "/api/dev/db/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export
+         * @description Export the same read-only query as CSV or a real Excel workbook.
+         */
+        post: operations["export_api_dev_db_exports_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/db/queries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Query
+         * @description Run one read-only statement and return a bounded preview.
+         */
+        post: operations["query_api_dev_db_queries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dev/db/tables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tables
+         * @description Tables the explorer may query; ``sessions`` is never listed.
+         */
+        get: operations["tables_api_dev_db_tables_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/deviations": {
         parameters: {
             query?: never;
@@ -406,6 +466,68 @@ export interface components {
             /** Reason */
             reason?: string | null;
         };
+        /**
+         * DevExportIn
+         * @description Export the same read-only query as CSV or a real Excel workbook.
+         */
+        DevExportIn: {
+            /**
+             * Format
+             * @enum {string}
+             */
+            format: "csv" | "xlsx";
+            /** Sql */
+            sql: string;
+        };
+        /**
+         * DevQueryIn
+         * @description One read-only SQL statement and the preview row cap.
+         */
+        DevQueryIn: {
+            /**
+             * Limit
+             * @default 500
+             */
+            limit: number;
+            /** Sql */
+            sql: string;
+        };
+        /**
+         * DevQueryView
+         * @description Bounded read-only result for the preview table.
+         */
+        DevQueryView: {
+            /** Columns */
+            columns: string[];
+            /** Durationms */
+            durationMs: number;
+            /** Rowcount */
+            rowCount: number;
+            /** Rows */
+            rows: (string | number | null)[][];
+            /** Truncated */
+            truncated: boolean;
+        };
+        /**
+         * DevTableView
+         * @description One table in the dev explorer list.
+         */
+        DevTableView: {
+            /** Columns */
+            columns: string[];
+            /** Name */
+            name: string;
+            /** Rows */
+            rows: number;
+        };
+        /**
+         * DevTablesView
+         * @description The tables a dev explorer may query; the token table is never listed.
+         */
+        DevTablesView: {
+            /** Tables */
+            tables: components["schemas"]["DevTableView"][];
+        };
         /** EditView */
         EditView: {
             /**
@@ -712,6 +834,92 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    export_api_dev_db_exports_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DevExportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    query_api_dev_db_queries_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DevQueryIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevQueryView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tables_api_dev_db_tables_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevTablesView"];
+                };
+            };
+        };
+    };
     list_items_api_deviations_get: {
         parameters: {
             query?: {
