@@ -7,10 +7,13 @@ job, auth pause) lives here so it can be unit-tested without an HTTP client.
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from typing import Protocol
 
+from app import config, updater
 from app.config import Settings
 from app.core.field import normalise
 from app.core.models import (
@@ -50,6 +53,8 @@ from app.pipeline.watcher import ListWatcher
 from app.salesforce.login import run_login
 from app.salesforce.runtime import BrowserRuntime
 from app.salesforce.session import SessionProvider
+from app.utils.json import JsonValue
+from app.utils.network import is_loopback_host, lan_ip
 
 from .errors import ApiError
 from .schemas import (
@@ -64,11 +69,13 @@ from .schemas import (
     JobLogsView,
     JobsPageView,
     JobView,
+    NetworkView,
     PageRefView,
     QueueView,
     SessionEventView,
     SessionView,
     SyncView,
+    UpdateStatusView,
     WorkflowFieldView,
     WorkflowView,
 )
@@ -130,6 +137,45 @@ def decision_view(decision: Decision) -> DecisionView:
         decision=decision.decision.value,
         reason=decision.reason,
         at=decision.created_at,
+    )
+
+
+def update_block_reason(
+    *,
+    login_running: bool,
+    job_counts: Mapping[str, int],
+    source_checkout: bool,
+    allow_source: bool,
+) -> str | None:
+    """Why an update must not install right now, or ``None`` when it is safe."""
+    if login_running:
+        return "manual login in progress"
+    active = (
+        job_counts.get("queued", 0)
+        + job_counts.get("running", 0)
+        + job_counts.get("blocked_auth", 0)
+    )
+    if active > 0:
+        return "jobs are running"
+    if source_checkout and not allow_source:
+        return "source checkout (SF_UPDATE_ALLOW_SOURCE=1 to allow)"
+    return None
+
+
+def update_status_view(payload: Mapping[str, JsonValue]) -> UpdateStatusView:
+    """Project the updater's loose payload onto the documented DTO."""
+
+    def text(key: str) -> str | None:
+        value = payload.get(key)
+        return value if isinstance(value, str) else None
+
+    return UpdateStatusView(
+        status=text("status") or "unknown",
+        update_available=bool(payload.get("update_available")),
+        detail=text("detail"),
+        error=text("error"),
+        latest=text("latest"),
+        download_url=text("download_url"),
     )
 
 
@@ -654,6 +700,12 @@ class AdminPort(Protocol):
 
     def set_concurrency(self, concurrency: int) -> QueueView: ...
 
+    def network(self) -> NetworkView: ...
+
+    def update_status(self) -> UpdateStatusView: ...
+
+    def install_update(self, *, auto: bool = False) -> UpdateStatusView: ...
+
     def jobs(
         self,
         workflow: str | None = None,
@@ -714,6 +766,10 @@ class AdminService:
         self._dispatcher = dispatcher
         self._watchers = watchers
         self._registry = registry
+        self._install_lock = threading.Lock()
+        self._login_running = threading.Event()
+        self._auto_attempted: str | None = None
+        self._auto_started = False
 
     def session(self) -> SessionView:
         snapshot = self._sessions.snapshot()
@@ -738,10 +794,14 @@ class AdminService:
             return self.session()
 
         async def _login() -> None:
-            ok = await run_login(self._settings, self._sessions, reset=False)
-            if ok:
-                await self._provider.reload(self._runtime.context)
-                self._auth.resume()
+            self._login_running.set()
+            try:
+                ok = await run_login(self._settings, self._sessions, reset=False)
+                if ok:
+                    await self._provider.reload(self._runtime.context)
+                    self._auth.resume()
+            finally:
+                self._login_running.clear()
 
         self._runtime.spawn(_login)
         return self.session()
@@ -864,6 +924,109 @@ class AdminService:
     def cancel_job(self, job_id: int) -> None:
         if not self._jobs.cancel(job_id):
             raise ApiError(409, f"job {job_id} is not queued", "job_not_queued")
+
+    # -- network and updates ------------------------------------------------
+    def network(self) -> NetworkView:
+        """Addresses the home page shows for this and other devices."""
+        host = self._settings.host
+        port = self._settings.port
+        ip = lan_ip()
+        enabled = not is_loopback_host(host) and ip is not None
+        return NetworkView(
+            host=host,
+            port=port,
+            lan_ip=ip,
+            lan_url=f"http://{ip}:{port}" if enabled and ip is not None else None,
+            local_url=f"http://127.0.0.1:{port}",
+            lan_enabled=enabled,
+        )
+
+    def update_status(self) -> UpdateStatusView:
+        """The last update-check or install result."""
+        return update_status_view(updater.status())
+
+    def install_update(self, *, auto: bool = False) -> UpdateStatusView:
+        """
+        Start installing the pending release, or explain why it cannot.
+
+        Manual calls raise ``409`` with the blocking reason; the background auto loop
+        instead leaves the status untouched and retries later. The install itself runs
+        in a daemon thread, so the request returns ``202`` and the status reads
+        ``installing`` before pip starts.
+        """
+        result = updater.check_for_update(force=not auto)
+        latest = result.get("latest")
+        version = latest if isinstance(latest, str) else ""
+        if auto and version and version == self._auto_attempted:
+            return self.update_status()
+        if not bool(result.get("update_available")):
+            return self.update_status()
+
+        reason = self._update_block_reason()
+        if reason is not None:
+            if auto:
+                return self.update_status()
+            raise ApiError(409, reason, "update_blocked")
+        if not self._install_lock.acquire(blocking=False):
+            if auto:
+                return self.update_status()
+            raise ApiError(409, "install already running", "update_in_progress")
+        if auto and version:
+            self._auto_attempted = version
+        updater.mark_installing(version or "update")
+        threading.Thread(
+            target=self._run_install,
+            name="sf-update-install",
+            daemon=True,
+        ).start()
+        return self.update_status()
+
+    def start_auto_update(self) -> None:
+        """Start the background auto-install loop when policy and config allow it."""
+        if self._auto_started:
+            return
+        self._auto_started = True
+        if not config.UPDATE_AUTO_START or self._settings.update_policy != "auto":
+            return
+        threading.Thread(
+            target=self._auto_update_loop, name="sf-auto-update", daemon=True
+        ).start()
+
+    def _auto_update_loop(self) -> None:
+        """Check after boot, then every ten minutes, installing only when idle."""
+        time.sleep(20)
+        while True:
+            try:
+                self.install_update(auto=True)
+            except Exception:
+                logger.exception("automatic update check failed")
+            time.sleep(600)
+
+    def _run_install(self) -> None:
+        """Install in the background; release the lock whatever the outcome."""
+        try:
+            updater.apply_pending(
+                guard=self._update_block_reason,
+                stop=self._stop_for_restart,
+            )
+        finally:
+            self._install_lock.release()
+
+    def _update_block_reason(self) -> str | None:
+        """Why an install must not start now, or ``None`` when it is safe."""
+        return update_block_reason(
+            login_running=self._login_running.is_set(),
+            job_counts=self._jobs.counts(),
+            source_checkout=config.IS_SOURCE_CHECKOUT,
+            allow_source=config.UPDATE_ALLOW_SOURCE,
+        )
+
+    def _stop_for_restart(self) -> None:
+        """Close the browser before the updater replaces the process."""
+        try:
+            self._runtime.stop()
+        except Exception:
+            logger.exception("stopping the browser before restart failed")
 
     def _text(self, value: str | None) -> str | None:
         """Trim an optional query string; blank means no filter."""

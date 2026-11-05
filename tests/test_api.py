@@ -15,9 +15,11 @@ from app.api.schemas import (
     ItemRowView,
     JobLogsView,
     JobsPageView,
+    NetworkView,
     QueueView,
     SessionView,
     SyncView,
+    UpdateStatusView,
 )
 from app.api.services import WorkItemService, workflow_view
 from app.config import Settings
@@ -359,6 +361,25 @@ class _FakeAdmin:
     def set_concurrency(self, concurrency: int) -> QueueView:
         return self.queue()
 
+    def network(self) -> NetworkView:
+        """Fixed LAN view for the network endpoint test."""
+        return NetworkView(
+            host="0.0.0.0",
+            port=8765,
+            lan_ip="192.168.1.42",
+            lan_url="http://192.168.1.42:8765",
+            local_url="http://127.0.0.1:8765",
+            lan_enabled=True,
+        )
+
+    def update_status(self) -> UpdateStatusView:
+        """No update pending in API tests."""
+        return UpdateStatusView(status="up-to-date", update_available=False)
+
+    def install_update(self, *, auto: bool = False) -> UpdateStatusView:
+        """Same as the status; install behaviour is covered elsewhere."""
+        return self.update_status()
+
     def jobs(
         self,
         workflow: str | None = None,
@@ -497,6 +518,20 @@ class HistoryServiceTests(ApiTestCase):
         invalid = client.get("/api/deviations/history", params={"ref": "bad"})
         self.assertEqual(invalid.status_code, 422)
 
+    def test_network_endpoint_reports_the_lan_url(self) -> None:
+        """The home page reads the bind and LAN address from the API."""
+        service, registry, _workflow, _jobs, _edits = self.build()
+        client = TestClient(create_app(registry, service, _FakeAdmin()))
+
+        response = client.get("/api/network")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["lanIp"], "192.168.1.42")
+        self.assertEqual(body["lanUrl"], "http://192.168.1.42:8765")
+        self.assertEqual(body["localUrl"], "http://127.0.0.1:8765")
+        self.assertTrue(body["lanEnabled"])
+
 
 class RouteTests(ApiTestCase):
     def test_route_table_matches_the_api_document(self) -> None:
@@ -523,6 +558,7 @@ class RouteTests(ApiTestCase):
             ("GET", "/api/workers"),
             ("PATCH", "/api/workers"),
             ("GET", "/api/updates"),
+            ("GET", "/api/network"),
         ]:
             method, path = expected
             self.assertIn(path, paths, path)

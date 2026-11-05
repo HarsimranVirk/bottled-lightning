@@ -19,6 +19,15 @@ APP_HOME="${BL_HOME:-$HOME/Library/Application Support/$APP_NAME}"
 VENV="$APP_HOME/venv"
 PYBIN="$VENV/bin/python"
 REPO="${SF_UPDATE_REPO:-harsimranvirk/bottled-lightning}"
+PORT="${SF_PORT:-8765}"
+
+# Already running? Open the existing app instead of starting a second server that
+# cannot bind the port.
+if curl -fsS -m 2 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; then
+  echo "[bottled-lightning] already running — opening http://127.0.0.1:$PORT"
+  open "http://127.0.0.1:$PORT"
+  exit 0
+fi
 
 mkdir -p "$APP_HOME" || exit 1
 
@@ -80,8 +89,31 @@ then double-click again."
   "$PYBIN" -m pip install --upgrade "$SRC" || pause_exit "Install failed: $SRC"
 fi
 
+# Keep installed state beside the venv, not inside site-packages: recreating the
+# venv must not take the database and session snapshot with it.
+if [ -z "${SF_DATA_DIR:-}" ]; then
+  SF_DATA_DIR="$APP_HOME/data"
+  export SF_DATA_DIR
+fi
+mkdir -p "$SF_DATA_DIR" || pause_exit "Could not create the data directory: $SF_DATA_DIR"
+
 # Chromium is a separate download; a no-op when the matching build is present.
 "$PYBIN" -m playwright install chromium >/dev/null 2>&1 || \
   echo "[bottled-lightning] warning: could not install the Chromium build" >&2
+
+# Open the browser once the app answers; the app keeps the foreground so Ctrl-C
+# and closing the window stop it normally.
+(
+  for _ in $(seq 1 120); do
+    if ! kill -0 "$PPID" 2>/dev/null; then
+      exit 1
+    fi
+    if curl -fsS -m 1 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; then
+      open "http://127.0.0.1:$PORT"
+      exit 0
+    fi
+    sleep 1
+  done
+) &
 
 exec "$PYBIN" -m app.main "$@"

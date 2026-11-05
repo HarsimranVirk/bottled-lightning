@@ -203,6 +203,17 @@ class UpdateStatusView(ApiModel):
     download_url: str | None = None
 
 
+class NetworkView(ApiModel):
+    """Server address information shown on the home page."""
+
+    host: str
+    port: int
+    lan_ip: str | None = None
+    lan_url: str | None = None
+    local_url: str
+    lan_enabled: bool
+
+
 #: One scalar cell in a dev query result. SQLite blobs are converted to placeholders.
 DevCell = str | int | float | None
 

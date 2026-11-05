@@ -32,6 +32,8 @@ export type DevQueryView = components['schemas']['DevQueryView']
 export type DevCell = DevQueryView['rows'][number][number]
 export type PurgeScope = components['schemas']['PurgeIn']['scope']
 export type PurgeResult = components['schemas']['PurgeView']
+export type NetworkView = components['schemas']['NetworkView']
+export type UpdateStatus = components['schemas']['UpdateStatusView']
 
 /** A failed request, normalised from the API's `{detail: {code, message}}` body. */
 export class ApiError extends Error {
@@ -290,6 +292,12 @@ export const api = {
     request(`/api/jobs${jobsQuery(params)}`),
   jobLogs: (id: number): Promise<JobLogs> => request(`/api/jobs/${id}/logs`),
   workers: (): Promise<QueueView> => request('/api/workers'),
+  network: (): Promise<NetworkView> => request('/api/network'),
+  updates: (): Promise<UpdateStatus> => request('/api/updates'),
+  checkUpdate: (): Promise<UpdateStatus> =>
+    request('/api/updates/checks', { method: 'POST' }),
+  installUpdate: (): Promise<UpdateStatus> =>
+    request('/api/updates/installations', { method: 'POST' }),
   login: (): Promise<SessionView> => request('/api/sessions', { method: 'POST' }),
   logout: (): Promise<void> => requestVoid('/api/sessions', { method: 'DELETE' }),
   requestSync: (workflow: string): Promise<{ status: string; workflow: string }> =>

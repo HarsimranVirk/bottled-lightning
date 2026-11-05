@@ -7,7 +7,7 @@ API + SPA. Tests build the API with :func:`app.api.create_app`, which needs no b
 from __future__ import annotations
 
 import argparse
-import socket
+from dataclasses import replace
 from pathlib import Path
 
 import uvicorn
@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__, config, updater
+from . import __version__, config
 from .api import create_app
 from .api.services import AdminService, WorkItemService
 from .config import Settings, load_settings
@@ -43,6 +43,7 @@ from .pipeline.reconciler import Reconciler
 from .pipeline.watcher import ListWatcher, WorkflowListSource
 from .salesforce.runtime import BrowserRuntime
 from .salesforce.session import SessionProvider
+from .utils.network import lan_ip
 from .workflows.deviations_z02 import build_workflow
 
 #: Every workflow the process serves, in registration order.
@@ -69,14 +70,8 @@ def _web_dir() -> Path | None:
 
 
 def _lan_ip() -> str:
-    """Best-effort LAN address for the boot banner."""
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.connect(("8.8.8.8", 80))
-            host, _port = sock.getsockname()
-            return host if isinstance(host, str) else "127.0.0.1"
-    except OSError:
-        return "127.0.0.1"
+    """Best-effort LAN address for the boot banner (``127.0.0.1`` when unavailable)."""
+    return lan_ip() or "127.0.0.1"
 
 
 class Stack:
@@ -259,21 +254,24 @@ def main() -> None:
     if args.no_update:
         config.UPDATE_AUTO_START = False
 
-    settings = load_settings()
+    settings = replace(load_settings(), host=args.host, port=args.port)
     stack = Stack(settings)
     stack.start()
-    updater.start_auto_update()
+    stack.admin.start_auto_update()
     print(
         f"* bottled-lightning {__version__} | data: {settings.data_dir} "
         f"| workers: {settings.workers}",
         flush=True,
     )
     print(
-        f"* http://{_lan_ip()}:{args.port}  (local: http://127.0.0.1:{args.port})",
+        f"* http://{_lan_ip()}:{settings.port}  "
+        f"(local: http://127.0.0.1:{settings.port})",
         flush=True,
     )
     try:
-        uvicorn.run(stack.app(), host=args.host, port=args.port, log_level="info")
+        uvicorn.run(
+            stack.app(), host=settings.host, port=settings.port, log_level="info"
+        )
     finally:
         stack.stop()
 

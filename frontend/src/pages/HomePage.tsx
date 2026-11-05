@@ -1,12 +1,24 @@
-/** Landing page: session state, sync health and quick links. */
+/** Landing page: session state, sync health, LAN address, version and updates. */
 
 import type { JSX } from 'react'
 import { Card, FlexLayout, H2, Spinner, Text } from '@salt-ds/core'
 import { Link } from 'react-router-dom'
 
 import { AuthCard } from '../components/AuthCard'
+import { NetworkCard } from '../components/NetworkCard'
+import { UpdateCard } from '../components/UpdateCard'
 import { relativeTime } from '../format'
-import { useLogin, useSession, useSync, useWorkers, useWorkflows } from '../queries'
+import {
+  useInstallUpdate,
+  useLogin,
+  useNetwork,
+  useSession,
+  useSync,
+  useUpdates,
+  useVersion,
+  useWorkers,
+  useWorkflows,
+} from '../queries'
 
 export function HomePage(): JSX.Element {
   const session = useSession()
@@ -15,12 +27,19 @@ export function HomePage(): JSX.Element {
   const queue = useWorkers()
   const workflow = workflows.data?.[0]
   const sync = useSync(workflow?.name ?? null)
+  const version = useVersion()
+  const network = useNetwork()
+  const updates = useUpdates()
+  const install = useInstallUpdate()
 
   if (session.isLoading || workflows.isLoading) return <Spinner />
   if (!session.data) return <Text>Session unavailable.</Text>
 
+  const counts = queue.data?.counts ?? {}
+  const busy = (counts.queued ?? 0) + (counts.running ?? 0) > 0
+
   return (
-    <FlexLayout direction="column" gap={1}>
+    <FlexLayout direction="column" gap={2}>
       {session.data.state !== 'valid' ? (
         <AuthCard session={session.data} onLogin={() => login.mutate()} loggingIn={login.isPending} />
       ) : (
@@ -39,6 +58,17 @@ export function HomePage(): JSX.Element {
           </FlexLayout>
         </Card>
       )}
+
+      {network.data ? <NetworkCard network={network.data} /> : null}
+
+      <UpdateCard
+        version={version.data?.version ?? '—'}
+        update={updates.data}
+        installing={install.isPending}
+        busy={busy}
+        error={install.error instanceof Error ? install.error.message : null}
+        onInstall={() => install.mutate()}
+      />
     </FlexLayout>
   )
 }

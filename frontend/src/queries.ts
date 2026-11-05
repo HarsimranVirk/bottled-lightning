@@ -18,11 +18,13 @@ import type {
   JobLogs,
   JobsPage,
   JobView,
+  NetworkView,
   PurgeResult,
   PurgeScope,
   QueueView,
   SessionView,
   SyncView,
+  UpdateStatus,
   VersionView,
   WorkflowView,
 } from './api'
@@ -289,7 +291,35 @@ export function useJobLogs(id: number | null): ReturnType<typeof useQuery<JobLog
 }
 
 export function useWorkers(): ReturnType<typeof useQuery<QueueView>> {
-  return useQuery({ queryKey: keys.workers, queryFn: () => api.workers(), refetchInterval: poll(5_000) })
+  return useQuery({
+    queryKey: keys.workers,
+    queryFn: () => api.workers(),
+    refetchInterval: poll(5_000),
+  })
+}
+
+export function useNetwork(): ReturnType<typeof useQuery<NetworkView>> {
+  return useQuery({
+    queryKey: ['network'],
+    queryFn: () => api.network(),
+    refetchInterval: poll(10_000),
+  })
+}
+
+export function useUpdates(): ReturnType<typeof useQuery<UpdateStatus>> {
+  return useQuery({
+    queryKey: ['updates'],
+    queryFn: () => api.updates(),
+    refetchInterval: poll(10_000),
+  })
+}
+
+export function useInstallUpdate(): ReturnType<typeof useMutation<UpdateStatus>> {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.installUpdate(),
+    onSuccess: (status) => client.setQueryData(['updates'], status),
+  })
 }
 
 export function useLogin(): ReturnType<typeof useMutation<SessionView>> {

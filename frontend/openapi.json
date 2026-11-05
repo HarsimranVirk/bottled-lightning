@@ -876,6 +876,57 @@
         "title": "JobsPageView",
         "type": "object"
       },
+      "NetworkView": {
+        "description": "Server address information shown on the home page.",
+        "properties": {
+          "host": {
+            "title": "Host",
+            "type": "string"
+          },
+          "lanEnabled": {
+            "title": "Lanenabled",
+            "type": "boolean"
+          },
+          "lanIp": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lanip"
+          },
+          "lanUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lanurl"
+          },
+          "localUrl": {
+            "title": "Localurl",
+            "type": "string"
+          },
+          "port": {
+            "title": "Port",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "host",
+          "port",
+          "localUrl",
+          "lanEnabled"
+        ],
+        "title": "NetworkView",
+        "type": "object"
+      },
       "PageRefView": {
         "properties": {
           "kind": {
@@ -2734,6 +2785,28 @@
         ]
       }
     },
+    "/api/network": {
+      "get": {
+        "description": "Bind host, port and the LAN address for the home page.",
+        "operationId": "get_network_api_network_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Network",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/api/sessions": {
       "delete": {
         "description": "Forget the saved snapshot and pause dispatch until a new login.",
@@ -2887,7 +2960,7 @@
     },
     "/api/updates": {
       "get": {
-        "description": "Last update-check result.",
+        "description": "Last update-check or install result.",
         "operationId": "update_status_api_updates_get",
         "responses": {
           "200": {
@@ -2931,7 +3004,7 @@
     },
     "/api/updates/installations": {
       "post": {
-        "description": "Apply a pending update (the updater owns install safety).",
+        "description": "Install the pending update; ``409`` when it is not safe to restart now.",
         "operationId": "install_update_api_updates_installations_post",
         "responses": {
           "202": {

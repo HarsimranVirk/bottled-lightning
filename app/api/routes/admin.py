@@ -12,32 +12,14 @@ from app.api.schemas import (
     ConcurrencyIn,
     JobLogsView,
     JobsPageView,
+    NetworkView,
     QueueView,
     SessionView,
     SyncView,
     UpdateStatusView,
     VersionView,
 )
-from app.api.services import AdminPort
-from app.utils.json import JsonValue
-
-
-def _text(payload: dict[str, JsonValue], key: str) -> str | None:
-    value = payload.get(key)
-    return value if isinstance(value, str) else None
-
-
-def _update_view(payload: dict[str, JsonValue]) -> UpdateStatusView:
-    """Project updater's loose payload onto the documented DTO."""
-    available = payload.get("update_available")
-    return UpdateStatusView(
-        status=_text(payload, "status") or "unknown",
-        update_available=bool(available),
-        detail=_text(payload, "detail"),
-        error=_text(payload, "error"),
-        latest=_text(payload, "latest"),
-        download_url=_text(payload, "download_url"),
-    )
+from app.api.services import AdminPort, update_status_view
 
 
 def make_router(admin: AdminPort) -> APIRouter:
@@ -151,20 +133,24 @@ def make_router(admin: AdminPort) -> APIRouter:
         """The running app version; the footer shows it on every screen."""
         return VersionView(version=__version__)
 
+    @router.get("/network", response_model=NetworkView)
+    def get_network() -> NetworkView:
+        """Bind host, port and the LAN address for the home page."""
+        return admin.network()
+
     @router.get("/updates", response_model=UpdateStatusView)
     def update_status() -> UpdateStatusView:
-        """Last update-check result."""
-        return _update_view(updater.status())
+        """Last update-check or install result."""
+        return admin.update_status()
 
     @router.post("/updates/checks", response_model=UpdateStatusView)
     def update_checks() -> UpdateStatusView:
         """Run an update check now and return its result."""
-        return _update_view(updater.check_for_update(force=True))
+        return update_status_view(updater.check_for_update(force=True))
 
     @router.post("/updates/installations", status_code=202, response_model=UpdateStatusView)
     def install_update() -> UpdateStatusView:
-        """Apply a pending update (the updater owns install safety)."""
-        updater.apply_pending()
-        return _update_view(updater.status())
+        """Install the pending update; ``409`` when it is not safe to restart now."""
+        return admin.install_update()
 
     return router

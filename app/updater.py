@@ -4,29 +4,36 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import os
 import re
+import subprocess
+import sys
 import threading
 import urllib.request
 import zipfile
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 
 from . import config
 
 type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "UpdateError",
     "_fetch_json",
     "_validate_url",
     "apply_pending",
-    "apply_pending_async",
     "check_for_update",
     "current_version",
     "is_newer",
+    "mark_installing",
     "select_wheel_asset",
     "sha256_file",
-    "start_auto_update",
     "status",
     "verify_wheel",
 ]
@@ -172,8 +179,17 @@ def _save_cache(result: dict[str, JsonValue]) -> None:
 
 
 def _fresh(cached: dict[str, JsonValue]) -> bool:
-    """Whether a cached result is still usable."""
-    return True
+    """Whether a cached result is still inside the check TTL."""
+    checked = cached.get("checked_at")
+    if not isinstance(checked, str):
+        return False
+    try:
+        at = datetime.fromisoformat(checked)
+    except ValueError:
+        return False
+    if at.tzinfo is None:
+        return False
+    return datetime.now(UTC) - at < timedelta(hours=config.UPDATE_CHECK_TTL_HOURS)
 
 
 def _set_status(status: str, detail: str = "", **fields: JsonValue) -> None:
@@ -187,13 +203,17 @@ def _set_status(status: str, detail: str = "", **fields: JsonValue) -> None:
 
 
 def _finish(result: dict[str, JsonValue]) -> dict[str, JsonValue]:
-    """Persist and publish a check result, then return it."""
-    _save_cache(result)
+    """Stamp, persist and publish a check result, then return it."""
+    stamped: dict[str, JsonValue] = {
+        **result,
+        "checked_at": datetime.now(UTC).isoformat(),
+    }
+    _save_cache(stamped)
     with _state_lock:
-        for k, v in result.items():
+        for k, v in stamped.items():
             if isinstance(v, (str, bool)) or v is None:
                 _state[k] = v
-    return result
+    return stamped
 
 
 def _github_repo() -> str:
@@ -288,11 +308,14 @@ def check_for_update(force: bool = False) -> dict[str, JsonValue]:
         return result
 
     available = is_newer(tag, current_version())
+    digest = str(wheel.get("digest", ""))
+    sha = digest.removeprefix("sha256:") if digest.startswith("sha256:") else None
     result = {
         "status": "update-available" if available else "up-to-date",
         "update_available": available,
         "latest": tag,
         "download_url": download_url,
+        "sha256": sha,
         "error": None,
         "detail": "ok",
     }
@@ -300,29 +323,115 @@ def check_for_update(force: bool = False) -> dict[str, JsonValue]:
     return result
 
 
-def _apply_from(info: dict[str, str]) -> None:
-    """Placeholder: installation is not wired yet."""
+def mark_installing(latest: str) -> None:
+    """Publish the installing state before the background install thread starts."""
+    _set_status(
+        "installing",
+        f"installing {latest}",
+        update_available=True,
+        latest=latest,
+        error=None,
+    )
 
 
-def apply_pending(force_check: bool = True) -> dict[str, str]:
-    """Apply a previously detected update (no-op stub today)."""
-    if force_check:
-        check_for_update(force=True)
-    return {"status": "none"}
+def _download_path(url: str, latest: str) -> Path:
+    """Destination for the wheel, under the data dir, named from the asset."""
+    directory = config.UPDATE_INSTALL_DIR
+    directory.mkdir(parents=True, exist_ok=True)
+    name = Path(urlparse(url).path).name or f"bottled_lightning-{latest}.whl"
+    return directory / name
 
 
-def apply_pending_async(force_check: bool = True) -> dict[str, str]:
-    """Async-friendly alias for :func:`apply_pending`."""
-    return apply_pending(force_check=force_check)
+def _download(url: str, path: Path) -> None:
+    """Stream the wheel from its GitHub URL to ``path``."""
+    request = urllib.request.Request(
+        _validate_url(url), headers={"User-Agent": "bottled-lightning"}
+    )
+    with urllib.request.urlopen(request, timeout=60) as response, path.open("wb") as target:
+        while chunk := response.read(65536):
+            target.write(chunk)
+
+
+def _install(path: Path) -> None:
+    """Install the verified wheel into the running interpreter's environment."""
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--upgrade", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise UpdateError(f"pip could not run: {exc}") from exc
+    if completed.returncode != 0:
+        output = (completed.stderr or completed.stdout or "").strip().splitlines()
+        tail = " | ".join(output[-5:]) if output else "no output"
+        raise UpdateError(f"pip install failed: {tail}")
+
+
+def _restart() -> None:
+    """Replace this process with the freshly installed version."""
+    os.execv(sys.executable, [sys.executable, "-m", "app.main", *sys.argv[1:]])
+
+
+def apply_pending(
+    guard: Callable[[], str | None] | None = None,
+    stop: Callable[[], None] | None = None,
+) -> dict[str, JsonValue]:
+    """
+    Download, verify and install the pending wheel, then restart.
+
+    Called on a background thread by ``AdminService``. ``guard`` is re-checked here so a
+    job that starts between the request and the download still cancels the install;
+    ``stop`` closes the browser before the process is replaced. Never raises: every
+    failure is published as a ``failed`` status and leaves the current app running.
+    """
+    if guard is not None:
+        reason = guard()
+        if reason is not None:
+            _set_status("blocked", reason)
+            return status()
+
+    result = check_for_update(force=True)
+    if not bool(result.get("update_available")):
+        return status()
+    url = result.get("download_url")
+    latest = result.get("latest")
+    if not isinstance(url, str) or not isinstance(latest, str):
+        _set_status("failed", "release has no wheel URL", error="release has no wheel URL")
+        return status()
+
+    digest = result.get("sha256")
+    expected = digest.lower() if isinstance(digest, str) else None
+    path = _download_path(url, latest)
+    try:
+        mark_installing(latest)
+        _download(url, path)
+        if expected is not None:
+            actual = sha256_file(path)
+            if actual != expected:
+                raise UpdateError(f"digest mismatch: {actual} != {expected}")
+        verify_wheel(path, expected_version=latest)
+        _install(path)
+    except Exception as exc:  # noqa: BLE001 - an update must never crash the app
+        message = f"{type(exc).__name__}: {exc}"
+        _set_status("failed", message, error=message)
+        return status()
+    finally:
+        path.unlink(missing_ok=True)
+
+    _set_status("installed", f"installed {latest}", latest=latest, error=None)
+    if stop is not None:
+        try:
+            stop()
+        except Exception:
+            logger.exception("closing the runtime before restart failed")
+    _restart()
+    return status()
 
 
 def status() -> dict[str, JsonValue]:
     """Snapshot of the last update check for the API."""
     with _state_lock:
         return dict(_state)
-
-
-def start_auto_update() -> None:
-    """Kick off a background check at boot when the policy allows it."""
-    if config.UPDATE_AUTO_START:
-        threading.Thread(target=lambda: check_for_update(force=False), daemon=True).start()

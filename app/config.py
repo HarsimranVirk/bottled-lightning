@@ -18,6 +18,8 @@ UPDATE_POLICY = os.environ.get("SF_UPDATE_POLICY", "auto")
 UPDATE_AUTO_START = True
 UPDATE_ALLOW_SOURCE = os.environ.get("SF_UPDATE_ALLOW_SOURCE", "0") == "1"
 UPDATE_STATE_FILE = DATA_DIR / "update_state.json"
+UPDATE_INSTALL_DIR = DATA_DIR / "updates"
+UPDATE_CHECK_TTL_HOURS = float(os.environ.get("SF_UPDATE_CHECK_HOURS", "6"))
 
 MAX_WORKERS = 5
 DEFAULT_WORKERS = 3
@@ -36,6 +38,8 @@ class Settings:
     login_wait_s: int
     headless: bool
     update_policy: str
+    host: str = "0.0.0.0"
+    port: int = 8765
     dev_tools: bool = True
     dev_tools_allow_remote: bool = False
 
@@ -62,6 +66,8 @@ def load_settings() -> Settings:
         login_wait_s=LOGIN_WAIT_SECONDS,
         headless=os.environ.get("SF_HEADLESS", "1") != "0",
         update_policy=UPDATE_POLICY,
+        host=HOST,
+        port=PORT,
         dev_tools=os.environ.get("SF_DEV_TOOLS", "1") != "0",
         dev_tools_allow_remote=os.environ.get("SF_DEV_TOOLS_ALLOW_REMOTE", "0")
         == "1",

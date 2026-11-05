@@ -302,6 +302,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/network": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Network
+         * @description Bind host, port and the LAN address for the home page.
+         */
+        get: operations["get_network_api_network_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sessions": {
         parameters: {
             query?: never;
@@ -363,7 +383,7 @@ export interface paths {
         };
         /**
          * Update Status
-         * @description Last update-check result.
+         * @description Last update-check or install result.
          */
         get: operations["update_status_api_updates_get"];
         put?: never;
@@ -405,7 +425,7 @@ export interface paths {
         put?: never;
         /**
          * Install Update
-         * @description Apply a pending update (the updater owns install safety).
+         * @description Install the pending update; ``409`` when it is not safe to restart now.
          */
         post: operations["install_update_api_updates_installations_post"];
         delete?: never;
@@ -788,6 +808,24 @@ export interface components {
             rows: components["schemas"]["JobView"][];
             /** Total */
             total: number;
+        };
+        /**
+         * NetworkView
+         * @description Server address information shown on the home page.
+         */
+        NetworkView: {
+            /** Host */
+            host: string;
+            /** Lanenabled */
+            lanEnabled: boolean;
+            /** Lanip */
+            lanIp?: string | null;
+            /** Lanurl */
+            lanUrl?: string | null;
+            /** Localurl */
+            localUrl: string;
+            /** Port */
+            port: number;
         };
         /** PageRefView */
         PageRefView: {
@@ -1543,6 +1581,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_network_api_network_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NetworkView"];
                 };
             };
         };

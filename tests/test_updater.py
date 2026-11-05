@@ -1,6 +1,7 @@
 """Updater unit tests — no network, no real installs."""
 
 import email.message
+import json
 import tempfile
 import unittest
 import urllib.error
@@ -99,7 +100,7 @@ class CheckTests(unittest.TestCase):
         }
 
     def test_update_available(self) -> None:
-        """A newer release reports update-available with its URL."""
+        """A newer release reports update-available with its URL and digest."""
         with mock.patch.object(
             updater, "_fetch_json", return_value=self._payload("v0.4.0", ["0.4.0"])
         ):
@@ -108,6 +109,7 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(result["latest"], "v0.4.0")
         self.assertIn("bottled_lightning-0.4.0", str(result.get("download_url")))
         self.assertEqual(result["status"], "update-available")
+        self.assertEqual(result["sha256"], "deadbeef")
         self.assertTrue(self.state_file.exists())
 
     def test_up_to_date(self) -> None:
@@ -155,6 +157,23 @@ class CheckTests(unittest.TestCase):
             second = updater.check_for_update(force=False)
         self.assertEqual(fetch.call_count, 1)
         self.assertTrue(second["update_available"])
+
+    def test_stale_cache_is_refetched(self) -> None:
+        """A cache older than the TTL no longer short-circuits the network."""
+        with mock.patch.object(
+            updater, "_fetch_json", return_value=self._payload("v0.4.0", ["0.4.0"])
+        ):
+            updater.check_for_update(force=True)
+        cached = json.loads(self.state_file.read_text())
+        cached["checked_at"] = "2020-01-01T00:00:00+00:00"
+        self.state_file.write_text(json.dumps(cached))
+
+        fetch = mock.Mock(return_value=self._payload("v0.5.0", ["0.5.0"]))
+        with mock.patch.object(updater, "_fetch_json", fetch):
+            result = updater.check_for_update(force=False)
+
+        self.assertEqual(fetch.call_count, 1)
+        self.assertEqual(result["latest"], "v0.5.0")
 
     def test_disabled_policy_skips_network(self) -> None:
         """Policy off never calls GitHub."""
@@ -206,6 +225,98 @@ class WheelTests(unittest.TestCase):
         self.assertEqual(
             updater._validate_url("https://github.com/x.whl"), "https://github.com/x.whl"
         )
+
+
+class ApplyTests(unittest.TestCase):
+    """The install pipeline, with network, pip and exec all mocked."""
+
+    def setUp(self) -> None:
+        """Isolate state, install dir and the release payload."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.install_dir = Path(tmp.name) / "updates"
+        state: dict[str, JsonValue] = {"status": "idle", "detail": "", "result": None}
+        for patch in (
+            mock.patch.object(config, "UPDATE_INSTALL_DIR", self.install_dir),
+            mock.patch.object(updater, "_state", state),
+        ):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    @staticmethod
+    def _release(**overrides: JsonValue) -> dict[str, JsonValue]:
+        """A pending release result."""
+        base: dict[str, JsonValue] = {
+            "status": "update-available",
+            "update_available": True,
+            "latest": "v0.4.0",
+            "download_url": "https://github.com/o/r/releases/download/v0.4.0/x.whl",
+            "sha256": "aa",
+            "error": None,
+        }
+        base.update(overrides)
+        return base
+
+    def test_guard_blocks_before_any_network(self) -> None:
+        """A blocking guard cancels the install without a check."""
+        check = mock.Mock()
+        with mock.patch.object(updater, "check_for_update", check):
+            result = updater.apply_pending(guard=lambda: "jobs are running")
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["detail"], "jobs are running")
+        check.assert_not_called()
+
+    def test_digest_mismatch_is_reported(self) -> None:
+        """A wheel whose digest differs is never installed."""
+        with (
+            mock.patch.object(
+                updater, "check_for_update", return_value=self._release()
+            ),
+            mock.patch.object(updater, "_download"),
+            mock.patch.object(updater, "sha256_file", return_value="bb"),
+            mock.patch.object(updater, "_install") as install,
+        ):
+            result = updater.apply_pending()
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("digest mismatch", str(result["error"]))
+        install.assert_not_called()
+
+    def test_install_failure_is_reported(self) -> None:
+        """A pip failure leaves the app on the current version."""
+        with (
+            mock.patch.object(
+                updater, "check_for_update", return_value=self._release()
+            ),
+            mock.patch.object(updater, "_download"),
+            mock.patch.object(updater, "sha256_file", return_value="aa"),
+            mock.patch.object(updater, "verify_wheel"),
+            mock.patch.object(
+                updater,
+                "_install",
+                side_effect=updater.UpdateError("pip install failed: boom"),
+            ),
+        ):
+            result = updater.apply_pending()
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("boom", str(result["error"]))
+
+    def test_success_stops_then_restarts(self) -> None:
+        """A verified wheel installs, then the process is restarted."""
+        stop = mock.Mock()
+        with (
+            mock.patch.object(
+                updater, "check_for_update", return_value=self._release()
+            ),
+            mock.patch.object(updater, "_download"),
+            mock.patch.object(updater, "sha256_file", return_value="aa"),
+            mock.patch.object(updater, "verify_wheel"),
+            mock.patch.object(updater, "_install"),
+            mock.patch.object(updater, "_restart") as restart,
+        ):
+            result = updater.apply_pending(stop=stop)
+        self.assertEqual(result["status"], "installed")
+        stop.assert_called_once()
+        restart.assert_called_once()
 
 
 if __name__ == "__main__":
