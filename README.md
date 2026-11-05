@@ -24,14 +24,20 @@ Releases ship a wheel plus a small launcher bundle:
 1. Download `bottled-lightning-launchers.zip` from the latest GitHub release
    (optionally also the `.whl` into the same folder for an offline install).
 2. Unzip, then:
-   - **macOS** — double-click `start.command`. First run may need
-     right-click → Open (Gatekeeper quarantine).
-   - **Windows** — double-click `start.bat` (SmartScreen → More info → Run
-     anyway).
+   - **macOS** — double-click `start.command`. macOS quarantines unsigned downloads:
+     right-click → **Open** → **Open**. If there is no Open button, run
+     `xattr -dr com.apple.quarantine <the unzipped folder>` in Terminal, then
+     double-click again. If it says the file cannot be executed, run
+     `chmod +x start.command`.
+   - **Windows** — double-click `start.bat`. SmartScreen shows “Windows protected your
+     PC”: click **More info → Run anyway**. If Windows says the file is blocked, either
+     right-click the **zip → Properties → Unblock** before extracting, or right-click
+     `start.bat` → **Properties** → tick **Unblock**; in PowerShell
+     `Unblock-File .\start.bat` does the same.
 3. The launcher creates a private virtualenv, installs the app (from the
    neighbouring wheel, or the newest release if none is present), fetches the
-   Chromium build Playwright needs, and starts the webapp. Open
-   http://localhost:8765 (the console prints the LAN URL too).
+   Chromium build Playwright needs, starts the webapp and opens the browser
+   (the console prints the LAN URL too).
 
 Requires Python 3.14+ on `PATH` (macOS: `brew install python@3.14`; Windows:
 python.org installer with "Add python.exe to PATH").

@@ -33,6 +33,38 @@
 - If the app is already running, the launcher just opens the browser instead of starting a
   second server.
 
+### First launch warnings (unsigned build)
+
+The launchers are not code-signed, so both operating systems warn about the download. The
+files are the ones from this repository; you can verify the wheel against
+`SHA256SUMS.txt` (`shasum -a 256` on macOS, `certutil -hashfile <file> SHA256` on
+Windows).
+
+**macOS — “Apple could not verify … is free of malware”**
+
+1. Control-click (right-click) `start.command` → **Open** → **Open**.
+2. If the dialog has no Open button: **System Settings → Privacy & Security**, scroll to
+   **Security**, and click **Open Anyway** next to the blocked file.
+3. Or remove the quarantine flag once:
+   ```bash
+   xattr -dr com.apple.quarantine /path/to/bottled-lightning-launchers
+   ```
+4. If it says the file cannot be executed: `chmod +x start.command`.
+
+**Windows — “Windows protected your PC” / “publisher could not be verified”**
+
+1. Click **More info** → **Run anyway**.
+2. If the file is blocked entirely, right-click the **zip** → **Properties** → tick
+   **Unblock** before extracting. After extraction, the same works on `start.bat`, or in
+   PowerShell:
+   ```powershell
+   Unblock-File .\start.bat
+   ```
+3. If antivirus quarantines the launcher, restore it and add an exclusion for the folder.
+
+These warnings disappear when the launcher is signed (Developer ID + notarisation on
+macOS, Authenticode on Windows), which is planned for public distribution.
+
 ### Update
 
 - Automatic: leave the app running. When a newer release exists and the queue is idle, it
