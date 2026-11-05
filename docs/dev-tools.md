@@ -7,22 +7,30 @@
 | **Date** | 2026-11-05 |
 | **Feature** | Dev-only SQLite explorer and exports |
 
-The explorer is a development aid, not a product surface. It is disabled unless
-`SF_DEV_TOOLS=1` is set before the backend starts, and by default it accepts only
-localhost requests. It is linked from `/dev/states`, not from the main navigation.
+The explorer is a development aid, not a product surface. It is enabled by default but
+deliberately hidden: it lives at `/dev/db` and is linked only from `/dev/states`, never
+from the main navigation. By default it accepts only localhost requests.
 
-## Enable
+## Access
+
+Start the backend normally:
 
 ```bash
-SF_DEV_TOOLS=1 python -m app.main
+python -m app.main
 ```
 
-Then open `http://localhost:8765/dev/db`.
+Then open `http://localhost:8765/dev/db` or use the link in `/dev/states`.
+
+To turn the explorer off on a running build:
+
+```bash
+SF_DEV_TOOLS=0 python -m app.main
+```
 
 LAN access is deliberately off. If it is genuinely needed:
 
 ```bash
-SF_DEV_TOOLS=1 SF_DEV_TOOLS_ALLOW_REMOTE=1 python -m app.main
+SF_DEV_TOOLS_ALLOW_REMOTE=1 python -m app.main
 ```
 
 The database contains the Salesforce session snapshot in `sessions`; that table is

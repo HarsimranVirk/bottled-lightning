@@ -214,9 +214,9 @@ or sort resets to page 1. Sortable headers toggle asc/desc and expose `aria-sort
 
 ### 3.6 Dev DB explorer (dev-only)
 
-`/dev/db`, linked from `/dev/states`; not in the main navigation. It is disabled unless
-`SF_DEV_TOOLS=1` and, by default, localhost-only. The `sessions` table is never listed,
-queryable or exportable.
+`/dev/db`, linked from `/dev/states`; not in the main navigation. It is enabled by
+default (set `SF_DEV_TOOLS=0` to disable) and, by default, localhost-only. The `sessions`
+table is never listed, queryable or exportable.
 
 Two-column layout on wide screens: a table list on the left (name, row count; clicking
 fills `SELECT * FROM "<table>" LIMIT 100;`) and the SQL editor on the right, followed by
@@ -226,7 +226,7 @@ columns stack.
 | State | Content |
 |---|---|
 | loading tables | table-list skeleton |
-| disabled / remote | warning banner: start with `SF_DEV_TOOLS=1` |
+| explicitly disabled / remote | warning banner: dev tools are disabled |
 | query running | Run disabled, "Running…" |
 | results | row count, duration, truncation flag, Salt table |
 | query rejected | error banner with the server message |

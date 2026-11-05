@@ -340,8 +340,9 @@ independent of the update check.
 
 ## 8. Dev tools (dev-only)
 
-Disabled unless `SF_DEV_TOOLS=1`; requests are localhost-only unless
-`SF_DEV_TOOLS_ALLOW_REMOTE=1`. All routes return `404` when disabled or remote.
+Enabled by default but hidden from the main UI; set `SF_DEV_TOOLS=0` to disable.
+Requests are localhost-only unless `SF_DEV_TOOLS_ALLOW_REMOTE=1`. All routes return
+`404` when disabled or remote.
 
 | Method | Path | Purpose |
 |---|---|---|

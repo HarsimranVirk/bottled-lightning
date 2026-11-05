@@ -88,15 +88,18 @@ Run the webapp (reachable on the local network):
 
 ## Dev tools
 
-A read-only SQLite explorer is available at `/dev/db` only when explicitly enabled:
+A read-only SQLite explorer is available by default at `/dev/db`, hidden from the main
+navigation and linked from `/dev/states`:
 
-    SF_DEV_TOOLS=1 python -m app.main
+    python -m app.main
     # open http://localhost:8765/dev/db
+    # or use the link at http://localhost:8765/dev/states
 
-It is localhost-only by default; `SF_DEV_TOOLS_ALLOW_REMOTE=1` is the explicit opt-in for
-LAN access. The token-bearing `sessions` table is hidden and blocked by the read-only
-authorizer. CSV and real Excel (`.xlsx`) exports are supported for the current query.
-See `docs/dev-tools.md` for the safety rules.
+Set `SF_DEV_TOOLS=0` to disable it. It is localhost-only by default;
+`SF_DEV_TOOLS_ALLOW_REMOTE=1` is the explicit opt-in for LAN access. The token-bearing
+`sessions` table is hidden and blocked by the read-only authorizer. CSV and real Excel
+(`.xlsx`) exports are supported for the current query. See `docs/dev-tools.md` for the
+safety rules.
 
 ## Layout
 

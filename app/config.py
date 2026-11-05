@@ -43,7 +43,7 @@ class Settings:
     update_policy: str
     deviations_z02_list_url: str
     deviations_z02_pattern: str
-    dev_tools: bool = False
+    dev_tools: bool = True
     dev_tools_allow_remote: bool = False
 
 
@@ -75,7 +75,7 @@ def load_settings() -> Settings:
             filter=DEVIATIONS_Z02_FILTER,
         ),
         deviations_z02_pattern=DEVIATIONS_Z02_PATTERN,
-        dev_tools=os.environ.get("SF_DEV_TOOLS", "0") == "1",
+        dev_tools=os.environ.get("SF_DEV_TOOLS", "1") != "0",
         dev_tools_allow_remote=os.environ.get("SF_DEV_TOOLS_ALLOW_REMOTE", "0")
         == "1",
     )

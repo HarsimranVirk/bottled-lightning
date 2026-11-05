@@ -194,7 +194,7 @@ refresh; the watcher also refreshes every `SF_RESYNC_INTERVAL_SECONDS`.
     source .venv/bin/activate
     python -m app.main                     # backend on 0.0.0.0:8765 (init DB, print LAN URL)
     python -m app.main --no-update          # skip the GitHub update check
-    SF_DEV_TOOLS=1 python -m app.main       # enable /dev/db (localhost-only by default)
+    SF_DEV_TOOLS=0 python -m app.main       # disable the hidden /dev/db explorer
 
 Equivalent direct uvicorn form (DB auto-inits on startup either way):
 
@@ -269,9 +269,10 @@ saved session — run the manual login once; snapshots refresh automatically.
   through the async dispatcher. Don't introduce `sync_playwright`, a second event loop, or
   worker-thread browser calls without a redesign discussion.
 - Keep the frontend aligned with the generated API types; no client-side business rules.
-- The DB explorer is dev-only. Keep `SF_DEV_TOOLS` off by default, localhost-only unless
-  `SF_DEV_TOOLS_ALLOW_REMOTE=1` is explicit, and never expose or query the `sessions`
-  table (the read-only authorizer must keep denying it). CSV/XLSX exports use the same
+- The DB explorer is a hidden dev link at `/dev/db`, enabled by default. Keep it out of
+  the main navigation, localhost-only unless `SF_DEV_TOOLS_ALLOW_REMOTE=1` is explicit,
+  and never expose or query the `sessions` table (the read-only authorizer must keep
+  denying it). `SF_DEV_TOOLS=0` is the explicit off switch. CSV/XLSX exports use the same
   guard. See `docs/dev-tools.md`.
 - Clean up any temporary/scratch files created during work, wherever on the system (e.g. /tmp, the OS temp dir, scratch dirs, worktrees) before finishing; don't leave throwaway scripts or artifacts behind.
 - Extraction code changes require re-verifying the header-total cross-check.

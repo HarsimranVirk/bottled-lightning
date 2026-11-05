@@ -74,8 +74,9 @@ export function DevDbPage(): JSX.Element {
       {tables.isError ? (
         <Banner status="warning">
           <BannerContent>
-            Dev tools are disabled. Start the backend with <code>SF_DEV_TOOLS=1</code>,
-            then reload.
+            Dev tools are disabled on this server, or this request is not from
+            localhost. Remove <code>SF_DEV_TOOLS=0</code> or use a local connection, then
+            reload.
           </BannerContent>
         </Banner>
       ) : null}
