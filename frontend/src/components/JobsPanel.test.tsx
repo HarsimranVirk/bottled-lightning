@@ -6,20 +6,10 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { JobView } from '../api'
 import type { JobFilters } from '../queries'
+import { EMPTY_JOB_FILTERS } from '../queries'
 import { JobsPanel } from './JobsPanel'
 
-const FILTERS: JobFilters = {
-  id: '',
-  status: '',
-  kind: '',
-  phase: '',
-  item: '',
-  error: '',
-  startedAfter: '',
-  startedBefore: '',
-  durationMinS: '',
-  durationMaxS: '',
-}
+const FILTERS: JobFilters = EMPTY_JOB_FILTERS
 
 function job(id: number, overrides: Partial<JobView> = {}): JobView {
   return {
@@ -81,6 +71,18 @@ describe('JobsPanel', () => {
     expect(onFilters).toHaveBeenCalledWith({ ...FILTERS, id: '42' })
   })
 
+  it('selects multiple exact values from a column dropdown', async () => {
+    const user = userEvent.setup()
+    const onFilters = vi.fn()
+    render(<JobsPanel {...props({ onFilters })} />)
+    await user.click(screen.getByLabelText('Filter by status values'))
+    await user.click(screen.getByRole('option', { name: 'failed' }))
+    expect(onFilters).toHaveBeenCalledWith({
+      ...FILTERS,
+      statuses: ['failed'],
+    })
+  })
+
   it('sorts from a column header', async () => {
     const user = userEvent.setup()
     const onSort = vi.fn()
@@ -123,7 +125,7 @@ describe('JobsPanel', () => {
     const user = userEvent.setup()
     const onFilters = vi.fn()
     render(
-      <JobsPanel {...props({ jobs: [], total: 0, filters: { ...FILTERS, status: 'failed' }, onFilters })} />,
+      <JobsPanel {...props({ jobs: [], total: 0, filters: { ...FILTERS, statuses: ['failed'] }, onFilters })} />,
     )
     expect(screen.getByText('No jobs match these filters.')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Clear filters' }))

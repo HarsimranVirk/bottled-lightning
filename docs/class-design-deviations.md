@@ -588,8 +588,7 @@ class ApprovedHistoryRepository:
                       at: datetime) -> None: ...
     def refresh(self, workflow: str, key: str) -> None: ...
     def remove(self, workflow: str, key: str) -> None: ...
-    def page(self, workflow: str, query: str | None, limit: int,
-             offset: int) -> tuple[list[ApprovedDeviation], int]: ...
+    def page(self, query: HistoryQuery) -> tuple[list[ApprovedDeviation], int]: ...
     def get(self, workflow: str, key: str) -> ApprovedDeviation | None: ...
     def fields(self, workflow: str, key: str) -> dict[str, FieldValue]: ...
     def attributes(self, workflow: str, key: str) -> dict[str, str | None]: ...
@@ -606,14 +605,22 @@ current parent and all children in one transaction; `refresh` updates only an ex
 snapshot; `remove` deletes it. The History read model therefore never joins
 `work_items` or `item_decisions`.
 
+`HistoryQuery` carries the standard filter row: key/status/approval contains and exact
+sets, a decided date range, and repeated `(field_key, text/value)` pairs. Field filters
+are correlated `EXISTS` clauses against `approved_deviation_fields`, using the same
+`proposed`, else `extracted`, else `applied` precedence as the table.
+
 `PurgeRepository` owns the two bulk-delete statements. `PurgeService` chooses the cutoff
 (`now - 24h` for current, `now - 90d` for history), runs the dry-run or real transaction,
 and returns an immutable `PurgeResult` with per-table counts. The repository is the only
 class that issues destructive SQL; the API and frontend never supply a cutoff.
 
 `JobPage` is `(jobs, total)`; `JobQuery` carries the optional column filters, the
-sort column + direction and the page window. The sort column is a whitelist mapped
-to SQL, and duration is the SQL expression
+sort column + direction and the page window. Enum filters (`kind`, `status`, `phase`)
+and exact text filters (`id_in`, `item_in`, `error_in`) are sequences so the standard
+multiselect UI can send every selected value; the existing singular fields and text
+contains filters remain for compatibility. The sort column is a whitelist mapped to
+SQL, and duration is the SQL expression
 `julianday(COALESCE(finished_at, 'now')) - julianday(started_at)`.
 
 Repositories never touch Playwright and never contain workflow-specific logic.
@@ -1065,6 +1072,39 @@ Pydantic models at the boundary only: `WorkflowView` (name, labels, catalogue),
 `ItemRow`, `ItemDetail` (attributes, field views, refs), `FieldView`
 (extracted/last_synced/proposed/applied/status), `JobView`, `SyncView`, `AuthView`,
 `QueueView`. Domain dataclasses never leak into JSON.
+
+### 11.4 Shared table filter (frontend)
+
+```ts
+interface TableFilterOption { value: string; label: string }
+
+interface TableFilterProps {
+  label: string
+  text: string
+  onText: (text: string) => void
+  selected: string[]
+  onSelected: (values: string[]) => void
+  options: TableFilterOption[]
+  placeholder?: string
+  inputType?: 'text' | 'date' | 'number'
+}
+
+interface TableRangeFilterProps {
+  fromLabel: string
+  toLabel: string
+  from: string
+  to: string
+  onFrom: (value: string) => void
+  onTo: (value: string) => void
+  type?: 'text' | 'date' | 'number'
+}
+```
+
+`TableFilter` is the only per-column filter cell for new tables: text/date/number input
+plus a Salt multiselect `Dropdown` whose options render as checkboxes. The parent owns
+the filter state and decides whether filtering is client-side (Dev DB preview) or
+server-side (Jobs/History). `TableRangeFilter` is the range variant and deliberately has
+no checkbox list.
 
 ---
 

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import unittest
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from app.core.list_view import ListRow
 from app.core.models import PageRef, utcnow
-from app.core.repo.approved_history import ApprovedHistoryRepository
+from app.core.repo.approved_history import ApprovedHistoryRepository, HistoryQuery
 from app.core.repo.attributes import AttributeRepository
 from app.core.repo.decisions import DecisionRepository
 from app.core.repo.edits import EditRepository
@@ -151,6 +151,103 @@ class ApprovedHistoryTests(DbTestCase):
         assert approved is not None
         self.assertEqual(approved.key, KEY)
         self.assertEqual(history.fields(WORKFLOW, KEY)["loan_amount"].extracted, "1300000")
+
+    def test_standard_filter_row_applies_to_the_snapshot_store(self) -> None:
+        """Text, exact sets, date bounds and field filters compose with AND."""
+        items = WorkItemRepository(self.db)
+        fields = FieldValueRepository(self.db)
+        decisions = DecisionRepository(self.db)
+        history = ApprovedHistoryRepository(self.db)
+        for key, status, approved_at, amount, accepted_at in (
+            (
+                "Deviation-A",
+                WorkItemStatus.READY,
+                "4/11/2026",
+                "1300000",
+                datetime(2026, 11, 4, tzinfo=UTC),
+            ),
+            (
+                "Deviation-B",
+                WorkItemStatus.COMPLETED,
+                "5/11/2026",
+                "2500000",
+                datetime(2026, 9, 1, tzinfo=UTC),
+            ),
+        ):
+            items.create_present(
+                WORKFLOW,
+                ListRow(
+                    key=key,
+                    href=f"/lightning/r/a2f/{key}/view",
+                    columns={},
+                    approved_at=approved_at,
+                ),
+                utcnow(),
+            )
+            conn = self.db.connect()
+            conn.execute(
+                "UPDATE work_items SET status = ? "
+                "WHERE workflow = ? AND item_key = ?",
+                [status.value, WORKFLOW, key],
+            )
+            conn.commit()
+            fields.set_extracted(WORKFLOW, key, {"loan_amount": amount})
+            decisions.record(
+                WORKFLOW, key, DecisionKind.ACCEPT, None, accepted_at
+            )
+            history.record_accept(WORKFLOW, key, None, accepted_at)
+
+        self.assertEqual(
+            history.page(WORKFLOW, HistoryQuery(key="Deviation-A"))[1], 1
+        )
+        self.assertEqual(
+            history.page(WORKFLOW, HistoryQuery(keys=("Deviation-B",)))[1], 1
+        )
+        self.assertEqual(
+            history.page(WORKFLOW, HistoryQuery(status_text="comp"))[1], 1
+        )
+        self.assertEqual(
+            history.page(WORKFLOW, HistoryQuery(statuses=("ready",)))[1], 1
+        )
+        self.assertEqual(
+            history.page(WORKFLOW, HistoryQuery(approved_at="4/11"))[1], 1
+        )
+        self.assertEqual(
+            history.page(
+                WORKFLOW, HistoryQuery(approved_values=("5/11/2026",))
+            )[1],
+            1,
+        )
+        self.assertEqual(
+            history.page(
+                WORKFLOW, HistoryQuery(decided_after="2026-10-01")
+            )[1],
+            1,
+        )
+        self.assertEqual(
+            history.page(
+                WORKFLOW,
+                HistoryQuery(field_text=(("loan_amount", "1300"),)),
+            )[1],
+            1,
+        )
+        self.assertEqual(
+            history.page(
+                WORKFLOW,
+                HistoryQuery(field_values=(("loan_amount", "2500000"),)),
+            )[1],
+            1,
+        )
+        self.assertEqual(
+            history.page(
+                WORKFLOW,
+                HistoryQuery(
+                    statuses=("ready",),
+                    field_values=(("loan_amount", "2500000"),),
+                ),
+            )[1],
+            0,
+        )
 
     def test_v4_to_v5_backfill_copies_accepted_items(self) -> None:
         """An existing accepted item is backfilled once on the schema upgrade."""

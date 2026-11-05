@@ -279,6 +279,14 @@ saved session — run the manual login once; snapshots refresh automatically.
   the history purge keeps 90 days of approved snapshots. Keep the cutoffs fixed
   server-side, keep both actions confirmed and dry-run first, and never let one purge
   touch the other store, `sessions`, or an item with an active job.
+- Every data table uses the shared table-filter pattern: a text (or range) input plus a
+  multiselect dropdown with checkboxes for exact values. Empty selection means all;
+  selected values are OR within a column, columns compose with AND, and the text and
+  selected values in one column also compose with AND. Date and duration ranges use the
+  shared range variant instead of a checkbox list. New tables must reuse
+  `frontend/src/components/TableFilter.tsx` and `TableRangeFilter.tsx`, not bespoke
+  filter cells. Server-paginated tables must send every selected value to the server so
+  the total and later pages stay correct.
 - Clean up any temporary/scratch files created during work, wherever on the system (e.g. /tmp, the OS temp dir, scratch dirs, worktrees) before finishing; don't leave throwaway scripts or artifacts behind.
 - Extraction code changes require re-verifying the header-total cross-check.
 - After every edit, run ruff (`ruff check app/ frontend/`) and resolve **all** reported issues (including import sorting I001) before considering the change complete. The project uses ruff for linting/formatting; no ruff warnings may remain.

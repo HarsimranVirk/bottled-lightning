@@ -26,7 +26,9 @@ import { HistoryTable } from '../components/HistoryTable'
 import { ItemDrawer } from '../components/ItemDrawer'
 import { DECIDABLE_STATUSES, isDeckRow } from '../deck'
 import { acceptAndSubmit } from '../submit'
+import type { HistoryFilters } from '../queries'
 import {
+  EMPTY_HISTORY_FILTERS,
   useDecideDecision,
   useHistory,
   useHistoryItem,
@@ -52,7 +54,8 @@ export function DeviationsPage(): JSX.Element {
   const workflow = workflows.data?.find((item) => item.name === Z02_WORKFLOW) ?? workflows.data?.[0]
   const route = workflow?.route ?? null
 
-  const [historyQuery, setHistoryQuery] = useState('')
+  const [historyFilters, setHistoryFilters] =
+    useState<HistoryFilters>(EMPTY_HISTORY_FILTERS)
   const [historyPage, setHistoryPage] = useState(1)
   const [historySize, setHistorySize] = useState(25)
   const [announcement, setAnnouncement] = useState('')
@@ -65,7 +68,7 @@ export function DeviationsPage(): JSX.Element {
   // History is the approved snapshot store, newest accept first, paginated by the server.
   const history = useHistory(
     route,
-    historyQuery || null,
+    historyFilters,
     historySize,
     view === 'history',
     (historyPage - 1) * historySize,
@@ -217,9 +220,9 @@ export function DeviationsPage(): JSX.Element {
           fields={workflow.fields}
           terminalLabels={workflow.terminalLabels}
           listUrl={workflow.listUrl}
-          query={historyQuery}
-          onQuery={(next) => {
-            setHistoryQuery(next)
+          filters={historyFilters}
+          onFilters={(next) => {
+            setHistoryFilters(next)
             setHistoryPage(1)
           }}
           page={historyPage}

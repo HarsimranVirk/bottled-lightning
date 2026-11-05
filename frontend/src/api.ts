@@ -113,12 +113,18 @@ async function requestVoid(path: string, init?: RequestInit): Promise<void> {
 /** Query for the jobs table; camelCase here, snake_case on the wire. */
 export interface JobQuery {
   workflow?: string
-  kind?: string
-  status?: string
-  phase?: string
+  kind?: string[]
+  status?: string[]
+  phase?: string[]
+  statusText?: string
+  kindText?: string
+  phaseText?: string
   item?: string
+  itemIn?: string[]
   id?: string
+  idIn?: string[]
   error?: string
+  errorIn?: string[]
   startedAfter?: string
   startedBefore?: string
   durationMinMs?: number
@@ -142,9 +148,69 @@ function jobsQuery(params: JobQuery): string {
             ? 'duration_min_ms'
             : key === 'durationMaxMs'
               ? 'duration_max_ms'
-              : key
-    search.set(wire, String(value))
+              : key === 'itemIn'
+                ? 'item_in'
+                : key === 'idIn'
+                  ? 'id_in'
+                  : key === 'errorIn'
+                    ? 'error_in'
+                    : key === 'statusText'
+                      ? 'status_text'
+                      : key === 'kindText'
+                        ? 'kind_text'
+                        : key === 'phaseText'
+                          ? 'phase_text'
+                          : key
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item !== '') search.append(wire, item)
+      }
+    } else {
+      search.set(wire, String(value))
+    }
   }
+  const text = search.toString()
+  return text ? `?${text}` : ''
+}
+
+/** Standard History filter row; repeated values become repeated query params. */
+export interface HistoryQuery {
+  q?: string
+  key?: string
+  keyIn?: string[]
+  statusText?: string
+  statuses?: string[]
+  approvedAt?: string
+  approvedAtIn?: string[]
+  decidedAfter?: string
+  decidedBefore?: string
+  fields?: { key: string; value: string }[]
+  fieldText?: { key: string; text: string }[]
+  limit?: number
+  offset?: number
+}
+
+function historyQuery(params: HistoryQuery): string {
+  const search = new URLSearchParams()
+  if (params.q) search.set('q', params.q)
+  if (params.key) search.set('key', params.key)
+  for (const value of params.keyIn ?? []) search.append('key_in', value)
+  if (params.statusText) search.set('status_text', params.statusText)
+  for (const value of params.statuses ?? []) search.append('status', value)
+  if (params.approvedAt) search.set('approved_at', params.approvedAt)
+  for (const value of params.approvedAtIn ?? []) {
+    search.append('approved_at_in', value)
+  }
+  if (params.decidedAfter) search.set('decided_after', params.decidedAfter)
+  if (params.decidedBefore) search.set('decided_before', params.decidedBefore)
+  for (const filter of params.fields ?? []) {
+    search.append('field', `${filter.key}:${filter.value}`)
+  }
+  for (const filter of params.fieldText ?? []) {
+    search.append('field_text', `${filter.key}:${filter.text}`)
+  }
+  if (params.limit !== undefined) search.set('limit', String(params.limit))
+  if (params.offset !== undefined) search.set('offset', String(params.offset))
   const text = search.toString()
   return text ? `?${text}` : ''
 }
@@ -183,10 +249,8 @@ export const api = {
     request(`/api/${route}${itemsQuery(params)}`),
   item: (route: string, key: string): Promise<ItemDetail> =>
     request(`/api/${route}/${encodeURIComponent(key)}`),
-  history: (
-    route: string,
-    params: { q?: string; limit?: number; offset?: number } = {},
-  ): Promise<ItemsPage> => request(`/api/${route}/history${query(params)}`),
+  history: (route: string, params: HistoryQuery = {}): Promise<ItemsPage> =>
+    request(`/api/${route}/history${historyQuery(params)}`),
   historyItem: (route: string, key: string): Promise<ItemDetail> =>
     request(`/api/${route}/history/${encodeURIComponent(key)}`),
   patchFields: (

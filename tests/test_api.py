@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -349,12 +350,18 @@ class _FakeAdmin:
     def jobs(
         self,
         workflow: str | None = None,
-        kind: str | None = None,
-        status: str | None = None,
-        phase: str | None = None,
+        kind: Sequence[str] | None = None,
+        status: Sequence[str] | None = None,
+        phase: Sequence[str] | None = None,
+        status_text: str | None = None,
+        kind_text: str | None = None,
+        phase_text: str | None = None,
         item: str | None = None,
+        item_in: Sequence[str] | None = None,
         job_id: str | None = None,
+        id_in: Sequence[str] | None = None,
         error: str | None = None,
+        error_in: Sequence[str] | None = None,
         started_after: str | None = None,
         started_before: str | None = None,
         duration_min_ms: int | None = None,
@@ -418,12 +425,27 @@ class HistoryServiceTests(ApiTestCase):
         service.decide(WORKFLOW, KEY, "accept")
         client = TestClient(create_app(registry, service, _FakeAdmin()))
 
-        page = client.get(f"/api/deviations/history?q={KEY}")
+        page = client.get(f"/api/deviations/history?key={KEY}")
         self.assertEqual(page.status_code, 200)
         self.assertEqual(page.json()["total"], 1)
+        filtered = client.get(
+            "/api/deviations/history?status=ready&field=loan_amount:1300000"
+        )
+        self.assertEqual(filtered.status_code, 200)
+        self.assertEqual(filtered.json()["total"], 1)
+        miss = client.get("/api/deviations/history?status=closed")
+        self.assertEqual(miss.status_code, 200)
+        self.assertEqual(miss.json()["total"], 0)
+        invalid = client.get("/api/deviations/history?field=bad")
+        self.assertEqual(invalid.status_code, 422)
         detail = client.get(f"/api/deviations/history/{KEY}")
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()["decision"]["decision"], "accept")
+        ready = client.get("/api/deviations?status=ready")
+        self.assertEqual(ready.status_code, 200)
+        self.assertEqual(ready.json()["total"], 1)
+        closed = client.get("/api/deviations?status=closed")
+        self.assertEqual(closed.json()["total"], 0)
 
 
 class RouteTests(ApiTestCase):

@@ -14,6 +14,7 @@ import { HistoryTable } from '../components/HistoryTable'
 import { JobsPanel } from '../components/JobsPanel'
 import { StatusChip } from '../components/StatusChip'
 import { SyncBanner } from '../components/SyncBanner'
+import { EMPTY_HISTORY_FILTERS, EMPTY_JOB_FILTERS } from '../queries'
 
 const FIELDS: WorkflowFieldView[] = [
   { key: 'loan_amount', label: 'Loan Amount', valueType: 'amount', required: false, targets: ['cl_contract'] },
@@ -199,8 +200,8 @@ export function DevStates(): JSX.Element {
           fields={FIELDS}
           terminalLabels={TERMINAL_LABELS}
           listUrl="https://example.lightning.force.com/lightning/o/Deviation/list"
-          query=""
-          onQuery={() => {}}
+          filters={EMPTY_HISTORY_FILTERS}
+          onFilters={() => {}}
           page={1}
           size={25}
           total={2}
@@ -299,18 +300,7 @@ export function DevStates(): JSX.Element {
         <JobsPanel
           jobs={JOBS}
           total={JOBS.length}
-          filters={{
-            id: '',
-            status: '',
-            kind: '',
-            phase: '',
-            item: '',
-            error: '',
-            startedAfter: '',
-            startedBefore: '',
-            durationMinS: '',
-            durationMaxS: '',
-          }}
+          filters={EMPTY_JOB_FILTERS}
           onFilters={() => {}}
           sort="id"
           order="desc"

@@ -13,6 +13,7 @@ never touches Playwright and never reads the token-bearing ``sessions`` table.
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import dataclass
 from datetime import datetime
 
 from app.core.models import (
@@ -32,6 +33,32 @@ _PARENT_COLUMNS = (
     "workflow, item_key, epoch, status, source, present, record_url, approved_at, "
     "reason, decided_at, decision_reason, snapshot_at"
 )
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryQuery:
+    """
+    Standard History filter row, translated into one SQL predicate set.
+
+    Contains filters are substring matches; ``keys``/``statuses``/``approved_values``
+    are exact sets. ``field_text`` and ``field_values`` are repeated
+    ``(field_key, value)`` pairs applied as correlated ``EXISTS`` clauses against
+    ``approved_deviation_fields``. All filters compose with AND.
+    """
+
+    q: str | None = None
+    key: str | None = None
+    keys: tuple[str, ...] = ()
+    status_text: str | None = None
+    statuses: tuple[str, ...] = ()
+    approved_at: str | None = None
+    approved_values: tuple[str, ...] = ()
+    decided_after: str | None = None
+    decided_before: str | None = None
+    field_text: tuple[tuple[str, str], ...] = ()
+    field_values: tuple[tuple[str, str], ...] = ()
+    limit: int = 25
+    offset: int = 0
 
 
 def _time(value: str | None) -> datetime:
@@ -279,26 +306,68 @@ class ApprovedHistoryRepository:
 
     # -- reads -------------------------------------------------------------
     def page(
-        self,
-        workflow: str,
-        query: str | None,
-        limit: int,
-        offset: int,
+        self, workflow: str, query: HistoryQuery
     ) -> tuple[list[ApprovedDeviation], int]:
         """
-        Page accepted snapshots, newest accept first.
+        Page accepted snapshots, newest accept first, applying every filter with AND.
 
-        ``query`` is a case-insensitive contains match on the key, item reason or accept
-        note. Returns the page and the unfiltered-by-page total.
+        Returns the page and the filtered total, so server-side pagination stays correct
+        when any text or checkbox filter is active.
         """
         where = ["workflow = ?"]
         params: list[str | int] = [workflow]
-        if query:
+        if query.q:
             where.append(
                 "(item_key LIKE ? OR reason LIKE ? OR decision_reason LIKE ?)"
             )
-            like = f"%{query}%"
+            like = f"%{query.q}%"
             params.extend([like, like, like])
+        if query.key:
+            where.append("item_key LIKE ?")
+            params.append(f"%{query.key}%")
+        if query.keys:
+            placeholders = ",".join("?" for _ in query.keys)
+            where.append(f"item_key IN ({placeholders})")
+            params.extend(query.keys)
+        if query.status_text:
+            where.append("status LIKE ?")
+            params.append(f"%{query.status_text}%")
+        if query.statuses:
+            placeholders = ",".join("?" for _ in query.statuses)
+            where.append(f"status IN ({placeholders})")
+            params.extend(query.statuses)
+        if query.approved_at:
+            where.append("approved_at LIKE ?")
+            params.append(f"%{query.approved_at}%")
+        if query.approved_values:
+            placeholders = ",".join("?" for _ in query.approved_values)
+            where.append(f"approved_at IN ({placeholders})")
+            params.extend(query.approved_values)
+        if query.decided_after:
+            where.append("substr(decided_at, 1, 10) >= ?")
+            params.append(query.decided_after)
+        if query.decided_before:
+            where.append("substr(decided_at, 1, 10) <= ?")
+            params.append(query.decided_before)
+        for field_key, text in query.field_text:
+            where.append(
+                "EXISTS (SELECT 1 FROM approved_deviation_fields f "
+                "WHERE f.workflow = approved_deviations.workflow "
+                "AND f.item_key = approved_deviations.item_key "
+                "AND f.field_key = ? "
+                "AND COALESCE(f.proposed, f.extracted, f.applied, '') LIKE ?)"
+            )
+            params.extend([field_key, f"%{text}%"])
+        for field_key, value in query.field_values:
+            where.append(
+                "EXISTS (SELECT 1 FROM approved_deviation_fields f "
+                "WHERE f.workflow = approved_deviations.workflow "
+                "AND f.item_key = approved_deviations.item_key "
+                "AND f.field_key = ? "
+                "AND COALESCE(f.proposed, f.extracted, f.applied, '') = ?)"
+            )
+            params.extend([field_key, value])
+
         clause = " WHERE " + " AND ".join(where)
         conn = self._db.connect()
         total_row = conn.execute(
@@ -308,7 +377,7 @@ class ApprovedHistoryRepository:
         rows = conn.execute(
             f"SELECT {_PARENT_COLUMNS} FROM approved_deviations{clause} "
             "ORDER BY decided_at DESC, item_key LIMIT ? OFFSET ?",
-            [*params, limit, offset],
+            [*params, query.limit, query.offset],
         ).fetchall()
         return [_to_approved(row) for row in rows], total
 

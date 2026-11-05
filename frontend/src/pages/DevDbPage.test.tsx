@@ -132,6 +132,19 @@ describe('DevDbPage', () => {
     expect(screen.getByText('26–30 of 30')).toBeInTheDocument()
   })
 
+  it('filters a column from the checkbox dropdown', async () => {
+    const user = userEvent.setup()
+    mocks.query.data = sampleRows(3)
+    renderPage()
+
+    await user.click(screen.getByLabelText('Filter by status values'))
+    await user.click(screen.getByRole('option', { name: 'ready' }))
+
+    expect(screen.getByText(/1 of 3 rows/)).toBeInTheDocument()
+    expect(screen.getByText('Deviation-0')).toBeInTheDocument()
+    expect(screen.queryByText('Deviation-1')).not.toBeInTheDocument()
+  })
+
   it('previews and confirms a current-data purge', async () => {
     const user = userEvent.setup()
     const preview: PurgeResult = {

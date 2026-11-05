@@ -6,23 +6,10 @@ import { useState } from 'react'
 
 import { JobsPanel } from '../components/JobsPanel'
 import type { JobFilters } from '../queries'
-import { useJobLogs, useJobs } from '../queries'
-
-const EMPTY_FILTERS: JobFilters = {
-  id: '',
-  status: '',
-  kind: '',
-  phase: '',
-  item: '',
-  error: '',
-  startedAfter: '',
-  startedBefore: '',
-  durationMinS: '',
-  durationMaxS: '',
-}
+import { EMPTY_JOB_FILTERS, useJobLogs, useJobs } from '../queries'
 
 export function JobsPage(): JSX.Element {
-  const [filters, setFilters] = useState<JobFilters>(EMPTY_FILTERS)
+  const [filters, setFilters] = useState<JobFilters>(EMPTY_JOB_FILTERS)
   const [page, setPage] = useState(1)
   const [size, setSize] = useState(25)
   const [sort, setSort] = useState('id')

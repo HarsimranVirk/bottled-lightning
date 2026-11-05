@@ -208,11 +208,6 @@
   width: 100%;
 }
 
-.history-search {
-  width: 260px;
-  max-width: 100%;
-}
-
 @media (max-width: 900px) {
   .job-col-phase,
   .job-col-error,

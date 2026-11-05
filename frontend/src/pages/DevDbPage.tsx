@@ -18,7 +18,6 @@ import {
   DialogHeader,
   FlexLayout,
   H1,
-  Input,
   MultilineInput,
   Spinner,
   StackLayout,
@@ -35,10 +34,16 @@ import { Link } from 'react-router-dom'
 
 import type { DevCell, PurgeResult, PurgeScope } from '../api'
 import { Pagination } from '../components/Pagination'
+import { TableFilter } from '../components/TableFilter'
 import { formatDateTime } from '../format'
 import { useDevExport, useDevPurge, useDevQuery, useDevTables } from '../queries'
 
 const DEFAULT_SQL = 'SELECT * FROM work_items LIMIT 100;'
+
+interface ColumnFilter {
+  text: string
+  values: string[]
+}
 
 function cellText(cell: DevCell): string {
   return cell === null ? '—' : String(cell)
@@ -57,7 +62,7 @@ function download(blob: Blob, format: 'csv' | 'xlsx'): void {
 
 export function DevDbPage(): JSX.Element {
   const [sql, setSql] = useState(DEFAULT_SQL)
-  const [filters, setFilters] = useState<Record<string, string>>({})
+  const [filters, setFilters] = useState<Record<string, ColumnFilter>>({})
   const [page, setPage] = useState(1)
   const [size, setSize] = useState(25)
   const [confirmScope, setConfirmScope] = useState<PurgeScope | null>(null)
@@ -78,23 +83,54 @@ export function DevDbPage(): JSX.Element {
     query.mutate({ sql, limit: 500 })
   }
 
+  const columnOptions = useMemo(() => {
+    const rows = query.data?.rows ?? []
+    return (query.data?.columns ?? []).map((_column, index) => {
+      const values = new Set<string>()
+      for (const row of rows) {
+        const cell = row[index] ?? null
+        if (cell === null) continue
+        const value = cellText(cell)
+        if (value.trim() !== '') values.add(value)
+      }
+      return [...values]
+        .sort((left, right) => left.localeCompare(right))
+        .slice(0, 100)
+        .map((value) => ({ value, label: value }))
+    })
+  }, [query.data])
+
   const filteredRows = useMemo(() => {
     const rows = query.data?.rows ?? []
-    const active = Object.entries(filters).filter(([, value]) => value.trim() !== '')
+    const active = Object.entries(filters).filter(
+      ([, filter]) => filter.text.trim() !== '' || filter.values.length > 0,
+    )
     if (active.length === 0) return rows
     return rows.filter((row) =>
-      active.every(([index, value]) => {
-        const cell = row[Number(index)] ?? null
-        return cellText(cell).toLowerCase().includes(value.trim().toLowerCase())
+      active.every(([index, filter]) => {
+        const value = cellText(row[Number(index)] ?? null)
+        if (
+          filter.text.trim() !== '' &&
+          !value.toLowerCase().includes(filter.text.trim().toLowerCase())
+        ) {
+          return false
+        }
+        return filter.values.length === 0 || filter.values.includes(value)
       }),
     )
   }, [query.data, filters])
 
   const pageRows = filteredRows.slice((page - 1) * size, page * size)
-  const hasFilters = Object.values(filters).some((value) => value.trim() !== '')
+  const hasFilters = Object.values(filters).some(
+    (filter) => filter.text.trim() !== '' || filter.values.length > 0,
+  )
 
-  function updateFilter(index: number, value: string): void {
-    setFilters((current) => ({ ...current, [String(index)]: value }))
+  function updateFilter(index: number, patch: Partial<ColumnFilter>): void {
+    setFilters((current) => {
+      const key = String(index)
+      const existing = current[key] ?? { text: '', values: [] }
+      return { ...current, [key]: { ...existing, ...patch } }
+    })
     setPage(1)
   }
 
@@ -274,19 +310,22 @@ export function DevDbPage(): JSX.Element {
                   ))}
                 </TR>
                 <TR className="job-filter-row">
-                  {query.data.columns.map((column, index) => (
-                    <TH key={`filter-${column}-${index}`}>
-                      <Input
-                        value={filters[String(index)] ?? ''}
-                        inputProps={{
-                          'aria-label': `Filter by ${column}`,
-                          placeholder: 'Filter',
-                          onChange: (event) =>
-                            updateFilter(index, event.target.value),
-                        }}
-                      />
-                    </TH>
-                  ))}
+                  {query.data.columns.map((column, index) => {
+                    const filter = filters[String(index)]
+                    return (
+                      <TH key={`filter-${column}-${index}`}>
+                        <TableFilter
+                          label={`Filter by ${column}`}
+                          text={filter?.text ?? ''}
+                          onText={(text) => updateFilter(index, { text })}
+                          selected={filter?.values ?? []}
+                          onSelected={(values) => updateFilter(index, { values })}
+                          options={columnOptions[index] ?? []}
+                          placeholder="Filter"
+                        />
+                      </TH>
+                    )
+                  })}
                 </TR>
               </THead>
               <TBody>

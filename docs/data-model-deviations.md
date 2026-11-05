@@ -35,6 +35,9 @@ change that alters the code (see AGENTS.md, plan-mode rules).
   in `app/core/field.py` (`normalise`), not in the schema — stored values remain
   faithful to what the operator saw.
 - **No blobs**: HTML, screenshots and page content are never stored.
+- **Table filters are read-only query parameters.** The standard text + checkbox
+  filters add no columns and no tables; Jobs and History build SQL predicates from their
+  optional parameters, while the Dev DB filters its bounded preview in the browser.
 
 ## 3. Schema version and migration
 

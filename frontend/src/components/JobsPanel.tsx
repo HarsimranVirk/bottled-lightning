@@ -8,11 +8,8 @@ import {
   Banner,
   BannerContent,
   Button,
-  Dropdown,
   FlexLayout,
   H3,
-  Input,
-  Option,
   Panel,
   Spinner,
   StackLayout,
@@ -28,9 +25,13 @@ import {
 
 import type { JobLogs, JobView } from '../api'
 import type { JobFilters } from '../queries'
+import { EMPTY_JOB_FILTERS } from '../queries'
 import { formatDateTime, formatDuration } from '../format'
 import { Pagination } from './Pagination'
 import { StatusChip } from './StatusChip'
+import { TableFilter } from './TableFilter'
+import type { TableFilterOption } from './TableFilter'
+import { TableRangeFilter } from './TableRangeFilter'
 
 const STATUSES = ['queued', 'running', 'blocked_auth', 'succeeded', 'failed', 'cancelled']
 const KINDS = ['extract', 'submit']
@@ -56,7 +57,16 @@ interface Props {
 }
 
 function hasFilters(filters: JobFilters): boolean {
-  return Object.values(filters).some((value) => value.trim() !== '')
+  return Object.values(filters).some((value) =>
+    Array.isArray(value) ? value.length > 0 : value.trim() !== '',
+  )
+}
+
+function uniqueOptions(values: string[], prefix = ''): TableFilterOption[] {
+  return [...new Set(values.filter((value) => value.trim() !== ''))]
+    .sort((left, right) => left.localeCompare(right))
+    .slice(0, 100)
+    .map((value) => ({ value, label: `${prefix}${value}` }))
 }
 
 function SortHeader({
@@ -88,62 +98,6 @@ function SortHeader({
   )
 }
 
-function SelectFilter({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string
-  value: string
-  options: { value: string; label: string }[]
-  onChange: (value: string) => void
-}): JSX.Element {
-  const display = options.find((option) => option.value === value)?.label ?? 'Any'
-  return (
-    <Dropdown
-      aria-label={label}
-      value={value ? display : 'Any'}
-      selected={[value]}
-      onSelectionChange={(_event, selected) => onChange(String(selected[0] ?? ''))}
-      style={{ width: '100%', minWidth: 80 }}
-    >
-      <Option value="">Any</Option>
-      {options.map((option) => (
-        <Option key={option.value} value={option.value}>
-          {option.label}
-        </Option>
-      ))}
-    </Dropdown>
-  )
-}
-
-function TextFilter({
-  label,
-  value,
-  onChange,
-  type,
-  placeholder,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  type?: 'text' | 'date' | 'number'
-  placeholder?: string
-}): JSX.Element {
-  return (
-    <Input
-      value={value}
-      inputProps={{
-        'aria-label': label,
-        type: type ?? 'text',
-        placeholder,
-        onChange: (event) => onChange(event.target.value),
-      }}
-    />
-  )
-}
-
 export function JobsPanel({
   jobs,
   total,
@@ -163,6 +117,11 @@ export function JobsPanel({
   loading,
 }: Props): JSX.Element {
   const filtered = hasFilters(filters)
+  const idOptions = uniqueOptions(jobs.map((job) => String(job.id)), '#')
+  const itemOptions = uniqueOptions(jobs.map((job) => job.item))
+  const errorOptions = uniqueOptions(
+    jobs.flatMap((job) => (job.error ? [job.error] : [])),
+  )
 
   function update<K extends keyof JobFilters>(key: K, value: JobFilters[K]): void {
     onFilters({ ...filters, [key]: value })
@@ -174,20 +133,7 @@ export function JobsPanel({
         <FlexLayout justify="end">
           <Button
             appearance="bordered"
-            onClick={() =>
-              onFilters({
-                id: '',
-                status: '',
-                kind: '',
-                phase: '',
-                item: '',
-                error: '',
-                startedAfter: '',
-                startedBefore: '',
-                durationMinS: '',
-                durationMaxS: '',
-              })
-            }
+            onClick={() => onFilters(EMPTY_JOB_FILTERS)}
           >
             Clear filters
           </Button>
@@ -245,88 +191,93 @@ export function JobsPanel({
               </TR>
               <TR className="job-filter-row">
                 <TH>
-                  <TextFilter
+                  <TableFilter
                     label="Filter by job id"
-                    value={filters.id}
+                    text={filters.id}
+                    onText={(value) => update('id', value)}
+                    selected={filters.ids}
+                    onSelected={(value) => update('ids', value)}
+                    options={idOptions}
                     placeholder="ID"
-                    onChange={(value) => update('id', value)}
                   />
                 </TH>
                 <TH>
-                  <SelectFilter
+                  <TableFilter
                     label="Filter by status"
-                    value={filters.status}
+                    text={filters.statusText}
+                    onText={(value) => update('statusText', value)}
+                    selected={filters.statuses}
+                    onSelected={(value) => update('statuses', value)}
                     options={STATUSES.map((value) => ({
                       value,
                       label: value.replace(/_/g, ' '),
                     }))}
-                    onChange={(value) => update('status', value)}
                   />
                 </TH>
                 <TH>
-                  <SelectFilter
+                  <TableFilter
                     label="Filter by kind"
-                    value={filters.kind}
+                    text={filters.kindText}
+                    onText={(value) => update('kindText', value)}
+                    selected={filters.kinds}
+                    onSelected={(value) => update('kinds', value)}
                     options={KINDS.map((value) => ({ value, label: value }))}
-                    onChange={(value) => update('kind', value)}
                   />
                 </TH>
                 <TH className="job-col-phase">
-                  <SelectFilter
+                  <TableFilter
                     label="Filter by phase"
-                    value={filters.phase}
+                    text={filters.phaseText}
+                    onText={(value) => update('phaseText', value)}
+                    selected={filters.phases}
+                    onSelected={(value) => update('phases', value)}
                     options={PHASES.map((value) => ({ value, label: value }))}
-                    onChange={(value) => update('phase', value)}
                   />
                 </TH>
                 <TH className="job-col-item">
-                  <TextFilter
+                  <TableFilter
                     label="Filter by item"
-                    value={filters.item}
+                    text={filters.item}
+                    onText={(value) => update('item', value)}
+                    selected={filters.items}
+                    onSelected={(value) => update('items', value)}
+                    options={itemOptions}
                     placeholder="Item"
-                    onChange={(value) => update('item', value)}
                   />
                 </TH>
                 <TH className="job-col-started">
-                  <StackLayout gap={0.5}>
-                    <TextFilter
-                      label="Started from"
-                      type="date"
-                      value={filters.startedAfter}
-                      onChange={(value) => update('startedAfter', value)}
-                    />
-                    <TextFilter
-                      label="Started to"
-                      type="date"
-                      value={filters.startedBefore}
-                      onChange={(value) => update('startedBefore', value)}
-                    />
-                  </StackLayout>
+                  <TableRangeFilter
+                    fromLabel="Started from"
+                    toLabel="Started to"
+                    from={filters.startedAfter}
+                    to={filters.startedBefore}
+                    onFrom={(value) => update('startedAfter', value)}
+                    onTo={(value) => update('startedBefore', value)}
+                    type="date"
+                  />
                 </TH>
                 <TH>
-                  <StackLayout gap={0.5}>
-                    <TextFilter
-                      label="Minimum duration in seconds"
-                      type="number"
-                      placeholder="min"
-                      value={filters.durationMinS}
-                      onChange={(value) => update('durationMinS', value)}
-                    />
-                    <TextFilter
-                      label="Maximum duration in seconds"
-                      type="number"
-                      placeholder="max"
-                      value={filters.durationMaxS}
-                      onChange={(value) => update('durationMaxS', value)}
-                    />
-                  </StackLayout>
+                  <TableRangeFilter
+                    fromLabel="Minimum duration in seconds"
+                    toLabel="Maximum duration in seconds"
+                    from={filters.durationMinS}
+                    to={filters.durationMaxS}
+                    onFrom={(value) => update('durationMinS', value)}
+                    onTo={(value) => update('durationMaxS', value)}
+                    type="number"
+                    fromPlaceholder="min"
+                    toPlaceholder="max"
+                  />
                 </TH>
                 <TH className="job-col-error">
-                  <TextFilter
+                  <TableFilter
                     label="Filter by error"
-                    value={filters.error}
+                    text={filters.error}
+                    onText={(value) => update('error', value)}
+                    selected={filters.errors}
+                    onSelected={(value) => update('errors', value)}
+                    options={errorOptions}
                     placeholder="Error"
-                    onChange={(value) => update('error', value)}
                   />
                 </TH>
               </TR>

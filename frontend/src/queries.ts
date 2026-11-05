@@ -41,15 +41,67 @@ function poll(ms: number): () => number | false {
 /** Jobs-table filters. Durations are entered in seconds, sent in ms. */
 export interface JobFilters {
   id: string
-  status: string
-  kind: string
-  phase: string
+  ids: string[]
+  statusText: string
+  statuses: string[]
+  kindText: string
+  kinds: string[]
+  phaseText: string
+  phases: string[]
   item: string
+  items: string[]
   error: string
+  errors: string[]
   startedAfter: string
   startedBefore: string
   durationMinS: string
   durationMaxS: string
+}
+
+export const EMPTY_JOB_FILTERS: JobFilters = {
+  id: '',
+  ids: [],
+  statusText: '',
+  statuses: [],
+  kindText: '',
+  kinds: [],
+  phaseText: '',
+  phases: [],
+  item: '',
+  items: [],
+  error: '',
+  errors: [],
+  startedAfter: '',
+  startedBefore: '',
+  durationMinS: '',
+  durationMaxS: '',
+}
+
+/** Approved-history filter row; field maps are keyed by catalogue field key. */
+export interface HistoryFilters {
+  key: string
+  keys: string[]
+  statusText: string
+  statuses: string[]
+  approved: string
+  approvedValues: string[]
+  decidedAfter: string
+  decidedBefore: string
+  fieldText: Record<string, string>
+  fieldValues: Record<string, string[]>
+}
+
+export const EMPTY_HISTORY_FILTERS: HistoryFilters = {
+  key: '',
+  keys: [],
+  statusText: '',
+  statuses: [],
+  approved: '',
+  approvedValues: [],
+  decidedAfter: '',
+  decidedBefore: '',
+  fieldText: {},
+  fieldValues: {},
 }
 
 /** Deck/list filters. `statuses` is the repeatable `?status=` filter. */
@@ -128,16 +180,30 @@ export function useItem(route: string | null, key: string | null): ReturnType<ty
 /** Approved-history rows; a separate snapshot read model from the deck. */
 export function useHistory(
   route: string | null,
-  query: string | null,
+  filters: HistoryFilters,
   limit = 25,
   enabled = true,
   offset = 0,
 ): ReturnType<typeof useQuery<ItemsPage>> {
   return useQuery({
-    queryKey: ['history', route ?? '', query ?? '', offset, limit],
+    queryKey: ['history', route ?? '', JSON.stringify(filters), offset, limit],
     queryFn: () =>
       api.history(route ?? '', {
-        q: query ?? undefined,
+        key: filters.key || undefined,
+        keyIn: filters.keys.length > 0 ? filters.keys : undefined,
+        statusText: filters.statusText || undefined,
+        statuses: filters.statuses.length > 0 ? filters.statuses : undefined,
+        approvedAt: filters.approved || undefined,
+        approvedAtIn:
+          filters.approvedValues.length > 0 ? filters.approvedValues : undefined,
+        decidedAfter: filters.decidedAfter || undefined,
+        decidedBefore: filters.decidedBefore || undefined,
+        fields: Object.entries(filters.fieldValues).flatMap(([key, values]) =>
+          values.map((value) => ({ key, value })),
+        ),
+        fieldText: Object.entries(filters.fieldText)
+          .filter(([, text]) => text.trim() !== '')
+          .map(([key, text]) => ({ key, text })),
         limit,
         offset,
       }),
@@ -178,11 +244,17 @@ export function useJobs(
     queryFn: () =>
       api.jobs({
         id: filters.id || undefined,
-        status: filters.status || undefined,
-        kind: filters.kind || undefined,
-        phase: filters.phase || undefined,
+        idIn: filters.ids.length > 0 ? filters.ids : undefined,
+        statusText: filters.statusText || undefined,
+        status: filters.statuses.length > 0 ? filters.statuses : undefined,
+        kindText: filters.kindText || undefined,
+        kind: filters.kinds.length > 0 ? filters.kinds : undefined,
+        phaseText: filters.phaseText || undefined,
+        phase: filters.phases.length > 0 ? filters.phases : undefined,
         item: filters.item || undefined,
+        itemIn: filters.items.length > 0 ? filters.items : undefined,
         error: filters.error || undefined,
+        errorIn: filters.errors.length > 0 ? filters.errors : undefined,
         startedAfter: filters.startedAfter || undefined,
         startedBefore: filters.startedBefore || undefined,
         durationMinMs: seconds(filters.durationMinS),

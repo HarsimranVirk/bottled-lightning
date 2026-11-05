@@ -43,10 +43,13 @@ never listed, queryable or exportable.
 - table list with row counts and columns; clicking a table fills the editor with
   `SELECT * FROM "<table>" LIMIT 100`;
 - SQL editor with one read-only statement;
-- results table with a per-column filter row (client-side contains match), shared
-  pagination (10/25/50/100 rows), row count, duration and truncation flag;
+- results table with the standard per-column filter row (text contains plus a
+  multiselect checkbox dropdown of distinct values), shared pagination
+  (10/25/50/100 rows), row count, duration and truncation flag;
 - **Export CSV** and **Export Excel** buttons for the current SQL. Exports run the full
   query server-side, not the filtered page view;
+- the shared table filter is used on every result column (FR-9.19). Filtering stays
+  client-side over the bounded preview; exports are unaffected;
 - a **Maintenance** section with **Purge current data** and **Purge historical data**.
 
 The preview is capped at 500 rows by default; filtering and pagination operate on that

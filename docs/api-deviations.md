@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v2.5 |
+| **Version** | v2.6 |
 | **Date** | 2026-11-05 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/data-model-deviations.md` |
@@ -157,13 +157,32 @@ Requests an immediate refresh instead of waiting for the 30 s cycle.
 - `recordUrl` is an absolute Salesforce URL. Rows stored before the sync fix may still
   hold a root-relative path; the UI resolves it against the workflow's `listUrl`.
 
-### `GET /api/deviations/history?q=&limit=25&offset=0`
+### `GET /api/deviations/history`
 
 The approved-history read model. Returns the same `ItemsPageView` shape as the item list,
-but every row comes from `approved_deviations`, not `work_items`. `q` matches the
-deviation key, the item reason or the accept note. Rows are always newest accept first;
-the endpoint has no `status` or `decision` filter because only accepted snapshots exist.
+but every row comes from `approved_deviations`, not `work_items`. Rows are always newest
+accept first; only accepted snapshots exist, so there is no decision filter.
 `activeJob` is always `null`.
+
+Query parameters (all optional and composable):
+
+| Parameter | Meaning |
+|---|---|
+| `q` | legacy global contains match on key, item reason or accept note |
+| `key` | deviation key contains |
+| `key_in` | repeated exact deviation keys |
+| `status_text` | status display contains |
+| `status` | repeated exact snapshot statuses |
+| `approved_at` | SF approval display contains |
+| `approved_at_in` | repeated exact SF approval strings |
+| `decided_after`, `decided_before` | accept date range (`YYYY-MM-DD`), inclusive |
+| `field` | repeated `field_key:value` exact field values |
+| `field_text` | repeated `field_key:text` contains field values |
+| `limit`, `offset` | page size (default 25, max 500) and offset |
+
+The field filters use the same value precedence as the table: `proposed`, else
+`extracted`, else `applied`. Amount values are compared raw; the UI strips Indian
+grouping commas before sending a text filter. `total` is the filtered set, not the page.
 
 ### `GET /api/deviations/history/{key}`
 
@@ -279,15 +298,24 @@ Query parameters:
 
 | Parameter | Meaning |
 |---|---|
-| `workflow`, `kind`, `status`, `phase` | exact match |
+| `workflow` | exact workflow |
+| `kind`, `status`, `phase` | repeatable exact enum values |
+| `status_text`, `kind_text`, `phase_text` | enum display contains |
 | `id` | job id contains the text |
+| `id_in` | repeated exact job ids |
 | `item` | deviation number contains the text |
+| `item_in` | repeated exact deviation numbers |
 | `error` | error text contains the text |
+| `error_in` | repeated exact error strings |
 | `started_after`, `started_before` | UTC date (`YYYY-MM-DD`), inclusive |
 | `duration_min_ms`, `duration_max_ms` | duration range in milliseconds |
 | `sort` | `id` (default) · `status` · `kind` · `phase` · `item` · `created` · `started` · `finished` · `duration` · `attempts` · `error` |
 | `order` | `asc` / `desc` (default `desc`) |
 | `limit`, `offset` | page size (default 25, max 200) and offset |
+
+The frontend sends repeated values for `kind`, `status`, `phase`, `id_in`, `item_in`
+and `error_in`. A single value still works, so existing clients are unaffected. Text
+contains and exact-value selections compose with AND.
 
 ```json
 {
@@ -536,6 +564,46 @@ export interface PurgeResult {
   dryRun: boolean;
   deleted: Record<string, number>;
   total: number;
+}
+
+export interface JobQuery {
+  workflow?: string;
+  kind?: string[];
+  status?: string[];
+  phase?: string[];
+  statusText?: string;
+  kindText?: string;
+  phaseText?: string;
+  id?: string;
+  idIn?: string[];
+  item?: string;
+  itemIn?: string[];
+  error?: string;
+  errorIn?: string[];
+  startedAfter?: string;
+  startedBefore?: string;
+  durationMinMs?: number;
+  durationMaxMs?: number;
+  sort?: string;
+  order?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface HistoryQuery {
+  q?: string;
+  key?: string;
+  keyIn?: string[];
+  statusText?: string;
+  statuses?: string[];
+  approvedAt?: string;
+  approvedAtIn?: string[];
+  decidedAfter?: string;
+  decidedBefore?: string;
+  fields?: { key: string; value: string }[];
+  fieldText?: { key: string; text: string }[];
+  limit?: number;
+  offset?: number;
 }
 
 export interface SyncView {

@@ -55,6 +55,15 @@ class JobQuery:
     item: str | None = None
     job_id: str | None = None
     error: str | None = None
+    kinds: tuple[JobKind, ...] = ()
+    statuses: tuple[JobStatus, ...] = ()
+    phases: tuple[Phase, ...] = ()
+    status_text: str | None = None
+    kind_text: str | None = None
+    phase_text: str | None = None
+    job_ids_in: tuple[str, ...] = ()
+    items_in: tuple[str, ...] = ()
+    errors_in: tuple[str, ...] = ()
     started_after: str | None = None
     started_before: str | None = None
     duration_min_ms: int | None = None
@@ -357,15 +366,48 @@ class JobRepository:
         if query.phase is not None:
             where.append("phase = ?")
             params.append(query.phase.value)
+        if query.kinds:
+            placeholders = ",".join("?" for _ in query.kinds)
+            where.append(f"kind IN ({placeholders})")
+            params.extend(kind.value for kind in query.kinds)
+        if query.statuses:
+            placeholders = ",".join("?" for _ in query.statuses)
+            where.append(f"status IN ({placeholders})")
+            params.extend(status.value for status in query.statuses)
+        if query.phases:
+            placeholders = ",".join("?" for _ in query.phases)
+            where.append(f"phase IN ({placeholders})")
+            params.extend(phase.value for phase in query.phases)
+        if query.kind_text:
+            where.append("kind LIKE ?")
+            params.append(f"%{query.kind_text}%")
+        if query.status_text:
+            where.append("status LIKE ?")
+            params.append(f"%{query.status_text}%")
+        if query.phase_text:
+            where.append("phase LIKE ?")
+            params.append(f"%{query.phase_text}%")
         if query.item:
             where.append("item_key LIKE ?")
             params.append(f"%{query.item}%")
+        if query.items_in:
+            placeholders = ",".join("?" for _ in query.items_in)
+            where.append(f"item_key IN ({placeholders})")
+            params.extend(query.items_in)
         if query.job_id:
             where.append("CAST(id AS TEXT) LIKE ?")
             params.append(f"%{query.job_id}%")
+        if query.job_ids_in:
+            placeholders = ",".join("?" for _ in query.job_ids_in)
+            where.append(f"CAST(id AS TEXT) IN ({placeholders})")
+            params.extend(query.job_ids_in)
         if query.error:
             where.append("COALESCE(error, '') LIKE ?")
             params.append(f"%{query.error}%")
+        if query.errors_in:
+            placeholders = ",".join("?" for _ in query.errors_in)
+            where.append(f"COALESCE(error, '') IN ({placeholders})")
+            params.extend(query.errors_in)
         if query.started_after:
             where.append("substr(started_at, 1, 10) >= ?")
             params.append(query.started_after)

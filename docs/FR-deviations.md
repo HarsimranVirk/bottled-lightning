@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.20 |
+| **Version** | v5.21 |
 | **Date** | 2026-11-05 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -284,6 +284,11 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   (id, status, kind, phase, item, started date range, duration range, error) placed
   directly in a second header row under the column label. Filters compose, the count
   reflects the filtered set, and changing a filter or sort returns to the first page.
+- **FR-7.11** Jobs filters follow the standard table-filter pattern (FR-9.18). Status,
+  kind and phase are multiselect checkbox lists; id, item and error combine a contains
+  text input with exact-value checkboxes. Repeated values are sent to the server so the
+  filtered total and every page are correct. Started and duration keep their range
+  inputs (FR-9.19).
 
 ### FR-8 History & audit
 
@@ -310,6 +315,10 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-8.7** Both purges are manual. They are triggered from the hidden `/dev/db` page,
   are localhost-only, and require an explicit confirmation with the cutoff and the
   per-table counts shown before the destructive action.
+- **FR-8.8** History uses the same standard table-filter pattern as every other table:
+  deviation key, status, SF approval and each displayed value column have a text input
+  and exact-value checkboxes; the decided date uses the range variant. The filtered total
+  and pagination come from the server.
 
 ### FR-9 API & frontend
 
@@ -368,6 +377,17 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-9.17** The History view is a separate route from the deck (`?view=history`), and
   opening a history row uses the history detail endpoint. The history detail is read-only
   and never offers an Undo decision action.
+- **FR-9.18** Every data table uses one shared table-filter pattern: a text input and a
+  multiselect dropdown with checkboxes for exact values. An empty selection means all
+  values; selected values are OR within one column, columns compose with AND, and the
+  text plus the selected values in the same column also compose with AND. The trigger
+  shows “All” or “N selected”. Date and duration ranges use the shared range variant
+  (two inputs) instead of a checkbox list.
+- **FR-9.19** The Dev DB results table applies the standard filter to every column,
+  using the distinct non-empty values in the current preview as checkbox options. This
+  filtering remains client-side over the bounded preview; exports still run the full SQL.
+  Future tables must reuse the shared filter components rather than adding bespoke
+  filter cells.
 
 ### FR-10 Review decisions (accept / reject)
 
@@ -525,6 +545,12 @@ opens the Lightning ref URL directly, resolves that iframe, and uses Classic inl
 (double-click, clear the input, fill, verify, Save).
 
 ## Appendix C — Change log
+
+- **v5.21** — one standard table filter everywhere: text plus a multiselect checkbox
+  dropdown for exact values, with a range variant for dates/durations. Jobs sends
+  repeated values to the server; History gains per-column filters; the Dev DB result
+  table filters every column. Future tables must reuse the shared components
+  (FR-7.11, FR-8.8, FR-9.18/9.19).
 
 - **v5.20** — approved-history snapshots are separated from current work items; the
   History tab reads the snapshot store. Manual purges keep current work items for 24

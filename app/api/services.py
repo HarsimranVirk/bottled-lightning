@@ -23,7 +23,7 @@ from app.core.models import (
     utcnow,
 )
 from app.core.registry import WorkflowRegistry
-from app.core.repo.approved_history import ApprovedHistoryRepository
+from app.core.repo.approved_history import ApprovedHistoryRepository, HistoryQuery
 from app.core.repo.attributes import AttributeRepository
 from app.core.repo.decisions import DecisionRepository
 from app.core.repo.edits import EditRepository
@@ -226,22 +226,21 @@ class WorkItemService:
     def list_history(
         self,
         workflow_name: str,
-        query: str | None = None,
-        limit: int = 25,
-        offset: int = 0,
+        query: HistoryQuery | None = None,
     ) -> ItemsPageView:
         """
         Page the approved-history snapshots, newest accept first.
 
         Reads only the segregated snapshot store, so a purged work item cannot remove a
-        row from this response.
+        row from this response. The caller supplies the standard filter row; ``None``
+        means no filters and the first 25 rows.
         """
         workflow = self._workflow(workflow_name)
         if self._history is None:
             return ItemsPageView(
                 workflow=workflow.name, count=0, total=0, rows=[]
             )
-        items, total = self._history.page(workflow.name, query, limit, offset)
+        items, total = self._history.page(workflow.name, query or HistoryQuery())
         return ItemsPageView(
             workflow=workflow.name,
             count=len(items),
@@ -622,12 +621,18 @@ class AdminPort(Protocol):
     def jobs(
         self,
         workflow: str | None = None,
-        kind: str | None = None,
-        status: str | None = None,
-        phase: str | None = None,
+        kind: Sequence[str] | None = None,
+        status: Sequence[str] | None = None,
+        phase: Sequence[str] | None = None,
+        status_text: str | None = None,
+        kind_text: str | None = None,
+        phase_text: str | None = None,
         item: str | None = None,
+        item_in: Sequence[str] | None = None,
         job_id: str | None = None,
+        id_in: Sequence[str] | None = None,
         error: str | None = None,
+        error_in: Sequence[str] | None = None,
         started_after: str | None = None,
         started_before: str | None = None,
         duration_min_ms: int | None = None,
@@ -759,12 +764,18 @@ class AdminService:
     def jobs(
         self,
         workflow: str | None = None,
-        kind: str | None = None,
-        status: str | None = None,
-        phase: str | None = None,
+        kind: Sequence[str] | None = None,
+        status: Sequence[str] | None = None,
+        phase: Sequence[str] | None = None,
+        status_text: str | None = None,
+        kind_text: str | None = None,
+        phase_text: str | None = None,
         item: str | None = None,
+        item_in: Sequence[str] | None = None,
         job_id: str | None = None,
+        id_in: Sequence[str] | None = None,
         error: str | None = None,
+        error_in: Sequence[str] | None = None,
         started_after: str | None = None,
         started_before: str | None = None,
         duration_min_ms: int | None = None,
@@ -774,16 +785,24 @@ class AdminService:
         limit: int = 25,
         offset: int = 0,
     ) -> JobsPageView:
-        """One filtered, sorted page of the jobs table (FR-7.10)."""
+        """One filtered, sorted page of the jobs table (FR-7.10/7.11)."""
         page: JobPage = self._jobs.query(
             JobQuery(
                 workflow=workflow,
-                kind=self._kind(kind),
-                status=self._job_status(status),
-                phase=self._phase(phase),
+                kinds=tuple(self._required_kind(value) for value in kind or ()),
+                statuses=tuple(
+                    self._required_job_status(value) for value in status or ()
+                ),
+                phases=tuple(self._required_phase(value) for value in phase or ()),
+                status_text=self._text(status_text),
+                kind_text=self._text(kind_text),
+                phase_text=self._text(phase_text),
                 item=self._text(item),
+                items_in=self._texts(item_in),
                 job_id=self._text(job_id),
+                job_ids_in=self._texts(id_in),
                 error=self._text(error),
+                errors_in=self._texts(error_in),
                 started_after=self._text(started_after),
                 started_before=self._text(started_before),
                 duration_min_ms=duration_min_ms,
@@ -814,6 +833,12 @@ class AdminService:
         """Trim an optional query string; blank means no filter."""
         return value.strip() or None if value is not None else None
 
+    def _texts(self, values: Sequence[str] | None) -> tuple[str, ...]:
+        """Trim repeated query values, dropping blanks, for an exact-value filter."""
+        return tuple(
+            text for value in values or () if (text := value.strip()) != ""
+        )
+
     def _phase(self, phase: str | None) -> Phase | None:
         if not phase:
             return None
@@ -838,6 +863,27 @@ class AdminService:
             return self._registry.get(workflow).name
         except Exception as exc:
             raise ApiError(404, f"unknown workflow: {workflow}", "unknown_workflow") from exc
+
+    def _required_kind(self, kind: str) -> JobKind:
+        """Parse a repeated kind value, which is never ``None``."""
+        parsed = self._kind(kind)
+        if parsed is None:
+            raise ApiError(422, "kind must not be empty", "invalid_value")
+        return parsed
+
+    def _required_job_status(self, status: str) -> JobStatus:
+        """Parse a repeated status value, which is never ``None``."""
+        parsed = self._job_status(status)
+        if parsed is None:
+            raise ApiError(422, "status must not be empty", "invalid_value")
+        return parsed
+
+    def _required_phase(self, phase: str) -> Phase:
+        """Parse a repeated phase value, which is never ``None``."""
+        parsed = self._phase(phase)
+        if parsed is None:
+            raise ApiError(422, "phase must not be empty", "invalid_value")
+        return parsed
 
     def _kind(self, kind: str | None) -> JobKind | None:
         if kind is None:

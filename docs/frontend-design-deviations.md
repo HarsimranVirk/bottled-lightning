@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.6 |
+| **Version** | v4.7 |
 | **Date** | 2026-11-05 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
@@ -141,17 +141,20 @@ no deck actions.
 | State | Content | Actions |
 |---|---|---|
 | loading | Salt table skeleton | — |
-| ready | Salt Table: Deviation (SF link), Decided (chip + time), Status, SF approval, four values | Open detail, search |
+| ready | Salt Table: Deviation (SF link), Decided (chip + time), Status, SF approval, four values | Open detail, standard filter row |
 | empty | "No deviations have been accepted yet." | — |
-| search miss | "No approved deviations match this search." | Clear search |
+| filter miss | "No approved deviations match these filters." | Clear filters |
 | page overflow | `1–25 of N`, page buttons, rows-per-page | Page |
 
-The search field is a Salt `FormField`; pagination is server-side ordered by the newest
-accept (`decided_at DESC`). The view lives at `?view=history` so a history row can be
-linked directly. Clicking a row opens the read-only snapshot detail; the deviation number
-is an absolute Salesforce link. There is no **Undo decision** action in history — undo is
-a current-item action and removes the snapshot when it is used from the deck. The history
-detail keeps working after the current work item is purged.
+Every column has the standard filter row: a text input plus a multiselect checkbox
+dropdown (deviation key, status, SF approval and each displayed value); the Decided
+column uses the shared date-range variant. Pagination is server-side ordered by the
+newest accept (`decided_at DESC`), and the filtered total comes from the server. The view
+lives at `?view=history` so a history row can be linked directly. Clicking a row opens
+the read-only snapshot detail; the deviation number is an absolute Salesforce link. There
+is no **Undo decision** action in history — undo is a current-item action and removes the
+snapshot when it is used from the deck. The history detail keeps working after the
+current work item is purged.
 
 ### 3.3 Item detail (drawer or full page on narrow screens)
 
@@ -193,10 +196,14 @@ A bare “Refresh” label is not used.
 
 ### 3.5 Jobs
 
-A standard data table: sortable headers, **column filters in a second header row**
-(directly under each column label), server-side pagination, and a log panel for the
-selected job. Filter controls are Salt `Input`/`Dropdown`; the row is part of the table
-head, not a separate form above it.
+A standard data table: sortable headers, **the shared column filters in a second header
+row** (directly under each column label), server-side pagination, and a log panel for the
+selected job. Every filter cell uses the standard table filter: text (or a date/duration
+range) plus a multiselect checkbox dropdown for exact values. Status, kind and phase use
+their fixed enum lists; id, item and error use the distinct values in the current page.
+Selected values are sent to the server as repeated query parameters, so the total and
+every page are filtered correctly. The filter row is part of the table head, not a
+separate form above it.
 
 Columns: **ID · Status · Kind · Phase · Item · Started · Duration · Error**. The row is
 selectable; the log panel below shows the selected job and its full error.
@@ -212,9 +219,28 @@ selectable; the log panel below shows the selected job and its full error.
 | page overflow | pagination bar: `1–25 of 137`, page size, Prev/Next |
 | selected | row highlighted; log panel open below |
 
-Filters: id (contains), status / kind / phase (selects), item (contains), started
-from/to (UTC dates), duration min/max (seconds), error (contains). Changing any filter
-or sort resets to page 1. Sortable headers toggle asc/desc and expose `aria-sort`.
+Filters: id (contains + exact values), status / kind / phase (text + multiselect),
+item (contains + exact values), error (contains + exact values), started from/to (UTC
+dates), duration min/max (seconds). Changing any filter or sort resets to page 1.
+Sortable headers toggle asc/desc and expose `aria-sort`.
+
+### 3.5b Standard table filter (every table)
+
+`TableFilter` is the default filter cell for every data table, including future ones:
+
+- a text `Input` for a contains match;
+- a Salt `Dropdown` with `multiselect` for exact values, rendered as checkboxes;
+- an empty selection means “all”; selected values are OR within the column, columns
+  compose with AND, and the text plus the selected values in the same column also
+  compose with AND;
+- the trigger shows “All” or “N selected”;
+- options are fixed enums where the column has them; otherwise they are the distinct
+  non-empty values in the loaded page/preview, sorted and capped at 100.
+
+`TableRangeFilter` is the shared variant for continuous columns: two text/date/number
+inputs for the lower and upper bound, with no checkbox list. It is used for Jobs started
+and duration and the History decided date. Future tables must use these components
+rather than bespoke filter cells.
 
 ### 3.6 Dev DB explorer (dev-only)
 
@@ -232,7 +258,7 @@ CSV** / **Export Excel**. On narrow screens the columns stack.
 | loading tables | table-list skeleton |
 | explicitly disabled / remote | warning banner: dev tools are disabled |
 | query running | Run disabled, "Running…" |
-| results | row count, duration, truncation flag, Salt zebra table, one filter input per column |
+| results | row count, duration, truncation flag, Salt zebra table, the standard text + checkbox filter on every column |
 | filtered | "N of M rows", **Clear filters**, filtered table and pagination |
 | no matches | "No rows match the filters." |
 | page overflow | shared pagination bar (`1–25 of N`, Prev/Next, rows per page) |
@@ -272,7 +298,7 @@ App
     │   ├── ViewToggle          Salt ToggleButtonGroup: Deck (default) / History
     │   ├── DecisionDeck         one card, tallies, replay, exit animation
     │   │   └── DecisionCard     Salt card: refs, description, ROI grid, FormField values
-    │   ├── HistoryTable         Salt Table of accepted deviations + search + pagination
+    │   ├── HistoryTable         Salt Table of accepted deviations + standard filters + pagination
     │   └── ItemDrawer           route "/deviations-z02/:key" (Salt Panel)
     │       ├── FieldGroup       values grouped by target object
     │       ├── AttributeList    read-only extracted values
@@ -298,7 +324,7 @@ Server state is the only state that matters; everything else is UI.
 | `["sync", workflow]` | `GET /api/syncs?workflow=` | 10 s | header/rows/valid/warning |
 | `["items", workflow, filters, offset]` | `GET /api/deviations` | 10 s | deck (all rows for the tallies) |
 | `["item", workflow, key]` | `GET /api/deviations/{key}` | 10 s, paused while editing | current detail |
-| `["history", workflow, query, offset]` | `GET /api/deviations/history` | 10 s | approved-history snapshot table |
+| `["history", workflow, filters, offset]` | `GET /api/deviations/history` | 10 s | approved-history snapshot table; filters are serialised into repeated query params |
 | `["history-item", workflow, key]` | `GET /api/deviations/history/{key}` | 10 s | read-only snapshot detail |
 | `["jobs", filters, page, size, sort, order]` | `GET /api/jobs` | 2 s while visible | paginated queue |
 | `["job", id]` | `GET /api/jobs/{id}/logs` | 2 s while visible | expanded job |
@@ -462,8 +488,8 @@ combinations hit the server, the total reflects the filters, and a running job's
 duration ticks.
 
 **Slice F — history** (done). The general list view is replaced by the accepted-deviations
-history table (Salt Table, newest accept first, search + server pagination). The deck
-completion card links to it.
+history table (Salt Table, newest accept first, standard filter row + server pagination).
+The deck completion card links to it.
 
 **Slice G — segregated history + retention** (approved). History moves to the
 `approved_*` snapshot read model with its own route and detail endpoint. The dev DB

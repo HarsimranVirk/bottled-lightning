@@ -116,7 +116,7 @@ export interface paths {
         };
         /**
          * List History
-         * @description Accepted-deviation snapshots, newest accept first.
+         * @description Accepted-deviation snapshots with the standard server-side filter row.
          *
          *     This is a separate read model from the live item list; it survives the current
          *     work-item purge.
@@ -1059,6 +1059,7 @@ export interface operations {
     list_items_api_deviations_get: {
         parameters: {
             query?: {
+                status?: string[] | null;
                 decision?: string | null;
                 q?: string | null;
                 sort?: string;
@@ -1070,11 +1071,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: {
-            content: {
-                "application/json": string[] | null;
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -1100,6 +1097,16 @@ export interface operations {
         parameters: {
             query?: {
                 q?: string | null;
+                key?: string | null;
+                key_in?: string[] | null;
+                status_text?: string | null;
+                status?: string[] | null;
+                approved_at?: string | null;
+                approved_at_in?: string[] | null;
+                decided_after?: string | null;
+                decided_before?: string | null;
+                field?: string[] | null;
+                field_text?: string[] | null;
                 limit?: number;
                 offset?: number;
             };
@@ -1358,12 +1365,18 @@ export interface operations {
         parameters: {
             query?: {
                 workflow?: string | null;
-                kind?: string | null;
-                status?: string | null;
-                phase?: string | null;
+                kind?: string[] | null;
+                status?: string[] | null;
+                phase?: string[] | null;
+                status_text?: string | null;
+                kind_text?: string | null;
+                phase_text?: string | null;
                 item?: string | null;
+                item_in?: string[] | null;
                 id?: string | null;
+                id_in?: string[] | null;
                 error?: string | null;
+                error_in?: string[] | null;
                 started_after?: string | null;
                 started_before?: string | null;
                 duration_min_ms?: number | null;
