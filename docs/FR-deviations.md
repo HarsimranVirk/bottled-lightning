@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.16 |
+| **Version** | v5.17 |
 | **Date** | 2026-11-05 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -238,6 +238,9 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-6.11** Closure is applied on the first valid refresh reporting absence, except
   while a `SUBMIT` lease is held: then `absent_pending` is recorded and the close is
   applied when the lease is released. Work is never yanked out from under a running job.
+  If a first close attempt cannot complete, the next valid refresh retries it; a
+  non-terminal item is never left in the working queue just because it is already marked
+  absent.
 - **FR-6.12** There is no record-page reconciliation. If the implement click was made but
   its outcome was never confirmed (page died, timeout), the closure is attributed
   `source=system` and carries an `implement_unconfirmed` flag for operator review.
@@ -475,6 +478,10 @@ opens the Lightning ref URL directly, resolves that iframe, and uses Classic inl
 (double-click, clear the input, fill, verify, Save).
 
 ## Appendix C — Change log
+
+- **v5.17** — absence closure is retried and `needs_review` can defer through
+  `absent_pending`; the reconciler revisits already-absent non-terminal items and the deck
+  hides `present=false` rows (FR-6.11, FR-10.5).
 
 - **v5.16** — Option C: **Accept & update** stores the card values, records the accept and
   enqueues the `SUBMIT` job when at least one value is non-empty. There is no confirmation

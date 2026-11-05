@@ -229,7 +229,9 @@ _TRANSITIONS: Mapping[WorkItemStatus, frozenset[WorkItemStatus]] = {
     ),
     S.EXECUTING: frozenset({S.COMPLETED, S.READY, S.NEEDS_REVIEW, S.ABSENT_PENDING}),
     S.ABSENT_PENDING: frozenset({S.COMPLETED, S.CLOSED}),
-    S.NEEDS_REVIEW: frozenset({S.READY, S.SUBMITTING, S.CLOSED}),
+    S.NEEDS_REVIEW: frozenset(
+        {S.READY, S.SUBMITTING, S.ABSENT_PENDING, S.CLOSED}
+    ),
     S.COMPLETED: frozenset({S.PRESENT}),
     S.CLOSED: frozenset({S.PRESENT}),
     S.SKIPPED: frozenset({S.PRESENT}),

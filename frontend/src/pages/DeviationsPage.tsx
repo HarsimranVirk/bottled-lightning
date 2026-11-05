@@ -24,6 +24,7 @@ import type { DecisionKind, ItemRow } from '../api'
 import { DecisionDeck } from '../components/DecisionDeck'
 import { HistoryTable } from '../components/HistoryTable'
 import { ItemDrawer } from '../components/ItemDrawer'
+import { DECIDABLE_STATUSES, isDeckRow } from '../deck'
 import { acceptAndSubmit } from '../submit'
 import {
   useDecideDecision,
@@ -37,8 +38,6 @@ import {
 } from '../queries'
 
 const Z02_WORKFLOW = 'deviations_z02'
-/** Statuses the operator may decide on (FR-10.5). */
-const DECIDABLE = ['ready', 'editing', 'needs_review']
 
 export function DeviationsPage(): JSX.Element {
   const { key } = useParams()
@@ -71,16 +70,7 @@ export function DeviationsPage(): JSX.Element {
   const detail = useItem(route, key ?? null)
 
   const allRows = useMemo(() => deck.data?.rows ?? [], [deck.data])
-  const deckRows = useMemo(
-    () =>
-      allRows.filter(
-        (row) =>
-          DECIDABLE.includes(row.status) &&
-          (row.decision === null ||
-            (row.status === 'needs_review' && row.decision?.decision === 'accept')),
-      ),
-    [allRows],
-  )
+  const deckRows = useMemo(() => allRows.filter(isDeckRow), [allRows])
   const tally = useMemo(
     () => ({
       accept: allRows.filter((row) => row.decision?.decision === 'accept').length,
@@ -152,7 +142,9 @@ export function DeviationsPage(): JSX.Element {
   async function replaySkipped(): Promise<void> {
     if (route === null) return
     const skipped = allRows.filter(
-      (row) => row.decision?.decision === 'reject' && DECIDABLE.includes(row.status),
+      (row) =>
+        row.decision?.decision === 'reject' &&
+        DECIDABLE_STATUSES.has(row.status),
     )
     if (skipped.length === 0) return
     setReplaying(true)

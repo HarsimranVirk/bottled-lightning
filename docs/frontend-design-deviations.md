@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.0 |
+| **Version** | v4.1 |
 | **Date** | 2026-11-05 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
@@ -111,6 +111,7 @@ accepted/skipped/to-review tallies, then Skip and Accept & update. The header ke
 | leaving | card slides out right (accept) or left (skip) for 420 ms | — |
 | complete | `Deck complete 🎉`, accepted/skipped counts, **Replay skipped**, Refresh | undo all skips |
 | paused session | Skip stays local; Accept & update is blocked by the auth banner and the card stays actionable | Skip |
+| absent from Salesforce | no card: the deck requires `present=true`, so a row that left the list disappears immediately while the backend closure retry finishes it | — |
 
 Below the description the card splits into **read-only data on the left** (Pages to
 update, ROI) and the **four editable values on the right**; Skip/Accept & update span the

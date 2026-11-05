@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.2 |
+| **Version** | v4.3 |
 | **Date** | 2026-11-04 |
 | **Companions** | `docs/FR-deviations.md` (v3), `docs/data-model-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
 | **Change** | Introduced the workflow abstraction; earlier drafts were deviations-only |
@@ -775,6 +775,11 @@ elif execute_attempted_at is set       → COMPLETED, source=system, flag implem
 else                                   → CLOSED, source=external, reason=already_implemented
 then: cancel active jobs, emit event
 ```
+
+`ABSENT_PENDING` is legal from every non-terminal status, including `NEEDS_REVIEW`. The
+reconciler retries every `present = 0`, non-terminal, not-yet-closed item on each valid
+cycle, so a failed first close can never strand an item in the working queue just because
+it is already marked absent.
 
 ### 8.4 `AuthGate`
 

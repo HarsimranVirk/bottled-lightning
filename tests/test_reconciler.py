@@ -262,6 +262,48 @@ class ClosureDuringLeaseTests(ReconcilerTestCase):
         self.assertIs(done.source, ClosureSource.EXTERNAL)
 
 
+class AbsentNeedsReviewTests(ReconcilerTestCase):
+    """A needs_review item that leaves the list must still close."""
+
+    def _needs_review(self) -> None:
+        """Create a present item and move it to needs_review."""
+        reconciler, _closure, _workflow = self.build()
+        reconciler.apply(sample(row()))
+        deps = self.deps()
+        deps.items.transition(WORKFLOW, KEY, WorkItemStatus.EXTRACTING)
+        deps.items.transition(
+            WORKFLOW, KEY, WorkItemStatus.READY, extracted_at=utcnow()
+        )
+        deps.items.transition(
+            WORKFLOW, KEY, WorkItemStatus.NEEDS_REVIEW, reason="rejected write"
+        )
+
+    def test_absent_needs_review_closes_on_the_first_cycle(self) -> None:
+        """The closure path needs needs_review -> absent_pending."""
+        self._needs_review()
+        reconciler, _closure, _workflow = self.build()
+        run = reconciler.apply(sample())
+        self.assertEqual(run.closed, 1)
+        item = self.deps().items.require(WORKFLOW, KEY)
+        self.assertIs(item.status, WorkItemStatus.CLOSED)
+        self.assertIs(item.source, ClosureSource.EXTERNAL)
+        self.assertFalse(item.present)
+        self.assertIsNotNone(item.closed_at)
+
+    def test_already_absent_needs_review_is_retried(self) -> None:
+        """A failed first close must be retried instead of stranding the item."""
+        self._needs_review()
+        deps = self.deps()
+        deps.items.set_absent(WORKFLOW, KEY, utcnow())
+        reconciler, _closure, _workflow = self.build()
+        run = reconciler.apply(sample())
+        self.assertEqual(run.closed, 1)
+        item = deps.items.require(WORKFLOW, KEY)
+        self.assertIs(item.status, WorkItemStatus.CLOSED)
+        self.assertIs(item.source, ClosureSource.EXTERNAL)
+        self.assertFalse(item.present)
+
+
 class _FakeSource:
     def __init__(self, samples: list[ListSample]) -> None:
         self._samples = samples
