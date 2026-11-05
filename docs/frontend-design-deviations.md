@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v3.9 |
+| **Version** | v4.0 |
 | **Date** | 2026-11-05 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
@@ -32,8 +32,8 @@ second workflow later means adding a second tab deliberately, not genericising t
 | Component tests | Vitest + React Testing Library + **MSW** | fast, no browser, mocks the documented contract |
 | Visual/E2E | Playwright (already a dependency) | screenshots per state; the review mechanism for agents and humans |
 | Language | TypeScript `strict`, no `any` | matches AGENTS.md |
-| Review decisions | local, append-only SQLite rows (`accept`/`reject`/undo) | one operator, reversible, no SF write; see FR-10 |
-| Deck input | **Skip / Accept buttons only** | gestures could accept by mistake; the buttons span the card width |
+| Review decisions | append-only SQLite rows (`accept`/`reject`/undo); Accept may enqueue one `SUBMIT` job | one operator, reversible; Skip stays local, Accept writes when the card has values; see FR-10 |
+| Deck input | **Skip / Accept & update buttons only** | gestures could write by mistake; the buttons span the card width |
 
 Rejected: Redux (server state dominates), Storybook (a `/dev/states` harness gives most of
 the value), client-side business rules (the backend owns them).
@@ -45,20 +45,19 @@ the value), client-side business rules (the backend owns them).
 ```
 open app
   └─ session valid ──► review deck (undecided, decidable items)
-        ├─ Accept button ──► PATCH values + POST decision ──► next card
-        ├─ Skip button   ──► POST decision ────────────────► next card
+        ├─ Accept & update ──► PATCH values + POST decision + POST job ──► next card
+        │     └─ no values: POST decision only
+        │     └─ job: submitting → applying → validating → ready (validated)
+        │            or needs_review (the accepted card returns with the reason)
+        ├─ Skip ──► POST decision ──► next card
         ├─ undo (U) ──► DELETE decision ──► the card returns
-        └─ details ──► item panel: values, attributes, refs, history
-              └─ edit 2 fields ──► "Save changes" ──► PATCH
-                    └─ submit ──► confirm dialog ──► POST job (202)
-                          └─ status cycles: submitting → applying →
-                             validating → executing → completed
-                                └─ item leaves the working list (present=false)
+        └─ details ──► item panel: values, attributes, refs, history, job log
 ```
 
-Accept/reject is deliberately **not** a submit: it records the decision that feeds the
-submitter once Phase 6 exists (FR-10.6). The confirmation dialog belongs to submit, not
-to a reversible decision.
+Accept is the deck's submission action (Option C): it stores the card's values, records
+the accept and enqueues one `SUBMIT` job when at least one value is non-empty. There is
+no separate confirmation dialog in the current phase. Skip remains local. A failed
+accepted item returns to the deck in `needs_review` so it cannot disappear unnoticed.
 
 ### 2.2 Unhappy paths that must be designed, not discovered
 
@@ -72,12 +71,12 @@ to a reversible decision.
 | Empty deck | "Deck complete" card + last sync age |
 | Item skipped | terminal chip + reason (e.g. "multiple LMS2 CL contracts") |
 | Item closed externally | terminal chip "Closed" + "left Salesforce without us implementing it" |
-| Submission failed | `needs_review` banner, job link with logs, "resubmit" disabled until values are reviewed |
+| Submission failed | the accepted card returns to the deck in `needs_review` with the failure reason and a job-log link; fix the values and Accept & update again |
 | Field rejected by SF | field-level error on the cell, others retain their values |
 | Polling error | non-blocking banner "reconnecting", keep last data, retry with backoff |
 | Decision write fails | banner over the deck (danger) with the server message; the card stays, nothing is hidden |
 | Two decisions race | the server returns the winner; the deck refetches and shows whatever is current |
-| Session expired while deciding | decisions stay enabled (they are local); loop shows the auth banner and submit/refresh are disabled |
+| Session expired while deciding | Skip stays local; Accept & update is blocked by the auth banner and the card stays actionable |
 
 ## 3. Screens and the state matrix
 
@@ -96,31 +95,33 @@ screen is built against the API.
 ### 3.2 Deviations Z02 — review deck (default)
 
 The tab opens on the deck, in the shape of the legacy `Deck.tsx`: one card at a time,
-accepted/skipped/to-review tallies, then Skip and Accept. The header keeps the
+accepted/skipped/to-review tallies, then Skip and Accept & update. The header keeps the
 **Deck / History** toggle; history is section 3.2b.
 
 | State | Card content | Actions |
 |---|---|---|
 | loading | one card skeleton; tallies show the last snapshot | — |
-| ready | record link + status, approval date, *Pages to update* (Opportunity, CL, collateral, LMS2), raw description panel, ROI grid, four editable values; only values that changed between the description's Old and New blocks are prefilled | Skip, Accept |
-| needs_review | same card + the failure reason above the description | Skip, Accept |
-| partial values | unchanged, missing or equal Old/New values start blank; the current SF value (`lastSynced`) is never shown as a prefill or hint; no warning | Accept allowed (FR-10.10) |
+| ready | record link + status, approval date, *Pages to update* (Opportunity, CL, collateral, LMS2), raw description panel, ROI grid, four editable values; only values that changed between the description's Old and New blocks are prefilled | Skip, Accept & update |
+| needs_review | same card + the failure reason above the description; a failed accepted item returns here | Skip, Accept & update |
+| partial values | unchanged, missing or equal Old/New values start blank; the current SF value (`lastSynced`) is never shown as a prefill or hint; no warning | Accept & update records the decision; the job is queued only if a value is present (FR-10.10) |
 | description | bordered Salt card: full text in Old/New columns on desktop; compact preview + **Read full description** dialog on mobile or above 1200 chars / 40 lines | decide |
-| editing a value | input shows Indian grouping (amounts) or months; the draft is local until Accept | Skip discards the draft |
-| decision in flight | Skip/Accept disabled until the PATCH + decision finish | — |
+| editing a value | input shows Indian grouping (amounts) or months; the draft is local until Accept & update | Skip discards the draft |
+| decision in flight | Skip/Accept & update disabled until the PATCH + decision + job finish | — |
 | decision failed | card stays, the server message appears above it | Retry |
 | leaving | card slides out right (accept) or left (skip) for 420 ms | — |
 | complete | `Deck complete 🎉`, accepted/skipped counts, **Replay skipped**, Refresh | undo all skips |
-| paused session | deck still usable (decisions + proposals are local) + global auth banner | Skip, Accept |
+| paused session | Skip stays local; Accept & update is blocked by the auth banner and the card stays actionable | Skip |
 
 Below the description the card splits into **read-only data on the left** (Pages to
-update, ROI) and the **four editable values on the right**; Skip/Accept span the card.
-On narrow screens the card stacks in that order: description, read-only, editable.
+update, ROI) and the **four editable values on the right**; Skip/Accept & update span the
+card. On narrow screens the card stacks in that order: description, read-only, editable.
 
 Card order: newest `last_seen` first, the same order as the list. "next up: <key>" names
-the card behind the top one. **Accept** PATCHes the card's cleaned values as proposals
-(amounts are grouped on screen, digits on the wire) and then records the decision;
-**Skip** records only the decision. Neither writes to Salesforce (FR-10.2).
+the card behind the top one. **Accept & update** PATCHes the card's cleaned values
+(amounts are grouped on screen, digits on the wire), records the accept, and enqueues one
+`SUBMIT` job when at least one value is non-empty; a card with no values records the
+decision only. **Skip** records only the decision and never writes to Salesforce
+(FR-10.2/10.6).
 
 ### 3.2b Deviations Z02 — accepted history (toggle)
 
@@ -238,7 +239,7 @@ Server state is the only state that matters; everything else is UI.
 | `["jobs", filters, page, size, sort, order]` | `GET /api/jobs` | 2 s while visible | paginated queue |
 | `["job", id]` | `GET /api/jobs/{id}/logs` | 2 s while visible | expanded job |
 | `["items", …]` mutation | `POST` / `DELETE …/decisions` | on action | invalidates the list and item keys |
-| `["items", …]` mutation | `PATCH …/field-values` | on accept with edits | stores the card's proposals, then the decision |
+| `["items", …]` mutation | `PATCH …/field-values`, `POST …/decisions`, `POST …/jobs` | on accept with values | stores the card's values, records the decision, enqueues the submit job |
 
 Rules:
 
@@ -256,39 +257,45 @@ Rules:
   the query is invalidated and the next card becomes the top card. The animation starts
   only after the response, so a failed request never looks like a decision.
 - **A decided card is not re-shown** by a poll: the deck query excludes decided items, so
-  a slow refresh cannot resurrect a card the operator dismissed.
+  a slow refresh cannot resurrect a card the operator dismissed. The one exception is an
+  accepted item that comes back in `needs_review` after a failed submit; it is shown with
+  its failure reason until corrected.
 - **`localStorage`** keeps only UI preferences (filters, drawer width) and the last known
   session *display* state. It is never a source of truth.
 
 ## 6. Interaction spec
 
-1. **Decide** — the **Skip** and **Accept** buttons decide; both span half the card
-   width and show their shortcut (`Skip (Shift+←)`, `Accept (Shift+→)`). There is no drag
-   or swipe gesture (FR-10.9). Accept sends the card's values first
-   (`PATCH …/field-values`)
-   and then the decision, so one accept is two ordered requests; Skip sends only the
-   decision. The card slides out after the server confirms. No modal: decisions are
-   reversible (FR-10.3), and *Replay skipped* restores every skip when the deck is empty.
+1. **Decide** — the **Skip** and **Accept & update** buttons decide; both span half the
+   card width and show their shortcut (`Skip (Shift+←)`, `Accept & update (Shift+→)`).
+   There is no drag or swipe gesture (FR-10.9). Accept & update sends the card's values
+   (`PATCH …/field-values`), records the decision, and enqueues the submit job
+   (`POST …/jobs`) when at least one value is present; a card with no values sends only
+   the decision. Skip sends only the decision. The card slides out after the last request
+   confirms. No modal: the decision is reversible (FR-10.3), and *Replay skipped* restores
+   every skip when the deck is empty.
 2. **Edit** — click a cell (or focus + Enter) → input with the current value; `Esc` cancels
    that cell, `Enter`/blur stages the change. Staged changes are shown in the footer
    ("2 unsaved changes").
 3. **Save** — one `PATCH` with only changed fields. On `422 invalid_value` the message is
    attached to that field and the drawer stays dirty; other fields keep their drafts.
 4. **Discard** — `DELETE …/field-values`, then refetch the item.
-5. **Submit** — enabled only when there is at least one proposed value and the item is
-   `ready`/`editing`/`needs_review`. Opens a confirmation dialog naming the item and the
-   changed fields (FR-9.9). On `409 login_required`, the dialog switches to "log in first".
+5. **Submit** — there is no separate submit button or confirmation dialog in this phase
+   (FR-9.9). Accept & update is enabled only when the item is
+   `ready`/`editing`/`needs_review`; the job is queued only if at least one value is
+   non-empty. On `409 login_required` the auth banner explains the block and the card
+   stays actionable.
 6. **Undo decision** — `DELETE …/decisions` from the deck footer or the detail banner; the
    item becomes undecided and re-enters the deck on the next refetch.
 7. **Disabled rules** are derived from `status` + `activeJob`, never from a local
    `isSaving` flag that can desync. A decision in flight disables only the deck actions.
-8. **Keyboard** — deck: `Shift+→` accept, `Shift+←` reject, `U` undo, `Enter` details. The
-   deck shortcuts are ignored while a text field or an open dialog has focus, with another
-   modifier held, and on key auto-repeat, so a stray key cannot accept a deviation.
-   Detail: the whole edit → save → submit path is reachable without a mouse; focus returns
-   to the edited cell after save. Keys are ignored while a text field has focus.
-9. **Confirmations** — submit and "clear session" only. Decisions, editing and undo are
-   reversible and do not need a modal.
+8. **Keyboard** — deck: `Shift+→` accept & update, `Shift+←` skip, `U` undo, `Enter`
+   details. `Shift+→` can enqueue a Salesforce write when the card has values; the
+   shortcuts are ignored while a text field or an open dialog has focus, with another
+   modifier held, and on key auto-repeat. Detail: the edit → save path is reachable
+   without a mouse; focus returns to the edited cell after save.
+9. **Confirmations** — "clear session" only in this phase. Decisions, editing and undo are
+   reversible; Accept is intentionally dialog-free for speed (FR-9.9). A confirmation for
+   Implement can return when the final action is enabled.
 
 ## 7. Visual rules
 
@@ -313,7 +320,7 @@ Rules:
   (two content columns), full width below `lg`. One card at a time; the next item is
   named below it, not stacked behind it. At 1280×800 the header, card and actions fit
   without page scrolling; below `lg` the card stacks and the page scrolls vertically.
-  Skip and Accept are full-width halves of the card (40 px tall) so they are the obvious
+  Skip and Accept & update are full-width halves of the card (40 px tall) so they are the obvious
   action and cannot be confused with a gesture.
 - The exit animation is transform-only (slide left/right + ≤14° rotate) and disabled
   under `prefers-reduced-motion`, where the card simply disappears after the response.
@@ -352,7 +359,7 @@ Rules:
 | Layer | Tool | What it covers |
 |---|---|---|
 | Pure helpers | Vitest | `StatusChip` mapping, `formatAmount` (identity), error unwrapping, dirty diff |
-| Components | RTL + MSW | disabled rules per status, field error rendering, submit confirmation, paused banner |
+| Components | RTL + MSW | disabled rules per status, field error rendering, accept-and-submit flow, job-enqueue rollback, paused banner |
 | Tables | RTL + MSW | header filters, sorting, pagination, empty/error states |
 | States | `/dev/states` route + Playwright screenshots | every row of the matrix, at 390/768/1280 |
 | Responsive | `tools/audit_layout.py` | fails when any route needs horizontal scrolling at 390/768/1280 |
@@ -376,10 +383,14 @@ fixtures; a valid session shows the 7 real deviations.
 Acceptance: editing `tenure` to an invalid value shows the server message on that field;
 saving a valid value updates the row without a manual refresh.
 
-**Slice C — submission.** Confirmation dialog, `POST …/jobs`, status polling with phases,
-`needs_review` recovery, terminal states. Acceptance: submitting a prepared item shows
-`submitting → … → completed` and the item leaves the working list; a paused session shows
-`login_required` and disables submission. *Blocked on O-1/O-2.*
+**Slice C — submission** (done for validate-only). Accept & update stores the values,
+records the accept and enqueues `POST …/jobs` when there is at least one value; a card
+with no values records the decision only. Status polling shows
+`submitting → applying → validating → ready` or `needs_review`; a failed accepted item
+returns to the deck with its reason. There is no confirmation dialog and no Implement
+button in this phase. Acceptance: accepting a prepared card enqueues one job and leaves
+the deck; a failed job brings the card back; a paused session blocks the write and keeps
+the card actionable.
 
 **Slice E — jobs table** (done). Duration column, filters **in the column headers**,
 sortable headers, server-side pagination and the log panel. Acceptance: filter/sort/page
@@ -391,17 +402,18 @@ history table (Salt Table, newest decision first, search + server pagination). T
 completion card links to it.
 
 **Slice D — review deck** (done). Default deck view in the legacy card shape, accept/reject
-decisions, editable prefilled values saved as proposals on accept, full-width Skip/Accept
-buttons only, tallies, replay skipped, decision chips in history, decision history
-in the detail. The card carries everything: no separate *Details* button, the SF approval
-date is always shown (dash when empty), and the deviation number is an absolute Salesforce
-record link.
-Acceptance: a real 7-row list is decidable card by card; an edited value is stored as a
-proposal before the decision; deciding removes the card and survives a reload; replay
+decisions, editable prefilled values stored on accept and submitted when at least one is
+non-empty, full-width Skip/Accept & update buttons only, tallies, replay skipped, decision
+chips in history, decision history in the detail. The card carries everything: no separate
+*Details* button, the SF approval date is always shown (dash when empty), and the deviation
+number is an absolute Salesforce record link.
+Acceptance: a real 7-row list is decidable card by card; an edited value is stored and
+enqueues one submit job; deciding removes the card and survives a reload; replay
 restores every skipped card; a failed decision leaves the card in place.
 
-Phase 8 is done when A–D ship, all matrix rows have screenshots, and
-`npm --prefix frontend run typecheck && npm --prefix frontend run test` pass.
+Phase 8's validate-only submission flow is done when A–D ship, all matrix rows have
+screenshots, and `npm --prefix frontend run typecheck && npm --prefix frontend run test`
+pass. The Implement confirmation returns when O-2 is resolved.
 
 ## 12. Open questions
 
@@ -412,5 +424,5 @@ Phase 8 is done when A–D ship, all matrix rows have screenshots, and
 | F-3 | Table or card layout on narrow screens? | Table until 768 px, then stacked rows |
 | F-4 | Do we want a "refresh now" button in the UI? | Yes; it calls `POST /api/syncs` |
 | F-5 | Password-less re-login reminder (banner when snapshot age > N days)? | Show age; warn after 12 h |
-| F-6 | Should accepted items submit automatically once Phase 6 exists? | No; acceptance queues, the operator submits explicitly (O-7) |
+| F-6 | ~~Should accepted items submit automatically once Phase 6 exists?~~ | **Resolved**: accepted items with non-empty values auto-submit; empty cards record the decision only (O-7) |
 | F-7 | Ask for a reject reason inline, or leave it optional and silent? | **Resolved**: the deck matches legacy and skips silently; the API still accepts a reason for other surfaces |

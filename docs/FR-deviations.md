@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.15 |
+| **Version** | v5.16 |
 | **Date** | 2026-11-05 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -319,8 +319,10 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   polls: the next interval retries, so a restarted backend recovers without a reload. An
   untrusted-refresh warning always shows the age of the failed check, so a stale banner
   cannot be mistaken for a live failure.
-- **FR-9.9** Submitting a declaration requires an explicit confirmation naming the item
-  and the changed values; the button is disabled unless the item is submittable.
+- **FR-9.9** In the current phase Accept is the submission action and does not open a
+  separate confirmation dialog; its label is “Accept & update” and the card's values are
+  visible before it is pressed. The button is disabled unless the item is submittable. A
+  dedicated confirmation may return when Implement is enabled.
 - **FR-9.10** The full edit → save → submit path is keyboard-reachable, the detail panel
   traps focus while open, and status changes are announced to assistive technology.
 - **FR-9.11** `frontend/src/types.ts` is generated from the OpenAPI schema; a contract
@@ -342,35 +344,43 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-10.1** Every deviation awaiting a decision is presented one card at a time. The
   operator accepts it (the values are right, it should be implemented) or rejects it
   (it should not be implemented as-is).
-- **FR-10.2** Accept records an `accepted` decision and first stores the card's corrected
-  field values as proposals. Reject records a `rejected` decision with an optional reason
-  and no values. Neither writes to Salesforce; the proposals are local edits awaiting the
-  submitter.
+- **FR-10.2** Accept records an `accepted` decision and stores the card's corrected field
+  values. If at least one value is non-empty, it also enqueues exactly one `SUBMIT` job.
+  A card with no values records the decision only. Reject records a `rejected` decision
+  with an optional reason and no values; it never writes to Salesforce. The submit job
+  writes and validates the accepted values but does not Implement during the current
+  phase (FR-6.14).
 - **FR-10.3** Decisions are reversible. Undoing a decision returns the item to undecided
   and it re-enters the deck.
-- **FR-10.4** A decided item leaves the deck immediately and stays out of it until it is
-  undone. Decided items remain visible in the list and detail view with their decision.
+- **FR-10.4** A decided item leaves the deck immediately, except an accepted item that
+  comes back in `needs_review` after a failed submit. That card stays in the deck with its
+  failure reason until it is corrected and accepted again or its decision is undone.
+  Decided items remain visible in the list and detail view with their decision.
 - **FR-10.5** The deck shows only items in a decidable status (`ready`, `editing`,
   `needs_review`). Terminal and in-flight items never appear.
-- **FR-10.6** Accepted items are the submission queue. When FR-6 exists, acceptance hands
-  the item to the submitter; acceptance alone never submits, never implies SF success,
-  and never marks the item terminal.
+- **FR-10.6** Accepted items with non-empty values are the submission queue: acceptance
+  enqueues the `SUBMIT` job immediately. Acceptance with no values is a local decision
+  only. Acceptance never implies Implement success; a successful validate-only run returns
+  the item to `ready` with a reason, and a failed run returns it to `needs_review`.
 - **FR-10.7** Rejection is not a skip. It does not alter extraction state or the pipeline
   status, and the item keeps syncing from Salesforce.
 - **FR-10.8** Every decision is audited with its kind, reason and timestamp, and is shown
   in the item detail history.
-- **FR-10.9** Decisions are made with two explicit buttons, **Skip** and **Accept**, that
-  span the card width. The buttons carry the shortcut in their labels (`Skip (Shift+←)`,
-  `Accept (Shift+→)`) and expose it through `aria-keyshortcuts`. `Shift+←` records a skip
-  and `Shift+→` an accept, exactly as the buttons do: only while a decidable card is on
-  screen and no decision is in flight, and never while a text field or an open dialog owns
-  the keystroke, with another modifier held, or on key auto-repeat. There is no drag or
-  swipe gesture. The buttons remain keyboard reachable through the normal tab order, and
-  the result is announced through `aria-live`.
+- **FR-10.9** Decisions are made with two explicit buttons, **Skip** and **Accept &
+  update**, that span the card width. The buttons carry the shortcut in their labels
+  (`Skip (Shift+←)`, `Accept & update (Shift+→)`) and expose it through
+  `aria-keyshortcuts`. `Shift+←` records a skip and `Shift+→` runs the same
+  accept-and-submit flow as the button: only while a decidable card is on screen and no
+  decision is in flight, and never while a text field or an open dialog owns the
+  keystroke, with another modifier held, or on key auto-repeat. `Shift+→` may enqueue a
+  Salesforce write when the card has values; there is no confirmation dialog in the
+  current phase. There is no drag or swipe gesture. The buttons remain keyboard reachable
+  through the normal tab order, and the result is announced through `aria-live`.
 - **FR-10.10** The card shows every editable value, prefilled from the extracted value,
   so missing or unparsed values are visible and correctable before a decision. Missing
   values are not an error and carry no warning: only one or two values may need an
-  update. Accept persists the card's values as proposals (FR-10.2).
+  update. Accept persists the card's values and, when at least one is non-empty, enqueues
+  the submit job (FR-10.2/10.6).
 - **FR-10.11** The raw description is shown in a bordered Salt card with no internal
   scroll. Short Old/New pairs render side by side; long descriptions flow into 3–5
   balanced newspaper columns (2 below 1024 px). At 1280×800 the deck (header, card and
@@ -435,8 +445,9 @@ absence while a `SUBMIT` lease was held.
 | O-4 | ~~Wipe the legacy `data/app.db` for the new schema.~~ **Resolved** — wiped; `data/` now holds the workflow store. | — |
 | O-5 | ~~Whether the deviation record page remains readable after implement.~~ **Resolved** — no record-page reconciliation; attribution is local (FR-6.12). | — |
 | O-6 | Archive or hard-delete closed deviations (FR-8.2). | FR-8.2, data model |
-| O-7 | Should accepted items auto-submit once Phase 6 lands, or wait for an explicit
-  submit action? (Default: explicit action; acceptance only queues.) | FR-10.6 |
+| O-7 | ~~Should accepted items auto-submit once Phase 6 lands, or wait for an explicit
+  submit action?~~ **Resolved** — accepted items with at least one non-empty value
+  auto-submit; empty cards record the decision only. | — |
 
 ### Confirmed write mapping (O-1)
 
@@ -464,6 +475,11 @@ opens the Lightning ref URL directly, resolves that iframe, and uses Classic inl
 (double-click, clear the input, fill, verify, Save).
 
 ## Appendix C — Change log
+
+- **v5.16** — Option C: **Accept & update** stores the card values, records the accept and
+  enqueues the `SUBMIT` job when at least one value is non-empty. There is no confirmation
+  dialog; `Shift+→` follows the same path. A failed accepted item returns to the deck in
+  `needs_review`. O-7 resolved (FR-10.2/10.4/10.6/10.9).
 
 - **v5.15** — the deck gains guarded keyboard decisions: `Shift+←` skips and `Shift+→`
   accepts, with the shortcut shown on the buttons; ignored while typing, in a dialog, with

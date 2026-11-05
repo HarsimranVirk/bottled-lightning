@@ -76,8 +76,9 @@ runtime, session snapshot/expiry, `ListPage`, login CLI, six Z02 adapters, the
 wired into `app.main`). Phase 6's apply/validate half is implemented and live-tested
 (the adapter-level no-op check passed on the test deviation); the final Implement action
 is still blocked on O-2, so the workflow runs with `final_action=False` and returns
-`VALIDATED`. Phase 8's submit UI is next. Phase 9's legacy backend modules are deleted;
-only the data wipe, version bump and tag remain.
+`VALIDATED`. Phase 8's validate-only submission UI is done (Accept & update); the
+Implement confirmation remains blocked on O-2. Phase 9's legacy backend modules are
+deleted; only the data wipe, version bump and tag remain.
 
 Live verification so far: list sample valid (7/7), full extraction of one deviation with
 all five refs, one `EXTRACT` job drained through the real dispatcher
@@ -302,11 +303,13 @@ Then reviewed slices, each shipping screenshots:
   Proves the contract, state mapping and layout without any item mutation.
 - **B — editing**: draft map, `PATCH …/field-values`, field-level `422`, discard,
   polling paused while dirty.
-- **C — submission** (blocked on O-1/O-2): confirmation dialog, `POST …/{key}/jobs`,
-  phase polling, `needs_review` recovery, terminal states.
+- **C — submission** (done for validate-only): Accept & update stores the card values,
+  records the accept and enqueues `POST …/{key}/jobs` when at least one value is present;
+  phase polling, `needs_review` recovery, no confirmation dialog, no Implement. Implement
+  remains blocked on O-2.
 - **D — review deck** (done): deck as the default view, accept/reject decisions
-  (`POST`/`DELETE …/decisions`), buttons only, undo, decision filters and history.
-  Reversible and local — no SF write (FR-10).
+  (`POST`/`DELETE …/decisions`), buttons only, undo, decision filters and history. Skip is
+  local; Accept is the submission action when the card has values (FR-10.6, Option C).
 - **E — jobs table** (done): duration, per-column filters **in the column headers**,
   sortable headers and server-side pagination over `GET /api/jobs` (FR-7.9, FR-7.10).
 - **F — history** (done): the general List view is replaced by the accepted-deviations

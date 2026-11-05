@@ -6,6 +6,7 @@ import {
   draftFor,
   fieldValue,
   formatDuration,
+  hasChanges,
   relativeTime,
   statusLabel,
   statusTone,
@@ -81,5 +82,12 @@ describe('empty prefill', () => {
     expect(changesFor([field], { property_value: '' })).toEqual({
       property_value: null,
     })
+  })
+})
+
+describe('hasChanges', () => {
+  it('is false only when every value is null or blank', () => {
+    expect(hasChanges({ a: null, b: '', c: '   ' })).toBe(false)
+    expect(hasChanges({ a: null, b: '14,50,000' })).toBe(true)
   })
 })

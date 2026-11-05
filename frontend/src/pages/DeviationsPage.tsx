@@ -24,11 +24,13 @@ import type { DecisionKind, ItemRow } from '../api'
 import { DecisionDeck } from '../components/DecisionDeck'
 import { HistoryTable } from '../components/HistoryTable'
 import { ItemDrawer } from '../components/ItemDrawer'
+import { acceptAndSubmit } from '../submit'
 import {
   useDecideDecision,
   useItem,
   useItems,
   usePatchFields,
+  useSubmitJob,
   useSync,
   useUndoDecision,
   useWorkflows,
@@ -70,7 +72,13 @@ export function DeviationsPage(): JSX.Element {
 
   const allRows = useMemo(() => deck.data?.rows ?? [], [deck.data])
   const deckRows = useMemo(
-    () => allRows.filter((row) => DECIDABLE.includes(row.status) && row.decision === null),
+    () =>
+      allRows.filter(
+        (row) =>
+          DECIDABLE.includes(row.status) &&
+          (row.decision === null ||
+            (row.status === 'needs_review' && row.decision?.decision === 'accept')),
+      ),
     [allRows],
   )
   const tally = useMemo(
@@ -88,11 +96,15 @@ export function DeviationsPage(): JSX.Element {
   const decide = useDecideDecision(route)
   const patch = usePatchFields(route)
   const undo = useUndoDecision(route)
+  const submit = useSubmitJob(route)
 
   /**
-   * Accept stores the card's edited values as proposals first, then records the
-   * decision — the legacy deck's behaviour on the new API (FR-10.6). Skip records the
-   * decision only. Returns false on failure so the deck keeps the card.
+   * Accept is the deck's submission action (Option C): it stores the card's cleaned
+   * values, records the decision, and enqueues the submit job when there is at least one
+   * non-empty value. A card with no changes records the decision only. If the job cannot
+   * be queued, the local accept is undone so the card stays actionable.
+   *
+   * Skip remains local: it records the decision and writes nothing to Salesforce.
    */
   async function handleDecide(
     row: ItemRow,
@@ -101,13 +113,21 @@ export function DeviationsPage(): JSX.Element {
   ): Promise<boolean> {
     setActionError(null)
     try {
-      if (decision === 'accept') {
-        await patch.mutateAsync({ key: row.key, changes: values })
-      }
-      await decide.mutateAsync({ key: row.key, decision })
+      const submitted = await acceptAndSubmit(decision, values, {
+        patch: (changes) => patch.mutateAsync({ key: row.key, changes }),
+        decide: (kind) => decide.mutateAsync({ key: row.key, decision: kind }),
+        submit: () => submit.mutateAsync({ key: row.key }),
+        undo: () => undo.mutateAsync({ key: row.key }),
+      })
       const left = Math.max(0, deckRows.length - 1)
+      const action =
+        decision === 'accept'
+          ? submitted
+            ? 'Accepted & queued for update'
+            : 'Accepted'
+          : 'Skipped'
       setAnnouncement(
-        `${decision === 'accept' ? 'Accepted' : 'Skipped'} ${row.key}` +
+        `${action} ${row.key}` +
           (left === 0 ? ' · deck complete' : ` · ${left} to review`),
       )
       return true

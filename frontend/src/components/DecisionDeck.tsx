@@ -1,7 +1,8 @@
 /**
  * The review deck, kept in the legacy deck's shape: one card, tallies, the same four
- * editable parameters and full-width Skip/Accept buttons. Cards leave with the legacy
- * slide animation after the server confirms.
+ * editable parameters and full-width Skip/Accept buttons. Accept now also queues the
+ * update when the card has changed values; Skip remains local. Cards leave with the
+ * legacy slide animation after the server confirms.
  *
  * Two deliberate keyboard shortcuts mirror the buttons: Shift+← skips and Shift+→ accepts
  * (FR-10.9). They are ignored while a text field has focus, while a dialog is open, with
@@ -170,9 +171,9 @@ export function DecisionDeck({
             <StackLayout gap={1} className="deck-complete">
               <Text styleAs="h3">Deck complete 🎉</Text>
               <Text color="secondary">
-                {tally.accept} accepted · {tally.skip} skipped. Accepted parameters are
-                stored as proposals; accepted items wait for the submitter and nothing has
-                been written to Salesforce yet.
+                {tally.accept} accepted · {tally.skip} skipped. Accepted items with changed
+                values are queued for update and verified in the background; Implement
+                remains disabled until the final phase.
               </Text>
               <FlexLayout gap={2} justify="center" className="deck-complete-actions">
                 {tally.skip > 0 ? (
@@ -225,7 +226,7 @@ export function DecisionDeck({
               aria-keyshortcuts="Shift+ArrowRight"
               style={{ width: '100%', minHeight: 40 }}
             >
-              <SuccessIcon aria-hidden /> Accept (Shift+→)
+              <SuccessIcon aria-hidden /> Accept &amp; update (Shift+→)
             </Button>
           </GridLayout>
 

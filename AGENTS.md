@@ -260,11 +260,13 @@ saved session — run the manual login once; snapshots refresh automatically.
 - `launchers/start.bat` must stay CRLF and `start.command` executable
   (`.gitattributes` handles both). The launcher only bootstraps — updates are
   the app's job.
-- Frontend dev is limited to home/auth (views/jobs UI not built yet) — backend
-  workflows still come first.
-- Playwright sync API is used; jobs run in worker threads. Don't use
-  asyncio APIs here without a redesign discussion.
-- Don't expand the frontend until the backend workflows are done and stable.
+- Frontend dev covers home/auth, the review deck, accepted history, the jobs table and
+  the validate-only submit flow. Backend workflows still come first; the frontend follows
+  the API contract.
+- Playwright's async API is used on the dedicated browser runtime thread/loop; jobs run
+  through the async dispatcher. Don't introduce `sync_playwright`, a second event loop, or
+  worker-thread browser calls without a redesign discussion.
+- Keep the frontend aligned with the generated API types; no client-side business rules.
 - Clean up any temporary/scratch files created during work, wherever on the system (e.g. /tmp, the OS temp dir, scratch dirs, worktrees) before finishing; don't leave throwaway scripts or artifacts behind.
 - Extraction code changes require re-verifying the header-total cross-check.
 - After every edit, run ruff (`ruff check app/ frontend/`) and resolve **all** reported issues (including import sorting I001) before considering the change complete. The project uses ruff for linting/formatting; no ruff warnings may remain.
