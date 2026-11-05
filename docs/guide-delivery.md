@@ -25,42 +25,66 @@
 
 ### Start
 
-- macOS: double-click `start.command` (first run may need right-click → Open).
-- Windows: double-click `start.bat`.
-- On a first start, the launcher waits until the app answers and then opens the browser
-  automatically (`http://127.0.0.1:8765`, honouring `SF_PORT`). The terminal stays in the
-  foreground; closing it stops the app.
-- If the app is already running, the launcher just opens the browser instead of starting a
-  second server.
+**macOS — use Terminal.** macOS quarantines unsigned downloads, and in practice running
+the script from Terminal is the only reliable path:
+
+```bash
+cd ~/bottled-lightning-launchers
+xattr -dr com.apple.quarantine .
+chmod +x start.command
+./start.command
+```
+
+If the folder is in `~/Downloads` and Terminal says **“Operation not permitted”**, move it
+to your home folder (`mv ~/Downloads/bottled-lightning-launchers ~/`) or grant Terminal
+access under **System Settings → Privacy & Security → Files and Folders**.
+
+GUI alternatives (if they work on your macOS version): right-click `start.command` →
+**Open**, or **System Settings → Privacy & Security → Open Anyway**.
+
+**Windows — unblock the zip first, then run it:**
+
+```powershell
+cd $HOME\Downloads
+Unblock-File .\bottled-lightning-launchers.zip
+Expand-Archive .\bottled-lightning-launchers.zip -DestinationPath .\bottled-lightning-launchers
+cd .\bottled-lightning-launchers
+.\start.bat
+```
+
+If SmartScreen still appears: **More info → Run anyway**. If you already extracted the
+zip, `Unblock-File .\start.bat`.
+
+On first start the launcher waits until the app answers and then opens the browser
+automatically (`http://127.0.0.1:8765`, honouring `SF_PORT`). The terminal stays in the
+foreground; closing it stops the app. If the app is already running, the launcher just
+opens the browser instead of starting a second server.
 
 ### First launch warnings (unsigned build)
 
 The launchers are not code-signed, so both operating systems warn about the download. The
-files are the ones from this repository; you can verify the wheel against
-`SHA256SUMS.txt` (`shasum -a 256` on macOS, `certutil -hashfile <file> SHA256` on
-Windows).
+files are the ones from this repository; verify the wheel against `SHA256SUMS.txt`
+(`shasum -a 256` on macOS, `certutil -hashfile <file> SHA256` on Windows).
 
 **macOS — “Apple could not verify … is free of malware”**
 
+The Terminal sequence above is the reliable fix. If you prefer the GUI:
+
 1. Control-click (right-click) `start.command` → **Open** → **Open**.
-2. If the dialog has no Open button: **System Settings → Privacy & Security**, scroll to
-   **Security**, and click **Open Anyway** next to the blocked file.
-3. Or remove the quarantine flag once:
-   ```bash
-   xattr -dr com.apple.quarantine /path/to/bottled-lightning-launchers
-   ```
-4. If it says the file cannot be executed: `chmod +x start.command`.
+2. No Open button: **System Settings → Privacy & Security**, scroll to **Security**, and
+   click **Open Anyway**.
+3. “Operation not permitted” in Terminal means macOS blocked folder access, not a missing
+   file: move the folder out of Downloads or grant access under **Privacy & Security →
+   Files and Folders**.
 
 **Windows — “Windows protected your PC” / “publisher could not be verified”**
 
-1. Click **More info** → **Run anyway**.
-2. If the file is blocked entirely, right-click the **zip** → **Properties** → tick
-   **Unblock** before extracting. After extraction, the same works on `start.bat`, or in
-   PowerShell:
-   ```powershell
-   Unblock-File .\start.bat
-   ```
-3. If antivirus quarantines the launcher, restore it and add an exclusion for the folder.
+1. Unblock the zip **before** extracting:
+   `Unblock-File .\bottled-lightning-launchers.zip`.
+2. Already extracted? Run `Unblock-File .\start.bat`, or right-click the file →
+   **Properties** → tick **Unblock**.
+3. If SmartScreen still appears: **More info → Run anyway**.
+4. If antivirus quarantines the launcher, restore it and add a folder exclusion.
 
 These warnings disappear when the launcher is signed (Developer ID + notarisation on
 macOS, Authenticode on Windows), which is planned for public distribution.

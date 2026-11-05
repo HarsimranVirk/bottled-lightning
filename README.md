@@ -17,23 +17,37 @@ through the Salesforce UI the same way a user would, and stores results.
   **Printable View** (renders every row in one page), with scroll-scanning as
   fallback.
 
-## Install (double-click)
+## Install
 
 Releases ship a wheel plus a small launcher bundle:
 
 1. Download `bottled-lightning-launchers.zip` from the latest GitHub release
    (optionally also the `.whl` into the same folder for an offline install).
-2. Unzip, then:
-   - **macOS** — double-click `start.command`. macOS quarantines unsigned downloads:
-     right-click → **Open** → **Open**. If there is no Open button, run
-     `xattr -dr com.apple.quarantine <the unzipped folder>` in Terminal, then
-     double-click again. If it says the file cannot be executed, run
-     `chmod +x start.command`.
-   - **Windows** — double-click `start.bat`. SmartScreen shows “Windows protected your
-     PC”: click **More info → Run anyway**. If Windows says the file is blocked, either
-     right-click the **zip → Properties → Unblock** before extracting, or right-click
-     `start.bat` → **Properties** → tick **Unblock**; in PowerShell
-     `Unblock-File .\start.bat` does the same.
+2. Unzip it, then start it from a terminal — the reliable path, because both systems
+   quarantine unsigned downloads:
+   - **macOS**
+     ```bash
+     cd ~/bottled-lightning-launchers
+     xattr -dr com.apple.quarantine .
+     chmod +x start.command
+     ./start.command
+     ```
+     If the folder is in `~/Downloads` and Terminal says “Operation not permitted”, move
+     it to your home folder (`mv ~/Downloads/bottled-lightning-launchers ~/`) or grant
+     Terminal access under **System Settings → Privacy & Security → Files and Folders**.
+     GUI alternative: right-click `start.command` → **Open**, or
+     **System Settings → Privacy & Security → Open Anyway**.
+   - **Windows** (PowerShell)
+     ```powershell
+     cd $HOME\Downloads
+     Unblock-File .\bottled-lightning-launchers.zip
+     Expand-Archive .\bottled-lightning-launchers.zip -DestinationPath .\bottled-lightning-launchers
+     cd .\bottled-lightning-launchers
+     .\start.bat
+     ```
+     Unblocking the zip removes Mark-of-the-Web from every file inside, so SmartScreen
+     should not appear. If it still does: **More info → Run anyway**. If you already
+     extracted, run `Unblock-File .\start.bat`.
 3. The launcher creates a private virtualenv, installs the app (from the
    neighbouring wheel, or the newest release if none is present), fetches the
    Chromium build Playwright needs, starts the webapp and opens the browser
