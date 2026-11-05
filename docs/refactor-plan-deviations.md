@@ -73,10 +73,11 @@ the workflow schema, repositories, workflow seam, Z02 catalog + description pars
 runtime, session snapshot/expiry, `ListPage`, login CLI, six Z02 adapters, the
 `DeviationsZ02Extraction` pipeline, the job dispatcher/worker/auth gate, and the
 `ListWatcher`/`Reconciler`/`ClosureResolver` refresh loop, and the `app/api` surface
-wired into `app.main`). Phase 6's apply/validate half is implemented and live-tested;
-the final Implement action is still blocked on O-2, so the workflow runs with
-`final_action=False` and returns `VALIDATED`. Phase 8 (frontend) is next; Phase 9's
-backend deletion remains.
+wired into `app.main`). Phase 6's apply/validate half is implemented and live-tested
+(the adapter-level no-op check passed on the test deviation); the final Implement action
+is still blocked on O-2, so the workflow runs with `final_action=False` and returns
+`VALIDATED`. Phase 8's submit UI is next. Phase 9's legacy backend modules are deleted;
+only the data wipe, version bump and tag remain.
 
 Live verification so far: list sample valid (7/7), full extraction of one deviation with
 all five refs, one `EXTRACT` job drained through the real dispatcher

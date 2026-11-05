@@ -150,45 +150,43 @@ docstring in the same change.
    grouping (25,50,000); tenure is stored in months.
 
 Queued deviations are treated as immutable in practice — nobody edits them in
-SF. Detail extraction is one-shot (`deviation_details.extracted_at`): only
-values that were never visited are auto-extracted, and missing page-ref kinds
-do NOT trigger a re-scrape. `POST /api/deviations/jobs?refresh=true` forces a
-full re-scrape when you actually need one.
+SF. Detail extraction is one-shot (`work_items.extracted_at`): only values that
+were never visited are auto-extracted, and missing page-ref kinds do NOT trigger
+a re-scrape. `POST /api/syncs?workflow=deviations_z02` requests an immediate list
+refresh; the watcher also refreshes every `SF_RESYNC_INTERVAL_SECONDS`.
 
 ## Architecture
 
-    app/config.py      settings (org URLs, data dir, update policy; env-overridable)
-    app/browser.py     Playwright session manager + `python -m app.browser --login`
-    app/deviations/    clubbed extractors shared by z01-z04 (common, list_view,
-                       deviation_record, opportunity + strategies; composite
-                       pattern) + base (WorkflowProfile, registry, product map)
-    app/deviations_zNN/ thin workflow packages: PROFILE + own updaters/ (zNN-specific)
-    app/cancellations/ separate workflow (own extractors + updaters)
-    app/jobs.py        ThreadPool job runner (serial: 1 browser at a time);
-                       consumes the resync snapshot instead of re-visiting the list
-    app/sync.py        continuous queue resync loop: visits the list view every
-                       RESYNC_INTERVAL_SECONDS (30s), reconciles latest_values,
-                       keeps the ListSnapshot that extraction jobs reuse
-    app/store.py       SQLite (data/app.db — general-purpose store): views,
-                       jobs, job_rows, latest_values, session_events,
-                       sessions (auth snapshots)
-    app/routes.py      REST endpoints under /api (incl. /api/updates)
-    app/main.py        FastAPI app + `main()` entry point (serves app/web or
-                       frontend/dist)
+    app/config.py      settings (org URLs, data dir, workers, refresh interval,
+                       update policy; env-overridable)
+    app/db/            SQLite connection + schema/migrations (data/app.db)
+    app/core/          domain models, statuses, field/catalogue types, workflow
+                       seam, registry, repositories
+    app/salesforce/    async browser runtime, session snapshot/reload, tabs,
+                       list page, login CLI, object adapters
+    app/jobs/          persisted queue: dispatcher, worker, auth gate, logger
+    app/pipeline/      list watcher, reconciler, closure resolver
+    app/api/           FastAPI app, plural-noun routes, schemas, services
+    app/workflows/     workflow implementations; deviations_z02 is the only one
+                       today (catalog, description, product map, adapters,
+                       extraction, submission)
+    app/utils/         shared async DOM helpers and the JsonValue type
+    app/main.py        FastAPI app + `main()` entry point (serves frontend/dist)
     app/updater.py     GitHub-release self-update: check → verify wheel
                        (version + sha256) → pip install → re-exec
     launchers/         start.command (macOS), start.bat (Windows) + release
                        lookup helper — the double-click install path
     pyproject.toml     wheel packaging; frontend/dist force-included as app/web
     .github/workflows/release.yml  tag → build wheel + launchers → release
-    tests/             updater unit tests (no network)
+    tests/             backend unit tests (no network, no browser)
     frontend/          React (Vite) + Salt DS SPA (TypeScript, strict) —
                        home/auth + deviations deck; API types in src/types.ts
     docs/              design docs and the source of truth for decisions:
                        FR-<feature>.md, class-design-<feature>.md,
                        refactor-plan-<feature>.md (see "plan mode" above)
-    data/              runtime state in a checkout (gitignored): db, auth.json,
-                       sf_profile; installed builds use the OS app-data dir
+    data/              runtime state in a checkout (gitignored): app.db (includes
+                       session snapshots), sf_profile_login/, sf_profile_worker/;
+                       installed builds use the OS app-data dir
 
 ## Commands
 
@@ -199,9 +197,9 @@ full re-scrape when you actually need one.
 Equivalent direct uvicorn form (DB auto-inits on startup either way):
 
     uvicorn app.main:app --host 0.0.0.0 --port 8765
-    python -m app.browser --login           # one manual login when session expires
-    python app.browser --login --reset      # nuke saved session and re-login
-    python -m unittest discover -s tests    # updater tests
+    python -m app.salesforce.login          # one manual login when session expires
+    python -m app.salesforce.login --reset  # nuke saved session and re-login
+    python -m unittest discover -s tests    # backend unit tests
     mypy --strict app tests                 # Python typecheck (all code typed)
     npm --prefix frontend run typecheck     # TypeScript typecheck (strict)
     python -m build --wheel                 # after `npm --prefix frontend run build`

@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from app import config, updater
-from app.types import JsonValue
+from app.utils.json import JsonValue
 
 
 def _wheel(name: str, version: str) -> Path:

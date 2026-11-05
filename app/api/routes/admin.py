@@ -17,7 +17,7 @@ from app.api.schemas import (
     VersionView,
 )
 from app.api.services import AdminPort
-from app.types import JsonValue
+from app.utils.json import JsonValue
 
 
 def _text(payload: dict[str, JsonValue], key: str) -> str | None:
