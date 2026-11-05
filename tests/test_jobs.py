@@ -141,8 +141,6 @@ class JobTestCase(DbTestCase):
             login_wait_s=1,
             headless=True,
             update_policy="auto",
-            deviations_z02_list_url="https://example/list",
-            deviations_z02_pattern=r"Deviation-\d+-\d+",
         )
 
     def create_item(self, key: str = "Deviation-1-1") -> WorkItem:

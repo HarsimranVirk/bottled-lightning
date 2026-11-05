@@ -3,11 +3,11 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.4 |
+| **Version** | v4.5 |
 | **Date** | 2026-11-05 |
 | **Companions** | `docs/FR-deviations.md` (v3), `docs/data-model-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
 | **Change** | Introduced the workflow abstraction; earlier drafts were deviations-only |
-| **Implemented so far** | Phases 1–5, 7 and the apply/validate half of 6: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,adapters}`, `app/jobs/{dispatcher,worker,auth,logger}`, `app/pipeline/{watcher,reconciler,closure}`,
+| **Implemented so far** | Phases 1–5, 7 and the apply/validate half of 6: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,urls,adapters}`, `app/jobs/{dispatcher,worker,auth,logger}`, `app/pipeline/{watcher,reconciler,closure}`,
 `app/utils/dom`, `app/workflows/deviations_z02/{catalog,description,product_map,adapters,extraction,submission}` |
 
 This document describes the target class design. It separates the parts that are the
@@ -96,7 +96,8 @@ app/
     login.py                      `python -m app.salesforce.login` (headed, --reset)
     tabs.py                       TabGroup
     list_page.py                  ListPage (refresh/read for one ListViewSpec)
-    adapters.py                   ObjectAdapter protocol, AdapterRegistry
+    urls.py                       list_view_url(org_base, object_api, filter_name)
+    adapters.py                   ObjectAdapter protocol, AdapterRegistry (one per workflow)
   pipeline/
     watcher.py                    ListWatcher (one per registered workflow)
     reconciler.py                 Reconciler (generic)
@@ -115,7 +116,7 @@ app/
       jobs.py  sessions.py  syncs.py  workers.py  updates.py
   workflows/
     deviations_z02/
-      __init__.py                 build_workflow(settings, deps, adapters)
+      __init__.py                 build_workflow(settings, deps, *, force=False)
       catalog.py                  DeviationObject, FIELD_CATALOG
       description.py              parse_description_fields() (pure)
       product_map.py              CL_CONTRACT_PRODUCT_MAP (reference data)
@@ -215,10 +216,26 @@ class WorkflowRegistry:
     def all(self) -> tuple[Workflow, ...]: ...
 ```
 
-Registration happens by importing the package (`main.py` imports
-`app.workflows.deviations_z02`), whose `build_workflow(...)` returns the `Workflow` the
-registry is given. No dynamic discovery, no entry points, no plugin loading — the list of
-workflows is a literal in `main.py`.
+Registration is a literal list of builders in `app/main.py`:
+
+```python
+# app/core/workflow.py
+WorkflowBuilder = Callable[[Settings, WorkflowDeps], Workflow]
+
+# app/main.py
+BUILDERS: tuple[WorkflowBuilder, ...] = (build_workflow,)
+```
+
+`Stack` calls each builder once at boot, registers the returned `Workflow`, then builds
+one `Reconciler` and one `WorkflowListSource` + `ListWatcher` per workflow. Each builder
+constructs **its own** `AdapterRegistry` (adapters are per-workflow, never shared) and
+`Settings` carries no per-workflow Salesforce fields. `ClosureResolver` stays a single
+shared instance because it reads `item.workflow`.
+
+No dynamic discovery, no entry points, no plugin loading — adding a workflow is one
+import plus one tuple entry. N workflows means N persistent list pages and N resync
+loops on the one serial browser runtime; harmless at N=1, but the first thing to watch
+when a second workflow lands.
 
 ### 3.4 Adding a workflow
 
@@ -228,7 +245,10 @@ A checklist, so this stays a 5-file job and not a framework:
 2. `app/workflows/<name>/adapters/` — one `ObjectAdapter` per SF object.
 3. `app/workflows/<name>/extraction.py` — implements `ExtractionPipeline`.
 4. `app/workflows/<name>/submission.py` — implements `SubmissionPipeline`.
-5. `__init__.py` — build the `Workflow` and register it; add it to `main.py`.
+5. `__init__.py` — define `build_workflow(settings, deps, *, force=False)`: construct the
+   workflow's own `AdapterRegistry`, build its `ListViewSpec` from package constants via
+   `app.salesforce.urls.list_view_url`, and return the `Workflow`. Add the builder to
+   `BUILDERS` in `main.py`.
 6. Mount `make_router(workflow)`; the frontend picks up the workflow from
    `GET /api/workflows`.
 
@@ -253,7 +273,6 @@ interface does not force shared storage.
 @dataclass(frozen=True, slots=True)
 class Settings:
     org_base: str
-    deviations_list: ListViewSpec        # filter name + object path + pattern
     data_dir: Path
     db_path: Path
     workers: int                         # 1..5, default 3      (FR-7.4)
@@ -262,7 +281,15 @@ class Settings:
     login_wait_s: int
     headless: bool
     update_policy: str
+    dev_tools: bool = True
+    dev_tools_allow_remote: bool = False
 ```
+
+`Settings` is global configuration only: it does not know any workflow's Salesforce
+object, list filter or row pattern. Those live in the workflow package as constants
+(`LIST_OBJECT_API`, `LIST_FILTER`, `LIST_PATTERN`), and the URL is built with
+`app.salesforce.urls.list_view_url(settings.org_base, ...)` inside that workflow's
+builder.
 
 Constructed once in `main()` and injected. The worker count persists in `settings.json`;
 changing it at runtime restarts the dispatcher only.

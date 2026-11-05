@@ -9,7 +9,6 @@ DATA_DIR = Path(os.environ.get("SF_DATA_DIR", BASE_DIR / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 ORG_BASE = os.environ.get("SF_ORG_BASE", "https://hffc.lightning.force.com")
-LIST_URL_TEMPLATE = "{host}/lightning/o/{object_api}/list?filterName={filter}"
 REQUEST_TIMEOUT_MS = 60_000
 LOGIN_WAIT_SECONDS = 600
 HOST = os.environ.get("SF_HOST", "0.0.0.0")
@@ -22,10 +21,6 @@ UPDATE_STATE_FILE = DATA_DIR / "update_state.json"
 
 MAX_WORKERS = 5
 DEFAULT_WORKERS = 3
-
-DEVIATIONS_Z02_OBJECT_API = "Consumer_Loan_Deviation__c"
-DEVIATIONS_Z02_FILTER = "Z2_Loan_para_pricing1"
-DEVIATIONS_Z02_PATTERN = r"Deviation-\d+-\d+"
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,8 +36,6 @@ class Settings:
     login_wait_s: int
     headless: bool
     update_policy: str
-    deviations_z02_list_url: str
-    deviations_z02_pattern: str
     dev_tools: bool = True
     dev_tools_allow_remote: bool = False
 
@@ -69,12 +62,6 @@ def load_settings() -> Settings:
         login_wait_s=LOGIN_WAIT_SECONDS,
         headless=os.environ.get("SF_HEADLESS", "1") != "0",
         update_policy=UPDATE_POLICY,
-        deviations_z02_list_url=LIST_URL_TEMPLATE.format(
-            host=ORG_BASE,
-            object_api=DEVIATIONS_Z02_OBJECT_API,
-            filter=DEVIATIONS_Z02_FILTER,
-        ),
-        deviations_z02_pattern=DEVIATIONS_Z02_PATTERN,
         dev_tools=os.environ.get("SF_DEV_TOOLS", "1") != "0",
         dev_tools_allow_remote=os.environ.get("SF_DEV_TOOLS_ALLOW_REMOTE", "0")
         == "1",

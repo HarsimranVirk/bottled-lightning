@@ -31,7 +31,7 @@ from .core.repo.refs import PageRefRepository
 from .core.repo.sessions import SessionRepository
 from .core.repo.sync_runs import SyncRunRepository
 from .core.repo.work_items import WorkItemRepository
-from .core.workflow import WorkflowDeps
+from .core.workflow import WorkflowBuilder, WorkflowDeps
 from .db.connection import Database
 from .devtools.db import DevDbService
 from .jobs.auth import AuthGate
@@ -44,7 +44,13 @@ from .pipeline.watcher import ListWatcher, WorkflowListSource
 from .salesforce.runtime import BrowserRuntime
 from .salesforce.session import SessionProvider
 from .workflows.deviations_z02 import build_workflow
-from .workflows.deviations_z02.adapters import build_adapters
+
+#: Every workflow the process serves, in registration order.
+#:
+#: Adding a workflow is one import plus one tuple entry — no discovery, no entry
+#: points, no plugin loading (docs/class-design-deviations.md §3.3). Each builder
+#: constructs its own adapters and returns a registered-able ``Workflow``.
+BUILDERS: tuple[WorkflowBuilder, ...] = (build_workflow,)
 
 PACKAGED_WEB_DIR = Path(__file__).resolve().parent / "web"
 DEV_WEB_DIR = config.BASE_DIR / "frontend" / "dist"
@@ -103,42 +109,45 @@ class Stack:
         self.auth = AuthGate(self.jobs, self.events)
         self.runtime = BrowserRuntime(settings, self.provider)
 
-        self.registry = WorkflowRegistry()
-        adapters = build_adapters(settings.org_base, settings.request_timeout_ms)
-        self.workflow = build_workflow(
-            settings,
-            WorkflowDeps(
-                items=self.items,
-                fields=self.fields,
-                attributes=self.attributes,
-                refs=self.refs,
-                events=self.events,
-            ),
-            adapters,
+        deps = WorkflowDeps(
+            items=self.items,
+            fields=self.fields,
+            attributes=self.attributes,
+            refs=self.refs,
+            events=self.events,
         )
-        self.registry.register(self.workflow)
+        self.workflows = tuple(build(settings, deps) for build in BUILDERS)
+        self.registry = WorkflowRegistry()
+        for workflow in self.workflows:
+            self.registry.register(workflow)
 
         self.closure = ClosureResolver(
             self.items, self.jobs, self.events, self.history
         )
-        self.reconciler = Reconciler(
-            self.workflow,
-            self.items,
-            self.jobs,
-            self.attributes,
-            self.sync_runs,
-            self.closure,
-        )
-        source = WorkflowListSource(self.runtime, self.workflow, settings, self.provider)
+        self.reconcilers: dict[str, Reconciler] = {
+            workflow.name: Reconciler(
+                workflow,
+                self.items,
+                self.jobs,
+                self.attributes,
+                self.sync_runs,
+                self.closure,
+            )
+            for workflow in self.workflows
+        }
+        # One persistent list page per workflow on the single serial browser runtime.
         self.watchers: dict[str, ListWatcher] = {
-            self.workflow.name: ListWatcher(
-                self.workflow,
-                source,
-                self.reconciler,
+            workflow.name: ListWatcher(
+                workflow,
+                WorkflowListSource(
+                    self.runtime, workflow, settings, self.provider
+                ),
+                self.reconcilers[workflow.name],
                 self.events,
                 self.auth,
                 settings.refresh_interval_s,
             )
+            for workflow in self.workflows
         }
 
         self.worker = Worker(

@@ -10,6 +10,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from app.config import Settings
 from app.salesforce.adapters import AdapterRegistry
 from app.salesforce.tabs import TabProvider
 
@@ -109,3 +110,13 @@ class Workflow:
     map_row: Callable[[ListRow], Mapping[str, str]]
     terminal_labels: Mapping[WorkItemStatus, str] = field(default_factory=dict)
     ref_kinds: tuple[str, ...] = ()
+
+
+#: Builds one fully wired workflow from global settings and its repositories.
+#:
+#: Builders are plain module-level functions, not classes. ``app/main.py`` holds them
+#: in a literal ``BUILDERS`` tuple and calls each once at boot; adding a workflow is
+#: one import plus one tuple entry. Each builder owns its workflow's
+#: ``AdapterRegistry`` (adapters are per-workflow) and must not open a browser or
+#: touch the database during construction — that happens when jobs run.
+WorkflowBuilder = Callable[[Settings, WorkflowDeps], Workflow]

@@ -34,7 +34,6 @@ from app.pipeline.watcher import ListWatcher, WorkflowListSource
 from app.salesforce.runtime import BrowserRuntime
 from app.salesforce.session import SessionProvider
 from app.workflows.deviations_z02 import build_workflow
-from app.workflows.deviations_z02.adapters import build_adapters
 
 
 def main() -> int:
@@ -56,8 +55,7 @@ def main() -> int:
         refs=PageRefRepository(database),
         events=events,
     )
-    adapters = build_adapters(settings.org_base, settings.request_timeout_ms)
-    workflow = build_workflow(settings, deps, adapters)
+    workflow = build_workflow(settings, deps)
     closure = ClosureResolver(deps.items, jobs, events)
     reconciler = Reconciler(
         workflow, deps.items, jobs, deps.attributes, SyncRunRepository(database), closure

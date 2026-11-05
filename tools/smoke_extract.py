@@ -29,7 +29,13 @@ from app.db.connection import Database
 from app.salesforce.list_page import ListPage
 from app.salesforce.runtime import BrowserRuntime
 from app.salesforce.session import SessionProvider
-from app.workflows.deviations_z02 import WORKFLOW_NAME
+from app.salesforce.urls import list_view_url
+from app.workflows.deviations_z02 import (
+    LIST_FILTER,
+    LIST_OBJECT_API,
+    LIST_PATTERN,
+    WORKFLOW_NAME,
+)
 from app.workflows.deviations_z02.adapters import build_adapters
 from app.workflows.deviations_z02.extraction import DeviationsZ02Extraction
 
@@ -94,8 +100,10 @@ def main(argv: list[str] | None = None) -> int:
                 context,
                 page,
                 ListViewSpec(
-                    url=settings.deviations_z02_list_url,
-                    pattern=settings.deviations_z02_pattern,
+                    url=list_view_url(
+                        settings.org_base, LIST_OBJECT_API, LIST_FILTER
+                    ),
+                    pattern=LIST_PATTERN,
                 ),
                 settings.request_timeout_ms,
             )

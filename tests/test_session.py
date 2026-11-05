@@ -96,8 +96,6 @@ class SessionProviderTests(DbTestCase):
             login_wait_s=600,
             headless=True,
             update_policy="auto",
-            deviations_z02_list_url="https://example/list",
-            deviations_z02_pattern=r"Deviation-\d+-\d+",
         )
 
     def test_expiry_flag_round_trip(self) -> None:
@@ -134,8 +132,6 @@ class RuntimeGuardTests(DbTestCase):
             login_wait_s=1,
             headless=True,
             update_policy="auto",
-            deviations_z02_list_url="https://example/list",
-            deviations_z02_pattern=r"Deviation-\d+-\d+",
         )
         runtime = BrowserRuntime(settings, SessionProvider(SessionRepository(self.db), settings))
         self.assertFalse(runtime.started)

@@ -33,7 +33,6 @@ from app.core.workflow import Workflow
 from app.devtools.db import DevDbService
 from app.maintenance import PurgeService
 from app.workflows.deviations_z02 import build_workflow
-from app.workflows.deviations_z02.adapters import build_adapters
 from tests.support import DbTestCase
 
 WORKFLOW = "deviations_z02"
@@ -52,8 +51,6 @@ def settings_for(root: Path) -> Settings:
         login_wait_s=1,
         headless=True,
         update_policy="auto",
-        deviations_z02_list_url="https://example/list",
-        deviations_z02_pattern=r"Deviation-\d+-\d+",
     )
 
 
@@ -62,11 +59,7 @@ class ApiTestCase(DbTestCase):
         self, *, paused: bool = False
     ) -> tuple[WorkItemService, WorkflowRegistry, Workflow, JobRepository, EditRepository]:
         deps = self.deps()
-        workflow = build_workflow(
-            settings_for(self.tmp_path),
-            deps,
-            build_adapters("https://example", 1000),
-        )
+        workflow = build_workflow(settings_for(self.tmp_path), deps)
         registry = WorkflowRegistry()
         registry.register(workflow)
         jobs = JobRepository(self.db)

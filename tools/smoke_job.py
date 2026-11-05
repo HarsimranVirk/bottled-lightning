@@ -38,8 +38,14 @@ from app.pipeline.closure import ClosureResolver
 from app.salesforce.list_page import ListPage
 from app.salesforce.runtime import BrowserRuntime
 from app.salesforce.session import SessionProvider
-from app.workflows.deviations_z02 import WORKFLOW_NAME, build_workflow
-from app.workflows.deviations_z02.adapters import build_adapters
+from app.salesforce.urls import list_view_url
+from app.workflows.deviations_z02 import (
+    LIST_FILTER,
+    LIST_OBJECT_API,
+    LIST_PATTERN,
+    WORKFLOW_NAME,
+    build_workflow,
+)
 
 TERMINAL = {JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED}
 
@@ -82,8 +88,7 @@ def main(argv: list[str] | None = None) -> int:
         refs=PageRefRepository(database),
         events=EventRepository(database),
     )
-    adapters = build_adapters(settings.org_base, settings.request_timeout_ms)
-    workflow = build_workflow(settings, deps, adapters, force=True)
+    workflow = build_workflow(settings, deps, force=True)
     registry = WorkflowRegistry()
     registry.register(workflow)
 
@@ -105,8 +110,10 @@ def main(argv: list[str] | None = None) -> int:
                 context,
                 page,
                 ListViewSpec(
-                    url=settings.deviations_z02_list_url,
-                    pattern=settings.deviations_z02_pattern,
+                    url=list_view_url(
+                        settings.org_base, LIST_OBJECT_API, LIST_FILTER
+                    ),
+                    pattern=LIST_PATTERN,
                 ),
                 settings.request_timeout_ms,
             )
