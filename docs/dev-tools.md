@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Implemented |
-| **Version** | v1 |
+| **Version** | v1.1 |
 | **Date** | 2026-11-05 |
 | **Feature** | Dev-only SQLite explorer and exports |
 
@@ -43,8 +43,14 @@ never listed, queryable or exportable.
 - table list with row counts and columns; clicking a table fills the editor with
   `SELECT * FROM "<table>" LIMIT 100`;
 - SQL editor with one read-only statement;
-- results table with row count, duration and truncation flag;
-- **Export CSV** and **Export Excel** buttons for the current SQL.
+- results table with a per-column filter row (client-side contains match), shared
+  pagination (10/25/50/100 rows), row count, duration and truncation flag;
+- **Export CSV** and **Export Excel** buttons for the current SQL. Exports run the full
+  query server-side, not the filtered page view.
+
+The preview is capped at 500 rows by default; filtering and pagination operate on that
+preview. Add a `LIMIT`/`WHERE` to the SQL for a narrower or deeper result. Exports are
+capped at 100,000 rows and reject a truncated result instead of writing a partial file.
 
 ## API
 

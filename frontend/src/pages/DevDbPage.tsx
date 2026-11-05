@@ -6,13 +6,14 @@
  */
 
 import type { JSX } from 'react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Banner,
   BannerContent,
   Button,
   FlexLayout,
   H1,
+  Input,
   MultilineInput,
   Spinner,
   StackLayout,
@@ -28,6 +29,7 @@ import {
 import { Link } from 'react-router-dom'
 
 import type { DevCell } from '../api'
+import { Pagination } from '../components/Pagination'
 import { useDevExport, useDevQuery, useDevTables } from '../queries'
 
 const DEFAULT_SQL = 'SELECT * FROM work_items LIMIT 100;'
@@ -49,11 +51,45 @@ function download(blob: Blob, format: 'csv' | 'xlsx'): void {
 
 export function DevDbPage(): JSX.Element {
   const [sql, setSql] = useState(DEFAULT_SQL)
+  const [filters, setFilters] = useState<Record<string, string>>({})
+  const [page, setPage] = useState(1)
+  const [size, setSize] = useState(25)
   const tables = useDevTables()
   const query = useDevQuery()
   const exporter = useDevExport()
 
   const error = query.error ?? exporter.error ?? tables.error
+
+  function runQuery(): void {
+    setFilters({})
+    setPage(1)
+    query.mutate({ sql, limit: 500 })
+  }
+
+  const filteredRows = useMemo(() => {
+    const rows = query.data?.rows ?? []
+    const active = Object.entries(filters).filter(([, value]) => value.trim() !== '')
+    if (active.length === 0) return rows
+    return rows.filter((row) =>
+      active.every(([index, value]) => {
+        const cell = row[Number(index)] ?? null
+        return cellText(cell).toLowerCase().includes(value.trim().toLowerCase())
+      }),
+    )
+  }, [query.data, filters])
+
+  const pageRows = filteredRows.slice((page - 1) * size, page * size)
+  const hasFilters = Object.values(filters).some((value) => value.trim() !== '')
+
+  function updateFilter(index: number, value: string): void {
+    setFilters((current) => ({ ...current, [String(index)]: value }))
+    setPage(1)
+  }
+
+  function changeSize(next: number): void {
+    setSize(next)
+    setPage(1)
+  }
 
   async function exportQuery(format: 'csv' | 'xlsx'): Promise<void> {
     const blob = await exporter.mutateAsync({ sql, format })
@@ -112,7 +148,7 @@ export function DevDbPage(): JSX.Element {
           <FlexLayout gap={1} wrap>
             <Button
               appearance="solid"
-              onClick={() => query.mutate({ sql, limit: 500 })}
+              onClick={runQuery}
               disabled={!sql.trim() || query.isPending}
             >
               {query.isPending ? 'Running…' : 'Run query'}
@@ -132,6 +168,9 @@ export function DevDbPage(): JSX.Element {
               Export Excel
             </Button>
           </FlexLayout>
+          <Text color="secondary" styleAs="label">
+            Exports run the full query, not the filtered table view.
+          </Text>
         </StackLayout>
       </div>
 
@@ -143,21 +182,54 @@ export function DevDbPage(): JSX.Element {
 
       {query.data ? (
         <StackLayout gap={1}>
-          <Text color="secondary">
-            {query.data.rowCount} rows · {query.data.durationMs} ms
-            {query.data.truncated ? ' · truncated to the preview limit' : ''}
-          </Text>
+          <FlexLayout justify="space-between" align="center" gap={2} wrap>
+            <Text color="secondary">
+              {filteredRows.length === query.data.rowCount
+                ? `${query.data.rowCount} rows`
+                : `${filteredRows.length} of ${query.data.rowCount} rows`}
+              {' · '}
+              {query.data.durationMs} ms
+              {query.data.truncated ? ' · truncated to the preview limit' : ''}
+            </Text>
+            {hasFilters ? (
+              <Button
+                appearance="transparent"
+                onClick={() => {
+                  setFilters({})
+                  setPage(1)
+                }}
+              >
+                Clear filters
+              </Button>
+            ) : null}
+          </FlexLayout>
+
           <TableContainer>
-            <Table>
+            <Table zebra>
               <THead>
                 <TR>
                   {query.data.columns.map((column, index) => (
                     <TH key={`${column}-${index}`}>{column}</TH>
                   ))}
                 </TR>
+                <TR className="job-filter-row">
+                  {query.data.columns.map((column, index) => (
+                    <TH key={`filter-${column}-${index}`}>
+                      <Input
+                        value={filters[String(index)] ?? ''}
+                        inputProps={{
+                          'aria-label': `Filter by ${column}`,
+                          placeholder: 'Filter',
+                          onChange: (event) =>
+                            updateFilter(index, event.target.value),
+                        }}
+                      />
+                    </TH>
+                  ))}
+                </TR>
               </THead>
               <TBody>
-                {query.data.rows.map((row, rowIndex) => (
+                {pageRows.map((row, rowIndex) => (
                   <TR key={rowIndex}>
                     {row.map((cell, cellIndex) => (
                       <TD key={cellIndex}>{cellText(cell)}</TD>
@@ -167,6 +239,18 @@ export function DevDbPage(): JSX.Element {
               </TBody>
             </Table>
           </TableContainer>
+
+          {pageRows.length === 0 ? (
+            <Text color="secondary">No rows match the filters.</Text>
+          ) : null}
+
+          <Pagination
+            page={page}
+            size={size}
+            total={filteredRows.length}
+            onPage={setPage}
+            onSize={changeSize}
+          />
         </StackLayout>
       ) : null}
     </StackLayout>

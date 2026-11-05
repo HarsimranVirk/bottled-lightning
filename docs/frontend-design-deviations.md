@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.4 |
+| **Version** | v4.5 |
 | **Date** | 2026-11-05 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
@@ -220,21 +220,26 @@ table is never listed, queryable or exportable.
 
 Two-column layout on wide screens: a table list on the left (name, row count; clicking
 fills `SELECT * FROM "<table>" LIMIT 100;`) and the SQL editor on the right, followed by
-the results table and **Export CSV** / **Export Excel** buttons. On narrow screens the
-columns stack.
+the results table with a **per-column filter row** and shared pagination, then **Export
+CSV** / **Export Excel**. On narrow screens the columns stack.
 
 | State | Content |
 |---|---|
 | loading tables | table-list skeleton |
 | explicitly disabled / remote | warning banner: dev tools are disabled |
 | query running | Run disabled, "Running…" |
-| results | row count, duration, truncation flag, Salt table |
+| results | row count, duration, truncation flag, Salt zebra table, one filter input per column |
+| filtered | "N of M rows", **Clear filters**, filtered table and pagination |
+| no matches | "No rows match the filters." |
+| page overflow | shared pagination bar (`1–25 of N`, Prev/Next, rows per page) |
 | query rejected | error banner with the server message |
 | export running | Export buttons disabled |
 | export failed | error banner; no file is produced |
 
-The SQL editor is a Salt `MultilineInput`; results use the Salt table primitives. The
-full safety rules and API shapes are in `docs/dev-tools.md`.
+Filtering and pagination are client-side over the preview (500 rows by default); exports
+run the full query server-side, not the filtered view. The SQL editor is a Salt
+`MultilineInput`; results use the Salt table primitives and the shared `Pagination`
+component. The full safety rules and API shapes are in `docs/dev-tools.md`.
 
 ## 4. Component tree
 
