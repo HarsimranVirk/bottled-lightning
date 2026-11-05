@@ -73,10 +73,10 @@ checkouts never self-install (`SF_UPDATE_ALLOW_SOURCE=1` overrides).
     playwright install chromium    # first time only (also re-run after a
                                    # playwright upgrade — browser builds are pinned)
 
-One-time login (opens a browser window; saves session to `data/sf_profile` +
-`data/auth.json`):
+One-time login (opens a browser window; saves the session snapshot to the
+`sessions` table in `data/app.db`):
 
-    python -m app.browser --login
+    python -m app.salesforce.login
 
 Run the webapp (reachable on the local network):
 
@@ -89,38 +89,47 @@ Run the webapp (reachable on the local network):
 ## Layout
 
     app/main.py        FastAPI app + `main()` entry point, serves the SPA
-    app/config.py      settings (org URL, data dir, update policy)
-    app/browser.py     Playwright session manager + login CLI
-    app/extractors.py  extraction strategies (printable view, scroll scan)
-    app/jobs.py        thread-pool job runner
-    app/store.py       SQLite persistence (views, jobs, rows, sessions)
-    app/routes.py      REST endpoints (including /api/update)
+    app/config.py      settings (org URL, data dir, workers, update policy)
+    app/db/            SQLite connection + schema/migrations
+    app/core/          domain models, statuses, workflow seam, repositories
+    app/salesforce/    async browser runtime, session snapshot, tabs, login CLI,
+                       list page, object adapters
+    app/jobs/          persisted queue: dispatcher, worker, auth gate, logger
+    app/pipeline/      list watcher, reconciler, closure resolver
+    app/api/           FastAPI routes, schemas, services
+    app/workflows/     workflow implementations (deviations_z02 today)
+    app/utils/         shared async DOM helpers and JsonValue
     app/updater.py     GitHub-release self-update (check, verify, install, restart)
     launchers/         start.command (macOS), start.bat (Windows), release lookup
-    tests/             updater unit tests (`python -m unittest discover -s tests`)
+    tests/             backend unit tests (`python -m unittest discover -s tests`)
     frontend/          React (Vite) + Salt DS SPA (TypeScript, strict); /api
                        proxied to the backend
     pyproject.toml     wheel packaging (frontend/dist is bundled as app/web)
 
 ## API
 
-    GET    /api/views                     tracked list views
-    POST   /api/views                     add a tracked view {name, url}
-    DELETE /api/views/{id}                remove a tracked view
-    POST   /api/views/{id}/jobs           start an extraction job (202)
-    GET    /api/jobs                      all jobs (?view_id, ?status, ?limit)
-    GET    /api/jobs/{id}                 one job (+ row counts)
-    GET    /api/views/{id}/results        latest extracted rows (?format=csv)
-    GET    /api/deviations                Z2 deviations (?decision=)
-    PATCH  /api/deviations/{value}        set a deviation's decision
-    POST   /api/syncs                     cross-check queue vs Salesforce (202)
-    GET    /api/syncs                     sync status + result
-    GET    /api/sessions                 session snapshot status + login state
-    POST   /api/sessions                 open headful manual login (?reset); 202
-    DELETE /api/sessions                 delete saved snapshot + browser profile
-    GET    /api/updates                  version + latest release + check state
-    POST   /api/updates/checks           force a GitHub check now
-    POST   /api/updates/installations    install newest wheel and restart; 202
+    GET    /api/deviations                       item list (?status, ?decision, ?query, …)
+    GET    /api/deviations/{key}                 item detail: fields, attributes, refs
+    PATCH  /api/deviations/{key}/field-values    propose field edits
+    DELETE /api/deviations/{key}/field-values    discard proposals
+    POST   /api/deviations/{key}/decisions       accept/reject a review decision
+    DELETE /api/deviations/{key}/decisions       undo the latest decision
+    POST   /api/deviations/{key}/jobs            enqueue one SUBMIT job (202)
+    GET    /api/jobs                             filtered, sorted job page
+    GET    /api/jobs/{id}                        one job with logs
+    GET    /api/jobs/{id}/logs                   job logs
+    DELETE /api/jobs/{id}                        cancel a queued/running job
+    GET    /api/sessions                         session snapshot status + login state
+    POST   /api/sessions                         open headful manual login; 202
+    DELETE /api/sessions                         clear the saved snapshot
+    GET    /api/syncs?workflow=…                 latest watcher refresh
+    POST   /api/syncs?workflow=…                 request an immediate refresh; 202
+    GET    /api/workers                          queue/concurrency state
+    PATCH  /api/workers                          change concurrency
+    GET    /api/version                          running version
+    GET    /api/updates                          version + latest release + check state
+    POST   /api/updates/checks                   force a GitHub check now
+    POST   /api/updates/installations            install newest wheel and restart; 202
 
 ## Releasing
 
@@ -138,14 +147,14 @@ the launcher installs and what `/api/update` upgrades to.
 
 ## Session lifecycle
 
-Salesforce `sid` cookies are session-only, so `auth.json` snapshots are taken
-right after each manual login and injected on every headless run. When the
-server-side session expires (org inactivity timeout), jobs fail with a clear
-"session expired" state and the UI prompts for `--login`.
+Salesforce `sid` cookies are session-only, so a storage-state snapshot is taken
+right after each manual login, stored in the `sessions` table, and injected on
+every headless run. When the server-side session expires (org inactivity
+timeout), jobs park in `blocked_auth` and resume after the next manual login.
 
 ## Roadmap
 
-- Scheduled jobs (launchd/cron hitting /api/views/{id}/jobs)
+- Scheduled jobs (launchd/cron hitting /api/deviations/{key}/jobs)
 - Snapshot history + diff reports (what changed since last run)
 - Additional columns (opportunity, branch, approval date)
 - Admin-track migration: replace UI automation with OAuth JWT calls once a
