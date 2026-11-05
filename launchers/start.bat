@@ -19,6 +19,15 @@ set "VENV=%BL_HOME%\venv"
 set "PY=%VENV%\Scripts\python.exe"
 set "HERE=%~dp0"
 if "%HERE:~-1%"=="\" set "HERE=%HERE:~0,-1%"
+set "PORT=%SF_PORT%"
+if not defined PORT set "PORT=8765"
+
+rem Already running? Open the existing app instead of starting a second server.
+powershell -NoProfile -Command "try { $r = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:%PORT%/' -TimeoutSec 2; if ($r.StatusCode -ge 200 -and $r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>&1
+if not errorlevel 1 (
+    start "" "http://127.0.0.1:%PORT%"
+    exit /b 0
+)
 
 if not exist "%BL_HOME%" mkdir "%BL_HOME%" 2>nul
 
@@ -78,9 +87,16 @@ if errorlevel 1 (
 )
 
 :start
+rem Keep installed state beside the venv, not inside site-packages.
+if not defined SF_DATA_DIR set "SF_DATA_DIR=%BL_HOME%\data"
+if not exist "%SF_DATA_DIR%" mkdir "%SF_DATA_DIR%" 2>nul
+
 rem Chromium is a separate download; a no-op when the build is present.
 "%PY%" -m playwright install chromium >nul 2>&1
 if errorlevel 1 echo [bottled-lightning] warning: could not install the Chromium build.
+
+rem Open the browser once the app answers; the app keeps this console in the foreground.
+start "" /b powershell -NoProfile -Command "for ($i = 0; $i -lt 120; $i++) { try { $r = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:%PORT%/' -TimeoutSec 1; if ($r.StatusCode -ge 200) { Start-Process 'http://127.0.0.1:%PORT%'; break } } catch {} Start-Sleep -Seconds 1 }" >nul 2>&1
 
 "%PY%" -m app.main
 if errorlevel 1 goto fail_quiet

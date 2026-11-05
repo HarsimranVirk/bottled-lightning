@@ -1,31 +1,18 @@
 /**
  * Accepted-deviations history snapshot: every deviation the deck approved, newest
- * accept first. Salt DS table; pagination is server-side.
+ * accept first. Rendered by the shared `DataTable`; pagination is server-side.
  */
 
 import type { JSX } from 'react'
-import {
-  Button,
-  FlexLayout,
-  Link,
-  Spinner,
-  StackLayout,
-  Table,
-  TableContainer,
-  TBody,
-  TD,
-  Text,
-  TH,
-  THead,
-  TR,
-} from '@salt-ds/core'
+import { Button, FlexLayout, Link, StackLayout, Text } from '@salt-ds/core'
 
-import type { ItemRow, WorkflowFieldView } from '../api'
+import type { HistoryRow, WorkflowFieldView } from '../api'
 import { absoluteUrl, displayValue, fieldValue, formatDateTime, orderedFields } from '../format'
 import type { HistoryFilters } from '../queries'
 import { EMPTY_HISTORY_FILTERS } from '../queries'
+import type { DataColumn } from './DataTable'
+import { DataTable } from './DataTable'
 import { DecisionChip, StatusChip } from './StatusChip'
-import { Pagination } from './Pagination'
 import { TableFilter } from './TableFilter'
 import type { TableFilterOption } from './TableFilter'
 import { TableRangeFilter } from './TableRangeFilter'
@@ -45,6 +32,15 @@ const STATUSES = [
   'closed',
   'skipped',
 ]
+
+/** The five snapshot object links, in display order. */
+const REF_COLUMNS = [
+  { kind: 'opportunity', label: 'Opportunity' },
+  { kind: 'cl_contract', label: 'CL contract' },
+  { kind: 'collateral', label: 'Collateral' },
+  { kind: 'lms2_cl_contract', label: 'LMS2 CL contract' },
+  { kind: 'lms2_collateral', label: 'LMS2 collateral' },
+] as const
 
 function uniqueOptions(
   values: string[],
@@ -67,12 +63,14 @@ function hasFilters(filters: HistoryFilters): boolean {
     filters.decidedAfter !== '' ||
     filters.decidedBefore !== '' ||
     Object.values(filters.fieldText).some((text) => text.trim() !== '') ||
-    Object.values(filters.fieldValues).some((values) => values.length > 0)
+    Object.values(filters.fieldValues).some((values) => values.length > 0) ||
+    Object.values(filters.refText).some((text) => text.trim() !== '') ||
+    Object.values(filters.refValues).some((values) => values.length > 0)
   )
 }
 
 interface Props {
-  rows: ItemRow[]
+  rows: HistoryRow[]
   fields: WorkflowFieldView[]
   terminalLabels: Record<string, string>
   listUrl: string
@@ -104,15 +102,23 @@ export function HistoryTable({
 }: Props): JSX.Element {
   const ordered = orderedFields(fields)
   const keyOptions = uniqueOptions(rows.map((row) => row.key))
-  const approvedOptions = uniqueOptions(
-    rows.map((row) => row.approvedAt ?? ''),
-  )
+  const approvedOptions = uniqueOptions(rows.map((row) => row.approvedAt ?? ''))
   const fieldOptions = new Map(
     ordered.map((field) => [
       field.key,
       uniqueOptions(
         rows.map((row) => fieldValue(row.fields, field.key)),
         (value) => displayValue(field, value),
+      ),
+    ]),
+  )
+  const refOptions = new Map(
+    REF_COLUMNS.map((column) => [
+      column.kind,
+      uniqueOptions(
+        rows.flatMap((row) =>
+          row.refs.filter((ref) => ref.kind === column.kind).map((ref) => ref.name),
+        ),
       ),
     ]),
   )
@@ -123,18 +129,176 @@ export function HistoryTable({
   }
 
   function updateFieldText(key: string, text: string): void {
-    onFilters({
-      ...filters,
-      fieldText: { ...filters.fieldText, [key]: text },
-    })
+    onFilters({ ...filters, fieldText: { ...filters.fieldText, [key]: text } })
   }
 
   function updateFieldValues(key: string, values: string[]): void {
-    onFilters({
-      ...filters,
-      fieldValues: { ...filters.fieldValues, [key]: values },
-    })
+    onFilters({ ...filters, fieldValues: { ...filters.fieldValues, [key]: values } })
   }
+
+  function updateRefText(kind: string, text: string): void {
+    onFilters({ ...filters, refText: { ...filters.refText, [kind]: text } })
+  }
+
+  function updateRefValues(kind: string, values: string[]): void {
+    onFilters({ ...filters, refValues: { ...filters.refValues, [kind]: values } })
+  }
+
+  const columns: DataColumn<HistoryRow>[] = [
+    {
+      id: 'key',
+      label: 'Deviation',
+      header: 'Deviation',
+      width: 220,
+      filter: (
+        <TableFilter
+          label="Filter by deviation"
+          text={filters.key}
+          onText={(text) => update({ key: text })}
+          selected={filters.keys}
+          onSelected={(values) => update({ keys: values })}
+          options={keyOptions}
+          placeholder="Deviation"
+        />
+      ),
+      cell: (row) => {
+        const href = row.recordUrl ? absoluteUrl(row.recordUrl, listUrl) : null
+        return href ? (
+          <Link
+            href={href}
+            target="_blank"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {row.key}
+          </Link>
+        ) : (
+          row.key
+        )
+      },
+    },
+    {
+      id: 'decided',
+      label: 'Decided',
+      header: 'Decided',
+      width: 190,
+      filter: (
+        <TableRangeFilter
+          fromLabel="Decided from"
+          toLabel="Decided to"
+          from={filters.decidedAfter}
+          to={filters.decidedBefore}
+          onFrom={(value) => update({ decidedAfter: value })}
+          onTo={(value) => update({ decidedBefore: value })}
+          type="date"
+        />
+      ),
+      cell: (row) => (
+        <FlexLayout gap={1} align="center">
+          {row.decision ? <DecisionChip decision={row.decision.decision} /> : null}
+          <span>{formatDateTime(row.decision?.at)}</span>
+        </FlexLayout>
+      ),
+    },
+    {
+      id: 'status',
+      label: 'Status',
+      header: 'Status',
+      width: 130,
+      filter: (
+        <TableFilter
+          label="Filter by status"
+          text={filters.statusText}
+          onText={(text) => update({ statusText: text })}
+          selected={filters.statuses}
+          onSelected={(values) => update({ statuses: values })}
+          options={STATUSES.map((value) => ({
+            value,
+            label: value.replace(/_/g, ' '),
+          }))}
+        />
+      ),
+      cell: (row) => <StatusChip status={row.status} labels={terminalLabels} />,
+    },
+    {
+      id: 'approval',
+      label: 'SF approval',
+      header: 'SF approval',
+      width: 120,
+      className: 'history-approval',
+      filter: (
+        <TableFilter
+          label="Filter by SF approval"
+          text={filters.approved}
+          onText={(text) => update({ approved: text })}
+          selected={filters.approvedValues}
+          onSelected={(values) => update({ approvedValues: values })}
+          options={approvedOptions}
+          placeholder="Approval"
+        />
+      ),
+      cell: (row) => row.approvedAt ?? '—',
+    },
+    ...REF_COLUMNS.map(
+      (column): DataColumn<HistoryRow> => ({
+        id: column.kind,
+        label: column.label,
+        header: column.label,
+        width: 150,
+        className: 'history-ref',
+        filter: (
+          <TableFilter
+            label={`Filter by ${column.label}`}
+            text={filters.refText[column.kind] ?? ''}
+            onText={(text) => updateRefText(column.kind, text)}
+            selected={filters.refValues[column.kind] ?? []}
+            onSelected={(values) => updateRefValues(column.kind, values)}
+            options={refOptions.get(column.kind) ?? []}
+            placeholder="Linked object"
+          />
+        ),
+        cell: (row) => {
+          const ref = row.refs.find((entry) => entry.kind === column.kind)
+          const href = ref ? absoluteUrl(ref.url, listUrl) : null
+          return ref && href ? (
+            <Link
+              href={href}
+              target="_blank"
+              onClick={(event) => event.stopPropagation()}
+            >
+              {ref.name}
+            </Link>
+          ) : (
+            '—'
+          )
+        },
+      }),
+    ),
+    ...ordered.map(
+      (field): DataColumn<HistoryRow> => ({
+        id: `field-${field.key}`,
+        label: field.label,
+        header: field.label,
+        width: 150,
+        align: field.valueType === 'text' ? 'left' : 'right',
+        className: 'history-values',
+        filter: (
+          <TableFilter
+            label={`Filter by ${field.label}`}
+            text={filters.fieldText[field.key] ?? ''}
+            onText={(text) => updateFieldText(field.key, text)}
+            selected={filters.fieldValues[field.key] ?? []}
+            onSelected={(values) => updateFieldValues(field.key, values)}
+            options={fieldOptions.get(field.key) ?? []}
+          />
+        ),
+        cell: (row) => (
+          <span className="mono">
+            {displayValue(field, fieldValue(row.fields, field.key))}
+          </span>
+        ),
+      }),
+    ),
+  ]
 
   return (
     <StackLayout gap={1}>
@@ -150,155 +314,23 @@ export function HistoryTable({
         ) : null}
       </FlexLayout>
 
-      <TableContainer>
-        <Table zebra>
-          <THead>
-            <TR>
-              <TH>Deviation</TH>
-              <TH>Decided</TH>
-              <TH>Status</TH>
-              <TH className="history-approval">SF approval</TH>
-              {ordered.map((field) => (
-                <TH
-                  key={field.key}
-                  className="history-values"
-                  textAlign={field.valueType === 'text' ? 'left' : 'right'}
-                >
-                  {field.label}
-                </TH>
-              ))}
-            </TR>
-            <TR className="job-filter-row">
-              <TH>
-                <TableFilter
-                  label="Filter by deviation"
-                  text={filters.key}
-                  onText={(text) => update({ key: text })}
-                  selected={filters.keys}
-                  onSelected={(values) => update({ keys: values })}
-                  options={keyOptions}
-                  placeholder="Deviation"
-                />
-              </TH>
-              <TH>
-                <TableRangeFilter
-                  fromLabel="Decided from"
-                  toLabel="Decided to"
-                  from={filters.decidedAfter}
-                  to={filters.decidedBefore}
-                  onFrom={(value) => update({ decidedAfter: value })}
-                  onTo={(value) => update({ decidedBefore: value })}
-                  type="date"
-                />
-              </TH>
-              <TH>
-                <TableFilter
-                  label="Filter by status"
-                  text={filters.statusText}
-                  onText={(text) => update({ statusText: text })}
-                  selected={filters.statuses}
-                  onSelected={(values) => update({ statuses: values })}
-                  options={STATUSES.map((value) => ({
-                    value,
-                    label: value.replace(/_/g, ' '),
-                  }))}
-                />
-              </TH>
-              <TH className="history-approval">
-                <TableFilter
-                  label="Filter by SF approval"
-                  text={filters.approved}
-                  onText={(text) => update({ approved: text })}
-                  selected={filters.approvedValues}
-                  onSelected={(values) => update({ approvedValues: values })}
-                  options={approvedOptions}
-                  placeholder="Approval"
-                />
-              </TH>
-              {ordered.map((field) => (
-                <TH key={`filter-${field.key}`} className="history-values">
-                  <TableFilter
-                    label={`Filter by ${field.label}`}
-                    text={filters.fieldText[field.key] ?? ''}
-                    onText={(text) => updateFieldText(field.key, text)}
-                    selected={filters.fieldValues[field.key] ?? []}
-                    onSelected={(values) => updateFieldValues(field.key, values)}
-                    options={fieldOptions.get(field.key) ?? []}
-                  />
-                </TH>
-              ))}
-            </TR>
-          </THead>
-          <TBody>
-            {rows.map((row) => {
-              const recordHref = row.recordUrl ? absoluteUrl(row.recordUrl, listUrl) : null
-              return (
-                <TR
-                  key={row.key}
-                  tabIndex={0}
-                  className="history-row"
-                  onClick={() => onOpen(row.key)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      onOpen(row.key)
-                    }
-                  }}
-                >
-                  <TD>
-                    {recordHref ? (
-                      <Link
-                        href={recordHref}
-                        target="_blank"
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        {row.key}
-                      </Link>
-                    ) : (
-                      row.key
-                    )}
-                  </TD>
-                  <TD>
-                    <FlexLayout gap={1} align="center">
-                      {row.decision ? <DecisionChip decision={row.decision.decision} /> : null}
-                      <span>{formatDateTime(row.decision?.at)}</span>
-                    </FlexLayout>
-                  </TD>
-                  <TD>
-                    <StatusChip status={row.status} labels={terminalLabels} />
-                  </TD>
-                  <TD className="history-approval">{row.approvedAt ?? '—'}</TD>
-                  {ordered.map((field) => (
-                    <TD
-                      key={field.key}
-                      className="history-values mono"
-                      textAlign={field.valueType === 'text' ? 'left' : 'right'}
-                    >
-                      {displayValue(field, fieldValue(row.fields, field.key))}
-                    </TD>
-                  ))}
-                </TR>
-              )
-            })}
-          </TBody>
-        </Table>
-      </TableContainer>
-
-      {loading ? (
-        <FlexLayout justify="center" gap={1} align="center">
-          <Spinner size="small" />
-          <Text color="secondary">loading history…</Text>
-        </FlexLayout>
-      ) : null}
-      {rows.length === 0 && !loading ? (
-        <Text color="secondary">
-          {filtered
-            ? 'No approved deviations match these filters.'
-            : 'No deviations have been accepted yet.'}
-        </Text>
-      ) : null}
-
-      <Pagination page={page} size={size} total={total} onPage={onPage} onSize={onSize} />
+      <DataTable
+        tableId="history"
+        columns={columns}
+        rows={rows}
+        rowKey={(row) => row.key}
+        onRowClick={(row) => onOpen(row.key)}
+        zebra
+        loading={loading}
+        empty={
+          <Text color="secondary">
+            {filtered
+              ? 'No approved deviations match these filters.'
+              : 'No deviations have been accepted yet.'}
+          </Text>
+        }
+        pagination={{ page, size, total, onPage, onSize }}
+      />
     </StackLayout>
   )
 }

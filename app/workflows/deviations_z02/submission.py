@@ -1,10 +1,10 @@
-"""Z02 submission: apply → validate, with the final Implement action deferred.
+"""Z02 submission: apply → validate → implement.
 
 The pipeline reads the current SF values before writing (FR-6.2), writes every catalogue
-target that has a proposed value, reads them back, and only then would run the final
-action. During Phase 6 bring-up ``final_action`` is off: a successful run stops after
-validation and returns ``VALIDATED`` so the operator can inspect the live values without
-implementing the deviation.
+target that has a proposed value, reads them back, and only then runs the final action on
+the deviation record: it reads the ``Implemented__c`` tick and clicks **Implemented** when
+the tick is absent (FR-6.5–6.7). A tick already present is an external closure, never
+claimed as ours (FR-6.16).
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from playwright.async_api import Page
 
 from app.core.errors import SessionExpired
 from app.core.field import EditableField, FieldTarget, ValueType, normalise
-from app.core.models import PageRef, WorkItem
+from app.core.models import PageRef, WorkItem, utcnow
 from app.core.repo.events import EventRepository
 from app.core.repo.fields import FieldValueRepository
 from app.core.repo.refs import PageRefRepository
@@ -32,14 +32,17 @@ from app.core.workflow import JobLogger
 from app.salesforce.adapters import AdapterRegistry, ObjectAdapter
 from app.salesforce.tabs import TabProvider
 
+from .adapters.deviation_record import DeviationRecordAdapter
+from .catalog import DeviationObject
+
 logger = logging.getLogger(__name__)
 
-_EXECUTE_MESSAGE = "execute phase is not implemented (final action disabled)"
 _WORKING_SUBMIT_STATUSES = frozenset(
     {
         WorkItemStatus.SUBMITTING,
         WorkItemStatus.APPLYING,
         WorkItemStatus.VALIDATING,
+        WorkItemStatus.EXECUTING,
     }
 )
 _ENTERABLE_SUBMIT_STATUSES = frozenset(
@@ -117,10 +120,11 @@ class DeviationsZ02Submission:
     fails, and the operator is notified. There is no automatic rollback in this phase;
     the per-target truth shows exactly what was and was not written.
 
-    ``final_action=False`` (the Phase 6 bring-up mode) stops after validation and returns
-    ``VALIDATED``; the item goes back to ``READY`` with a reason. ``final_action=True``
-    is reserved for the Implement step and currently raises a reviewable failure rather
-    than pretending to implement.
+    After validation the pipeline implements the deviation on its record page. A
+    pre-existing tick returns ``ALREADY_CLOSED`` (external attribution); otherwise it
+    clicks **Implemented** and confirms on the tick, returning ``COMPLETED``. The job
+    never writes the terminal status itself: a live lease forbids it, so the closure
+    resolver applies it on the next valid refresh.
     """
 
     def __init__(
@@ -132,10 +136,8 @@ class DeviationsZ02Submission:
         events: EventRepository,
         adapters: AdapterRegistry,
         catalog: Sequence[EditableField],
-        *,
-        final_action: bool = False,
     ) -> None:
-        """Wire repositories, adapters and the catalogue; ``final_action`` gates execute."""
+        """Wire repositories, adapters and the catalogue."""
         self._workflow = workflow
         self._items = items
         self._fields = fields
@@ -143,19 +145,19 @@ class DeviationsZ02Submission:
         self._events = events
         self._adapters = adapters
         self._catalog = tuple(catalog)
-        self._final_action = final_action
 
     async def run(
         self, item: WorkItem, tabs: TabProvider, log: JobLogger
     ) -> SubmitOutcome:
         """
-        Apply and validate one item's proposed values.
+        Apply, validate and implement one item's proposed values.
 
-        Outcomes: ``VALIDATED`` (writes landed; execute disabled), ``ALREADY_CLOSED``
-        (item was gone before writing), ``FAILED`` (rejected write, missing link or
-        validation mismatch; the item moves to ``NEEDS_REVIEW``). A failed run does not
-        roll back values that were already written; the per-target truth is recorded and
-        the operator is notified.
+        Outcomes: ``COMPLETED`` (apply + read-back + Implement confirmed),
+        ``ALREADY_CLOSED`` (item gone, or already ticked in Salesforce),
+        ``FAILED`` (rejected write, missing link, validation mismatch or unconfirmed
+        click; the item moves to ``NEEDS_REVIEW``). A failed run does not roll back
+        values that were already written; the per-target truth is recorded and the
+        operator is notified.
         """
         try:
             # Re-read the item: the watcher may have recorded absence since the worker
@@ -168,6 +170,10 @@ class DeviationsZ02Submission:
                 raise _SubmitError("no proposed values to submit")
             if _is_closed(item):
                 return self._already_closed(item, "item is not present in the list", log)
+            if item.status is WorkItemStatus.EXECUTING:
+                # A crash between the click and its confirmation was requeued. The
+                # values were already validated; only the final action needs finishing.
+                return await self._execute(item, tabs, log)
 
             item = self._begin(item)
             groups = self._groups(item.key, plans)
@@ -198,23 +204,7 @@ class DeviationsZ02Submission:
                     return self._already_closed(
                         item, "item disappeared during validation", log
                     )
-                if self._final_action:
-                    raise _SubmitError(_EXECUTE_MESSAGE)
-
-                self._items.transition(
-                    self._workflow,
-                    item.key,
-                    WorkItemStatus.READY,
-                    reason="validated; final action disabled",
-                )
-                self._events.emit(
-                    "submit_validated",
-                    workflow=self._workflow,
-                    item=item.key,
-                    detail="apply + validate succeeded; execute disabled",
-                )
-                log(f"{item.key}: validated (final action disabled)")
-                return SubmitOutcome.VALIDATED
+                return await self._execute(fresh, tabs, log)
             finally:
                 for page in pages.values():
                     try:
@@ -228,6 +218,62 @@ class DeviationsZ02Submission:
         except Exception as exc:
             logger.exception("submission failed for %s", item.key)
             return self._fail(item, f"{type(exc).__name__}: {exc}", log)
+
+    async def _execute(
+        self, item: WorkItem, tabs: TabProvider, log: JobLogger
+    ) -> SubmitOutcome:
+        """
+        Run the final action on the deviation record page.
+
+        Called after validation, and again for a requeued job whose item is already
+        ``EXECUTING``. A tick already present returns ``ALREADY_CLOSED`` without clicking
+        or writing execute timestamps (FR-6.16). Otherwise it marks the attempt, clicks
+        **Implemented**, confirms on the tick and returns ``COMPLETED``; an unconfirmed
+        click raises so the item is parked for review with the attempt recorded (FR-6.7).
+        """
+        record_url = item.record_url
+        if not record_url:
+            raise _SubmitError("item has no deviation record URL")
+        adapter = self._adapters.get(DeviationObject.DEVIATION.value)
+        if not isinstance(adapter, DeviationRecordAdapter):
+            raise _SubmitError("deviation adapter cannot run the final action")
+
+        page = await adapter.open_record(tabs, record_url)
+        try:
+            implemented = await adapter.is_implemented(page)
+            if implemented is None:
+                raise _SubmitError(
+                    "Implemented checkbox not found on the deviation record"
+                )
+            if implemented:
+                return self._already_closed(
+                    item, "already implemented in Salesforce", log
+                )
+
+            if item.status is not WorkItemStatus.EXECUTING:
+                self._items.transition(
+                    self._workflow, item.key, WorkItemStatus.EXECUTING
+                )
+            self._items.mark_execute_attempted(self._workflow, item.key, utcnow())
+            log(f"{item.key}: implement clicked")
+            if not await adapter.implement(page):
+                raise _SubmitError(
+                    "Implement clicked but the Implemented checkbox did not turn on"
+                )
+            self._items.mark_execute_confirmed(self._workflow, item.key, utcnow())
+            self._events.emit(
+                "submit_completed",
+                workflow=self._workflow,
+                item=item.key,
+                detail="implemented",
+            )
+            log(f"{item.key}: implemented")
+            return SubmitOutcome.COMPLETED
+        finally:
+            try:
+                await tabs.close_page(page)
+            except Exception as exc:  # noqa: BLE001 - best-effort cleanup
+                logger.debug("closing deviation page failed: %s", exc)
 
     async def preview(
         self, item: WorkItem, tabs: TabProvider, log: JobLogger

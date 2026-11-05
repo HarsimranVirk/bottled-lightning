@@ -339,6 +339,136 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HistoryPageView": {
+        "description": "One page of approved-history rows plus the filtered total.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryRowView"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "workflow": {
+            "title": "Workflow",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow",
+          "count",
+          "total",
+          "rows"
+        ],
+        "title": "HistoryPageView",
+        "type": "object"
+      },
+      "HistoryRowView": {
+        "description": "One approved-history row; adds the snapshot's object links.",
+        "properties": {
+          "activeJob": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "approvedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approvedat"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "epoch": {
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "fields": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FieldView"
+            },
+            "title": "Fields",
+            "type": "object"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "present": {
+            "title": "Present",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "recordUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recordurl"
+          },
+          "refs": {
+            "items": {
+              "$ref": "#/components/schemas/PageRefView"
+            },
+            "title": "Refs",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "status",
+          "present",
+          "epoch",
+          "fields",
+          "refs"
+        ],
+        "title": "HistoryRowView",
+        "type": "object"
+      },
       "ItemDetailView": {
         "properties": {
           "activeJob": {
@@ -744,6 +874,57 @@
           "rows"
         ],
         "title": "JobsPageView",
+        "type": "object"
+      },
+      "NetworkView": {
+        "description": "Server address information shown on the home page.",
+        "properties": {
+          "host": {
+            "title": "Host",
+            "type": "string"
+          },
+          "lanEnabled": {
+            "title": "Lanenabled",
+            "type": "boolean"
+          },
+          "lanIp": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lanip"
+          },
+          "lanUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lanurl"
+          },
+          "localUrl": {
+            "title": "Localurl",
+            "type": "string"
+          },
+          "port": {
+            "title": "Port",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "host",
+          "port",
+          "localUrl",
+          "lanEnabled"
+        ],
+        "title": "NetworkView",
         "type": "object"
       },
       "PageRefView": {
@@ -1506,7 +1687,7 @@
     },
     "/api/deviations/history": {
       "get": {
-        "description": "Accepted-deviation snapshots with the standard server-side filter row.\n\nThis is a separate read model from the live item list; it survives the current\nwork-item purge.",
+        "description": "Accepted-deviation snapshots with the standard server-side filter row.\n\nThis is a separate read model from the live item list; it survives the current\nwork-item purge. ``ref``/``ref_text`` filter the five object links by name.",
         "operationId": "list_history_api_deviations_history_get",
         "parameters": [
           {
@@ -1702,6 +1883,44 @@
           },
           {
             "in": "query",
+            "name": "ref",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ref"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ref_text",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ref Text"
+            }
+          },
+          {
+            "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
@@ -1729,7 +1948,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ItemsPageView"
+                  "$ref": "#/components/schemas/HistoryPageView"
                 }
               }
             },
@@ -2566,6 +2785,28 @@
         ]
       }
     },
+    "/api/network": {
+      "get": {
+        "description": "Bind host, port and the LAN address for the home page.",
+        "operationId": "get_network_api_network_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Network",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
     "/api/sessions": {
       "delete": {
         "description": "Forget the saved snapshot and pause dispatch until a new login.",
@@ -2719,7 +2960,7 @@
     },
     "/api/updates": {
       "get": {
-        "description": "Last update-check result.",
+        "description": "Last update-check or install result.",
         "operationId": "update_status_api_updates_get",
         "responses": {
           "200": {
@@ -2763,7 +3004,7 @@
     },
     "/api/updates/installations": {
       "post": {
-        "description": "Apply a pending update (the updater owns install safety).",
+        "description": "Install the pending update; ``409`` when it is not safe to restart now.",
         "operationId": "install_update_api_updates_installations_post",
         "responses": {
           "202": {

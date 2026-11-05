@@ -13,12 +13,24 @@ from app.salesforce.adapters import (
     DiscoveryContext,
 )
 from app.salesforce.tabs import TabProvider
-from app.utils.dom import absolute_url, dismiss_banner, safe_inner_text
+from app.utils.dom import (
+    absolute_url,
+    click_first_visible,
+    dismiss_banner,
+    poll,
+    safe_inner_text,
+)
 from app.workflows.deviations_z02.catalog import FIELD_CATALOG, DeviationObject
 from app.workflows.deviations_z02.description import (
     clean_description,
     parse_description_changes,
 )
+
+#: The custom checkbox that says whether the deviation is implemented.
+_IMPLEMENTED_FIELD = 'lightning-input:has([data-name="Implemented__c"])'
+
+#: The action that implements the deviation; no modal follows it.
+_IMPLEMENTED_BUTTON = 'button[name="Consumer_Loan_Deviation__c.Implemented"]'
 
 _HOUSING_ROI_SELECTORS: dict[str, str] = {
     "requested_roi": "sfdc:RecordField.Consumer_Loan_Deviation__c.Requested_ROI__c",
@@ -81,6 +93,93 @@ class DeviationRecordAdapter(AdapterBase):
             )
         finally:
             await tabs.close_page(page)
+
+
+    async def open_record(self, tabs: TabProvider, record_url: str) -> Page:
+        """
+        Open the deviation record page for the final action.
+
+        Called by ``DeviationsZ02Submission`` after validation. ``record_url`` is the
+        list row's link (root-relative or absolute) and is resolved against the org base.
+        """
+        return await tabs.new_page(absolute_url(record_url, self._org_base))
+
+    async def is_implemented(self, page: Page) -> bool | None:
+        """
+        Whether the deviation already shows the Implemented tick.
+
+        ``None`` means the checkbox never rendered, so the pipeline must not guess.
+        Called immediately before the final click; the value is also the caller's
+        idempotency check after a crash. The record page renders the field twice
+        (highlights and detail); any ticked copy means implemented.
+        """
+        fields = await self._implemented_fields(page)
+        if fields is None:
+            return None
+        return await _any_checked(fields)
+
+    async def implement(self, page: Page) -> bool:
+        """
+        Click **Implemented** and confirm the checkbox turns ticked.
+
+        Called once per submission, after ``is_implemented`` returned ``False``. Returns
+        ``False`` when the button is missing or no copy of the tick is observed within
+        the request timeout, so the caller parks the item for review. Playwright errors
+        surface to the pipeline as a failed job.
+        """
+        fields = await self._implemented_fields(page)
+        if fields is None:
+            return False
+        if await _any_checked(fields):
+            return True
+        button = page.locator(_IMPLEMENTED_BUTTON)
+        if await button.count() == 0:
+            button = page.get_by_role("button", name="Implemented", exact=True)
+        if not await click_first_visible(button, self._timeout_ms):
+            return False
+        return await poll(lambda: _any_checked(fields), self._timeout_ms)
+
+    async def _implemented_fields(self, page: Page) -> Locator | None:
+        """Every rendered copy of the Implemented checkbox, once it appears."""
+        fields = page.locator(_IMPLEMENTED_FIELD)
+        if not await poll(lambda: _has(fields, 1), self._timeout_ms):
+            return None
+        return fields
+
+
+async def _has(locator: Locator, minimum: int) -> bool:
+    """Whether the locator currently matches at least ``minimum`` elements."""
+    return await locator.count() >= minimum
+
+
+def implemented_from_signals(
+    checked_attribute: str | None, check_icons: int, true_titles: int
+) -> bool:
+    """
+    Decide “implemented” from the three signals LWC renders.
+
+    Checked: ``checked`` on the input, or a ``utility:check`` icon, or an icon titled
+    ``True``. Unchecked: no attribute and a ``utility:steps`` icon titled ``False``.
+    Pure so the detection is unit-tested without a browser.
+    """
+    return checked_attribute is not None or check_icons > 0 or true_titles > 0
+
+
+async def _checked(field: Locator) -> bool:
+    """Read the readonly checkbox as LWC renders it, using the pure decision."""
+    return implemented_from_signals(
+        await field.get_attribute("checked"),
+        await field.locator('lightning-icon[icon-name="utility:check"]').count(),
+        await field.locator('lightning-icon[title="True"]').count(),
+    )
+
+
+async def _any_checked(fields: Locator) -> bool:
+    """Whether any rendered copy of the checkbox is ticked."""
+    for index in range(await fields.count()):
+        if await _checked(fields.nth(index)):
+            return True
+    return False
 
 
 async def _description(page: Page, label: Locator) -> str:

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Implemented |
-| **Version** | v1.2 |
+| **Version** | v1.4 |
 | **Date** | 2026-11-05 |
 | **Feature** | Dev-only SQLite explorer and exports |
 
@@ -43,13 +43,17 @@ never listed, queryable or exportable.
 - table list with row counts and columns; clicking a table fills the editor with
   `SELECT * FROM "<table>" LIMIT 100`;
 - SQL editor with one read-only statement;
-- results table with the standard per-column filter row (text contains plus a
-  multiselect checkbox dropdown of distinct values), shared pagination
-  (10/25/50/100 rows), row count, duration and truncation flag;
+- results table rendered by the shared `DataTable` (FR-9.24): standard per-column filter
+  row (text contains plus a multiselect checkbox dropdown of distinct values), shared
+  pagination (10/25/50/100 rows), resizable columns, row count, duration and truncation
+  flag;
 - **Export CSV** and **Export Excel** buttons for the current SQL. Exports run the full
   query server-side, not the filtered page view;
 - the shared table filter is used on every result column (FR-9.19). Filtering stays
-  client-side over the bounded preview; exports are unaffected;
+  client-side over the bounded preview; exports are unaffected. Pagination is likewise
+  client-side over the preview (FR-9.20) — arbitrary SQL has no stable server cursor;
+- column widths for the result table reset when the query changes, because the column set
+  is dynamic;
 - a **Maintenance** section with **Purge current data** and **Purge historical data**.
 
 The preview is capped at 500 rows by default; filtering and pagination operate on that
@@ -63,8 +67,11 @@ server-timed; the request cannot choose a cutoff.
 
 | Action | Scope | Cutoff | Never touches |
 |---|---|---|---|
-| Purge current data | `work_items` plus its fields, attributes, refs, decisions, edits and events | 24 hours | active-job items, `jobs`, `job_logs`, `sync_runs`, `sessions`, `session_events`, `approved_*` |
+| Purge current data | `work_items` plus its fields, attributes, refs, decisions, edits, events, terminal `jobs` and their `job_logs` | 24 hours | active-job items, active (`queued`/`running`/`blocked_auth`) jobs, `sync_runs`, `sessions`, `session_events`, `approved_*` |
 | Purge historical data | `approved_deviations` plus its snapshot children | 90 days | `work_items`, decisions, jobs, syncs, sessions |
+
+`sync_runs` is not a purge scope at all: it is a bounded ring of the newest 20 rows per
+workflow, trimmed automatically in the insert transaction (`SyncRunRepository.record`).
 
 Each dialog first calls the endpoint with `dryRun: true` and shows the per-table counts.
 Confirming runs one transaction. A second run with the same cutoff deletes zero rows.

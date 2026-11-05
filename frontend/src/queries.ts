@@ -12,16 +12,19 @@ import type {
   DecisionKind,
   DevQueryView,
   DevTablesView,
+  HistoryPage,
   ItemDetail,
   ItemsPage,
   JobLogs,
   JobsPage,
   JobView,
+  NetworkView,
   PurgeResult,
   PurgeScope,
   QueueView,
   SessionView,
   SyncView,
+  UpdateStatus,
   VersionView,
   WorkflowView,
 } from './api'
@@ -89,6 +92,8 @@ export interface HistoryFilters {
   decidedBefore: string
   fieldText: Record<string, string>
   fieldValues: Record<string, string[]>
+  refText: Record<string, string>
+  refValues: Record<string, string[]>
 }
 
 export const EMPTY_HISTORY_FILTERS: HistoryFilters = {
@@ -102,6 +107,8 @@ export const EMPTY_HISTORY_FILTERS: HistoryFilters = {
   decidedBefore: '',
   fieldText: {},
   fieldValues: {},
+  refText: {},
+  refValues: {},
 }
 
 /** Deck/list filters. `statuses` is the repeatable `?status=` filter. */
@@ -184,7 +191,7 @@ export function useHistory(
   limit = 25,
   enabled = true,
   offset = 0,
-): ReturnType<typeof useQuery<ItemsPage>> {
+): ReturnType<typeof useQuery<HistoryPage>> {
   return useQuery({
     queryKey: ['history', route ?? '', JSON.stringify(filters), offset, limit],
     queryFn: () =>
@@ -204,6 +211,12 @@ export function useHistory(
         fieldText: Object.entries(filters.fieldText)
           .filter(([, text]) => text.trim() !== '')
           .map(([key, text]) => ({ key, text })),
+        refs: Object.entries(filters.refValues).flatMap(([kind, values]) =>
+          values.map((value) => ({ kind, value })),
+        ),
+        refText: Object.entries(filters.refText)
+          .filter(([, text]) => text.trim() !== '')
+          .map(([kind, text]) => ({ kind, text })),
         limit,
         offset,
       }),
@@ -278,7 +291,35 @@ export function useJobLogs(id: number | null): ReturnType<typeof useQuery<JobLog
 }
 
 export function useWorkers(): ReturnType<typeof useQuery<QueueView>> {
-  return useQuery({ queryKey: keys.workers, queryFn: () => api.workers(), refetchInterval: poll(5_000) })
+  return useQuery({
+    queryKey: keys.workers,
+    queryFn: () => api.workers(),
+    refetchInterval: poll(5_000),
+  })
+}
+
+export function useNetwork(): ReturnType<typeof useQuery<NetworkView>> {
+  return useQuery({
+    queryKey: ['network'],
+    queryFn: () => api.network(),
+    refetchInterval: poll(10_000),
+  })
+}
+
+export function useUpdates(): ReturnType<typeof useQuery<UpdateStatus>> {
+  return useQuery({
+    queryKey: ['updates'],
+    queryFn: () => api.updates(),
+    refetchInterval: poll(10_000),
+  })
+}
+
+export function useInstallUpdate(): ReturnType<typeof useMutation<UpdateStatus>> {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.installUpdate(),
+    onSuccess: (status) => client.setQueryData(['updates'], status),
+  })
 }
 
 export function useLogin(): ReturnType<typeof useMutation<SessionView>> {

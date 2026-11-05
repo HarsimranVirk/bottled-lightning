@@ -33,7 +33,8 @@ import {
 import { Link } from 'react-router-dom'
 
 import type { DevCell, PurgeResult, PurgeScope } from '../api'
-import { Pagination } from '../components/Pagination'
+import type { DataColumn } from '../components/DataTable'
+import { DataTable } from '../components/DataTable'
 import { TableFilter } from '../components/TableFilter'
 import { formatDateTime } from '../format'
 import { useDevExport, useDevPurge, useDevQuery, useDevTables } from '../queries'
@@ -49,6 +50,16 @@ function cellText(cell: DevCell): string {
   return cell === null ? '—' : String(cell)
 }
 
+/** Stable width-storage key for one result shape; a new query starts from defaults. */
+function queryTableId(sql: string, columns: string[]): string {
+  let hash = 0
+  const text = `${sql}|${columns.join(',')}`
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) | 0
+  }
+  return `dev-${Math.abs(hash)}`
+}
+
 function download(blob: Blob, format: 'csv' | 'xlsx'): void {
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
@@ -62,6 +73,7 @@ function download(blob: Blob, format: 'csv' | 'xlsx'): void {
 
 export function DevDbPage(): JSX.Element {
   const [sql, setSql] = useState(DEFAULT_SQL)
+  const [executedSql, setExecutedSql] = useState('')
   const [filters, setFilters] = useState<Record<string, ColumnFilter>>({})
   const [page, setPage] = useState(1)
   const [size, setSize] = useState(25)
@@ -80,6 +92,7 @@ export function DevDbPage(): JSX.Element {
   function runQuery(): void {
     setFilters({})
     setPage(1)
+    setExecutedSql(sql)
     query.mutate({ sql, limit: 500 })
   }
 
@@ -123,6 +136,27 @@ export function DevDbPage(): JSX.Element {
   const pageRows = filteredRows.slice((page - 1) * size, page * size)
   const hasFilters = Object.values(filters).some(
     (filter) => filter.text.trim() !== '' || filter.values.length > 0,
+  )
+
+  const resultColumns: DataColumn<DevCell[]>[] = (query.data?.columns ?? []).map(
+    (column, index) => ({
+      id: `c${index}`,
+      label: column,
+      header: column,
+      width: 160,
+      filter: (
+        <TableFilter
+          label={`Filter by ${column}`}
+          text={filters[String(index)]?.text ?? ''}
+          onText={(text) => updateFilter(index, { text })}
+          selected={filters[String(index)]?.values ?? []}
+          onSelected={(values) => updateFilter(index, { values })}
+          options={columnOptions[index] ?? []}
+          placeholder="Filter"
+        />
+      ),
+      cell: (row) => cellText(row[index] ?? null),
+    }),
   )
 
   function updateFilter(index: number, patch: Partial<ColumnFilter>): void {
@@ -301,55 +335,20 @@ export function DevDbPage(): JSX.Element {
             ) : null}
           </FlexLayout>
 
-          <TableContainer>
-            <Table zebra>
-              <THead>
-                <TR>
-                  {query.data.columns.map((column, index) => (
-                    <TH key={`${column}-${index}`}>{column}</TH>
-                  ))}
-                </TR>
-                <TR className="job-filter-row">
-                  {query.data.columns.map((column, index) => {
-                    const filter = filters[String(index)]
-                    return (
-                      <TH key={`filter-${column}-${index}`}>
-                        <TableFilter
-                          label={`Filter by ${column}`}
-                          text={filter?.text ?? ''}
-                          onText={(text) => updateFilter(index, { text })}
-                          selected={filter?.values ?? []}
-                          onSelected={(values) => updateFilter(index, { values })}
-                          options={columnOptions[index] ?? []}
-                          placeholder="Filter"
-                        />
-                      </TH>
-                    )
-                  })}
-                </TR>
-              </THead>
-              <TBody>
-                {pageRows.map((row, rowIndex) => (
-                  <TR key={rowIndex}>
-                    {row.map((cell, cellIndex) => (
-                      <TD key={cellIndex}>{cellText(cell)}</TD>
-                    ))}
-                  </TR>
-                ))}
-              </TBody>
-            </Table>
-          </TableContainer>
-
-          {pageRows.length === 0 ? (
-            <Text color="secondary">No rows match the filters.</Text>
-          ) : null}
-
-          <Pagination
-            page={page}
-            size={size}
-            total={filteredRows.length}
-            onPage={setPage}
-            onSize={changeSize}
+          <DataTable
+            tableId={queryTableId(executedSql, query.data.columns)}
+            columns={resultColumns}
+            rows={pageRows}
+            rowKey={(_row, index) => `${page}-${index}`}
+            zebra
+            empty={<Text color="secondary">No rows match the filters.</Text>}
+            pagination={{
+              page,
+              size,
+              total: filteredRows.length,
+              onPage: setPage,
+              onSize: changeSize,
+            }}
           />
         </StackLayout>
       ) : null}

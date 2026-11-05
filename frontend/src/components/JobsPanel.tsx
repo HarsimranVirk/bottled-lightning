@@ -8,26 +8,19 @@ import {
   Banner,
   BannerContent,
   Button,
-  FlexLayout,
   H3,
   Panel,
   Spinner,
   StackLayout,
-  Table,
-  TableContainer,
-  TBody,
-  TD,
   Text,
-  TH,
-  THead,
-  TR,
 } from '@salt-ds/core'
 
 import type { JobLogs, JobView } from '../api'
 import type { JobFilters } from '../queries'
 import { EMPTY_JOB_FILTERS } from '../queries'
 import { formatDateTime, formatDuration } from '../format'
-import { Pagination } from './Pagination'
+import type { DataColumn } from './DataTable'
+import { DataTable } from './DataTable'
 import { StatusChip } from './StatusChip'
 import { TableFilter } from './TableFilter'
 import type { TableFilterOption } from './TableFilter'
@@ -70,32 +63,34 @@ function uniqueOptions(values: string[], prefix = ''): TableFilterOption[] {
 }
 
 function SortHeader({
-  column,
   label,
   sort,
   order,
+  column,
   onSort,
-  className,
-  textAlign,
 }: {
-  column: string
   label: string
   sort: string
   order: 'asc' | 'desc'
+  column: string
   onSort: (column: string) => void
-  className?: string
-  textAlign?: 'left' | 'right'
 }): JSX.Element {
   const active = sort === column
-  const ariaSort = active ? (order === 'asc' ? 'ascending' : 'descending') : 'none'
   return (
-    <TH aria-sort={ariaSort} className={className} textAlign={textAlign}>
-      <Button appearance="transparent" onClick={() => onSort(column)}>
-        {label}
-        {active ? (order === 'asc' ? ' ▲' : ' ▼') : ''}
-      </Button>
-    </TH>
+    <Button appearance="transparent" onClick={() => onSort(column)}>
+      {label}
+      {active ? (order === 'asc' ? ' ▲' : ' ▼') : ''}
+    </Button>
   )
+}
+
+function sortState(
+  column: string,
+  sort: string,
+  order: 'asc' | 'desc',
+): 'ascending' | 'descending' | 'none' {
+  if (sort !== column) return 'none'
+  return order === 'asc' ? 'ascending' : 'descending'
 }
 
 export function JobsPanel({
@@ -127,208 +122,248 @@ export function JobsPanel({
     onFilters({ ...filters, [key]: value })
   }
 
+  const columns: DataColumn<JobView>[] = [
+    {
+      id: 'id',
+      label: 'ID',
+      width: 80,
+      ariaSort: sortState('id', sort, order),
+      header: (
+        <SortHeader column="id" label="ID" sort={sort} order={order} onSort={onSort} />
+      ),
+      filter: (
+        <TableFilter
+          label="Filter by job id"
+          text={filters.id}
+          onText={(value) => update('id', value)}
+          selected={filters.ids}
+          onSelected={(value) => update('ids', value)}
+          options={idOptions}
+          placeholder="ID"
+        />
+      ),
+      cell: (job) => <span className="mono">#{job.id}</span>,
+    },
+    {
+      id: 'status',
+      label: 'Status',
+      width: 130,
+      ariaSort: sortState('status', sort, order),
+      header: (
+        <SortHeader
+          column="status"
+          label="Status"
+          sort={sort}
+          order={order}
+          onSort={onSort}
+        />
+      ),
+      filter: (
+        <TableFilter
+          label="Filter by status"
+          text={filters.statusText}
+          onText={(value) => update('statusText', value)}
+          selected={filters.statuses}
+          onSelected={(value) => update('statuses', value)}
+          options={STATUSES.map((value) => ({
+            value,
+            label: value.replace(/_/g, ' '),
+          }))}
+        />
+      ),
+      cell: (job) => <StatusChip status={job.status} />,
+    },
+    {
+      id: 'kind',
+      label: 'Kind',
+      width: 100,
+      ariaSort: sortState('kind', sort, order),
+      header: (
+        <SortHeader column="kind" label="Kind" sort={sort} order={order} onSort={onSort} />
+      ),
+      filter: (
+        <TableFilter
+          label="Filter by kind"
+          text={filters.kindText}
+          onText={(value) => update('kindText', value)}
+          selected={filters.kinds}
+          onSelected={(value) => update('kinds', value)}
+          options={KINDS.map((value) => ({ value, label: value }))}
+        />
+      ),
+      cell: (job) => job.kind,
+    },
+    {
+      id: 'phase',
+      label: 'Phase',
+      width: 120,
+      className: 'job-col-phase',
+      ariaSort: sortState('phase', sort, order),
+      header: (
+        <SortHeader
+          column="phase"
+          label="Phase"
+          sort={sort}
+          order={order}
+          onSort={onSort}
+        />
+      ),
+      filter: (
+        <TableFilter
+          label="Filter by phase"
+          text={filters.phaseText}
+          onText={(value) => update('phaseText', value)}
+          selected={filters.phases}
+          onSelected={(value) => update('phases', value)}
+          options={PHASES.map((value) => ({ value, label: value }))}
+        />
+      ),
+      cell: (job) => job.phase ?? '—',
+    },
+    {
+      id: 'item',
+      label: 'Item',
+      width: 230,
+      className: 'job-col-item',
+      ariaSort: sortState('item', sort, order),
+      header: (
+        <SortHeader column="item" label="Item" sort={sort} order={order} onSort={onSort} />
+      ),
+      filter: (
+        <TableFilter
+          label="Filter by item"
+          text={filters.item}
+          onText={(value) => update('item', value)}
+          selected={filters.items}
+          onSelected={(value) => update('items', value)}
+          options={itemOptions}
+          placeholder="Item"
+        />
+      ),
+      cell: (job) => <span className="mono">{job.item}</span>,
+    },
+    {
+      id: 'started',
+      label: 'Started',
+      width: 180,
+      className: 'job-col-started',
+      ariaSort: sortState('started', sort, order),
+      header: (
+        <SortHeader
+          column="started"
+          label="Started"
+          sort={sort}
+          order={order}
+          onSort={onSort}
+        />
+      ),
+      filter: (
+        <TableRangeFilter
+          fromLabel="Started from"
+          toLabel="Started to"
+          from={filters.startedAfter}
+          to={filters.startedBefore}
+          onFrom={(value) => update('startedAfter', value)}
+          onTo={(value) => update('startedBefore', value)}
+          type="date"
+        />
+      ),
+      cell: (job) => formatDateTime(job.startedAt),
+    },
+    {
+      id: 'duration',
+      label: 'Duration',
+      width: 110,
+      align: 'right',
+      ariaSort: sortState('duration', sort, order),
+      header: (
+        <SortHeader
+          column="duration"
+          label="Duration"
+          sort={sort}
+          order={order}
+          onSort={onSort}
+        />
+      ),
+      filter: (
+        <TableRangeFilter
+          fromLabel="Minimum duration in seconds"
+          toLabel="Maximum duration in seconds"
+          from={filters.durationMinS}
+          to={filters.durationMaxS}
+          onFrom={(value) => update('durationMinS', value)}
+          onTo={(value) => update('durationMaxS', value)}
+          type="number"
+          fromPlaceholder="min"
+          toPlaceholder="max"
+        />
+      ),
+      cell: (job) => (
+        <span className="num mono">{formatDuration(job.durationMs)}</span>
+      ),
+    },
+    {
+      id: 'error',
+      label: 'Error',
+      width: 240,
+      className: 'job-col-error',
+      ariaSort: sortState('error', sort, order),
+      header: (
+        <SortHeader
+          column="error"
+          label="Error"
+          sort={sort}
+          order={order}
+          onSort={onSort}
+        />
+      ),
+      filter: (
+        <TableFilter
+          label="Filter by error"
+          text={filters.error}
+          onText={(value) => update('error', value)}
+          selected={filters.errors}
+          onSelected={(value) => update('errors', value)}
+          options={errorOptions}
+          placeholder="Error"
+        />
+      ),
+      cell: (job) => (
+        <span className="job-error" title={job.error ?? undefined}>
+          {job.error ?? '—'}
+        </span>
+      ),
+    },
+  ]
+
   return (
     <div className="jobs">
       {filtered ? (
-        <FlexLayout justify="end">
+        <StackLayout gap={1} align="end">
           <Button
             appearance="bordered"
             onClick={() => onFilters(EMPTY_JOB_FILTERS)}
           >
             Clear filters
           </Button>
-        </FlexLayout>
+        </StackLayout>
       ) : null}
 
-      <div className="job-table-wrap">
-        <TableContainer>
-          <Table>
-            <THead>
-              <TR>
-                <SortHeader column="id" label="ID" sort={sort} order={order} onSort={onSort} />
-                <SortHeader column="status" label="Status" sort={sort} order={order} onSort={onSort} />
-                <SortHeader column="kind" label="Kind" sort={sort} order={order} onSort={onSort} />
-                <SortHeader
-                  column="phase"
-                  label="Phase"
-                  sort={sort}
-                  order={order}
-                  onSort={onSort}
-                  className="job-col-phase"
-                />
-                <SortHeader
-                  column="item"
-                  label="Item"
-                  sort={sort}
-                  order={order}
-                  onSort={onSort}
-                  className="job-col-item"
-                />
-                <SortHeader
-                  column="started"
-                  label="Started"
-                  sort={sort}
-                  order={order}
-                  onSort={onSort}
-                  className="job-col-started"
-                />
-                <SortHeader
-                  column="duration"
-                  label="Duration"
-                  sort={sort}
-                  order={order}
-                  onSort={onSort}
-                  textAlign="right"
-                />
-                <SortHeader
-                  column="error"
-                  label="Error"
-                  sort={sort}
-                  order={order}
-                  onSort={onSort}
-                  className="job-col-error"
-                />
-              </TR>
-              <TR className="job-filter-row">
-                <TH>
-                  <TableFilter
-                    label="Filter by job id"
-                    text={filters.id}
-                    onText={(value) => update('id', value)}
-                    selected={filters.ids}
-                    onSelected={(value) => update('ids', value)}
-                    options={idOptions}
-                    placeholder="ID"
-                  />
-                </TH>
-                <TH>
-                  <TableFilter
-                    label="Filter by status"
-                    text={filters.statusText}
-                    onText={(value) => update('statusText', value)}
-                    selected={filters.statuses}
-                    onSelected={(value) => update('statuses', value)}
-                    options={STATUSES.map((value) => ({
-                      value,
-                      label: value.replace(/_/g, ' '),
-                    }))}
-                  />
-                </TH>
-                <TH>
-                  <TableFilter
-                    label="Filter by kind"
-                    text={filters.kindText}
-                    onText={(value) => update('kindText', value)}
-                    selected={filters.kinds}
-                    onSelected={(value) => update('kinds', value)}
-                    options={KINDS.map((value) => ({ value, label: value }))}
-                  />
-                </TH>
-                <TH className="job-col-phase">
-                  <TableFilter
-                    label="Filter by phase"
-                    text={filters.phaseText}
-                    onText={(value) => update('phaseText', value)}
-                    selected={filters.phases}
-                    onSelected={(value) => update('phases', value)}
-                    options={PHASES.map((value) => ({ value, label: value }))}
-                  />
-                </TH>
-                <TH className="job-col-item">
-                  <TableFilter
-                    label="Filter by item"
-                    text={filters.item}
-                    onText={(value) => update('item', value)}
-                    selected={filters.items}
-                    onSelected={(value) => update('items', value)}
-                    options={itemOptions}
-                    placeholder="Item"
-                  />
-                </TH>
-                <TH className="job-col-started">
-                  <TableRangeFilter
-                    fromLabel="Started from"
-                    toLabel="Started to"
-                    from={filters.startedAfter}
-                    to={filters.startedBefore}
-                    onFrom={(value) => update('startedAfter', value)}
-                    onTo={(value) => update('startedBefore', value)}
-                    type="date"
-                  />
-                </TH>
-                <TH>
-                  <TableRangeFilter
-                    fromLabel="Minimum duration in seconds"
-                    toLabel="Maximum duration in seconds"
-                    from={filters.durationMinS}
-                    to={filters.durationMaxS}
-                    onFrom={(value) => update('durationMinS', value)}
-                    onTo={(value) => update('durationMaxS', value)}
-                    type="number"
-                    fromPlaceholder="min"
-                    toPlaceholder="max"
-                  />
-                </TH>
-                <TH className="job-col-error">
-                  <TableFilter
-                    label="Filter by error"
-                    text={filters.error}
-                    onText={(value) => update('error', value)}
-                    selected={filters.errors}
-                    onSelected={(value) => update('errors', value)}
-                    options={errorOptions}
-                    placeholder="Error"
-                  />
-                </TH>
-              </TR>
-            </THead>
-            <TBody>
-              {jobs.map((job) => (
-                <TR
-                  key={job.id}
-                  tabIndex={0}
-                  className="job-row"
-                  aria-selected={job.id === selected}
-                  onClick={() => onSelect(job.id)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      onSelect(job.id)
-                    }
-                  }}
-                >
-                  <TD className="mono">#{job.id}</TD>
-                  <TD>
-                    <StatusChip status={job.status} />
-                  </TD>
-                  <TD>{job.kind}</TD>
-                  <TD className="job-col-phase">{job.phase ?? '—'}</TD>
-                  <TD className="mono job-col-item">{job.item}</TD>
-                  <TD className="job-col-started">{formatDateTime(job.startedAt)}</TD>
-                  <TD className="num mono" textAlign="right">
-                    {formatDuration(job.durationMs)}
-                  </TD>
-                  <TD className="job-error job-col-error" title={job.error ?? undefined}>
-                    {job.error ?? '—'}
-                  </TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
-        </TableContainer>
-        {loading ? (
-          <div className="job-loading">
-            <Spinner size="small" />
-          </div>
-        ) : null}
-        {jobs.length === 0 && !loading ? (
-          <Text color="secondary" className="job-empty">
+      <DataTable
+        tableId="jobs"
+        columns={columns}
+        rows={jobs}
+        rowKey={(job) => String(job.id)}
+        onRowClick={(job) => onSelect(job.id)}
+        selectedKey={selected === null ? null : String(selected)}
+        loading={loading}
+        empty={
+          <Text color="secondary">
             {filtered ? 'No jobs match these filters.' : 'Nothing has run yet.'}
           </Text>
-        ) : null}
-      </div>
-
-      <Pagination page={page} size={size} total={total} onPage={onPage} onSize={onSize} />
+        }
+        pagination={{ page, size, total, onPage, onSize }}
+      />
 
       {selected !== null ? (
         <StackLayout gap={1} className="job-logs">

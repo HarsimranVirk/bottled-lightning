@@ -328,6 +328,56 @@ class SyncRunTests(DbTestCase):
         self.assertFalse(latest.valid)
         self.assertEqual(latest.warning, "header=12 rows=11")
 
+    def record_many(self, workflow: str, count: int) -> None:
+        """Record ``count`` samples, numbering them in the header total."""
+        runs = SyncRunRepository(self.db)
+        for n in range(1, count + 1):
+            runs.record(
+                SyncRun(
+                    id=0,
+                    workflow=workflow,
+                    captured_at=utcnow(),
+                    header_total=n,
+                    rows_read=n,
+                    valid=True,
+                    warning=None,
+                    added=0,
+                    updated=0,
+                    closed=0,
+                )
+            )
+
+    def test_ring_keeps_the_newest_twenty(self) -> None:
+        """Recording 25 samples leaves 20, and the newest stays readable."""
+        self.record_many(WORKFLOW, 25)
+        row = (
+            self.db.connect()
+            .execute("SELECT COUNT(*) FROM sync_runs WHERE workflow = ?", [WORKFLOW])
+            .fetchone()
+        )
+        self.assertEqual(int(str(row[0])), 20)
+        latest = SyncRunRepository(self.db).latest(WORKFLOW)
+        assert latest is not None
+        self.assertEqual(latest.header_total, 25)
+        self.assertEqual(len(SyncRunRepository(self.db).recent(WORKFLOW)), 20)
+
+    def test_ring_is_per_workflow(self) -> None:
+        """Each workflow keeps its own 20 rows; the ring trims both at once."""
+        self.record_many(WORKFLOW, 25)
+        self.record_many("other_workflow", 25)
+        rows = (
+            self.db.connect()
+            .execute(
+                "SELECT workflow, COUNT(*) FROM sync_runs "
+                "GROUP BY workflow ORDER BY workflow"
+            )
+            .fetchall()
+        )
+        self.assertEqual(
+            [(str(row[0]), int(str(row[1]))) for row in rows],
+            [(WORKFLOW, 20), ("other_workflow", 20)],
+        )
+
 
 class SupportingRepoTests(DbTestCase):
     """Attributes, refs, edits, events and sessions."""

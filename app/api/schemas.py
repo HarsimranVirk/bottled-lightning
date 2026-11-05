@@ -116,6 +116,21 @@ class ItemsPageView(ApiModel):
     rows: list[ItemRowView]
 
 
+class HistoryRowView(ItemRowView):
+    """One approved-history row; adds the snapshot's object links."""
+
+    refs: list[PageRefView]
+
+
+class HistoryPageView(ApiModel):
+    """One page of approved-history rows plus the filtered total."""
+
+    workflow: str
+    count: int
+    total: int
+    rows: list[HistoryRowView]
+
+
 class JobLogsView(ApiModel):
     job: JobView
     logs: list[str]
@@ -186,6 +201,17 @@ class UpdateStatusView(ApiModel):
     error: str | None = None
     latest: str | None = None
     download_url: str | None = None
+
+
+class NetworkView(ApiModel):
+    """Server address information shown on the home page."""
+
+    host: str
+    port: int
+    lan_ip: str | None = None
+    lan_url: str | None = None
+    local_url: str
+    lan_enabled: bool
 
 
 #: One scalar cell in a dev query result. SQLite blobs are converted to placeholders.

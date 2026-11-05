@@ -15,19 +15,22 @@ from app.api.schemas import (
     ItemRowView,
     JobLogsView,
     JobsPageView,
+    NetworkView,
     QueueView,
     SessionView,
     SyncView,
+    UpdateStatusView,
 )
 from app.api.services import WorkItemService, workflow_view
 from app.config import Settings
 from app.core.list_view import ListRow
-from app.core.models import utcnow
+from app.core.models import PageRef, utcnow
 from app.core.registry import WorkflowRegistry
 from app.core.repo.approved_history import ApprovedHistoryRepository
 from app.core.repo.decisions import DecisionRepository
 from app.core.repo.edits import EditRepository
 from app.core.repo.jobs import JobRepository
+from app.core.repo.refs import PageRefRepository
 from app.core.status import WorkItemStatus
 from app.core.workflow import Workflow
 from app.devtools.db import DevDbService
@@ -91,6 +94,24 @@ class ApiTestCase(DbTestCase):
         deps.items.transition(WORKFLOW, KEY, WorkItemStatus.READY, extracted_at=utcnow())
         deps.fields.set_extracted(WORKFLOW, KEY, {"loan_amount": "1300000", "tenure": "240"})
         return workflow
+
+    def add_refs(self) -> None:
+        """Give the fixture item all five object links."""
+        PageRefRepository(self.db).replace(
+            WORKFLOW,
+            KEY,
+            [
+                PageRef(WORKFLOW, KEY, "opportunity", "Opportunity 1", "https://e/opp"),
+                PageRef(WORKFLOW, KEY, "cl_contract", "LAI-00533155", "https://e/cl"),
+                PageRef(WORKFLOW, KEY, "collateral", "CJID-0000280688", "https://e/coll"),
+                PageRef(
+                    WORKFLOW, KEY, "lms2_cl_contract", "LAI-00533155", "https://e/lm-cl"
+                ),
+                PageRef(
+                    WORKFLOW, KEY, "lms2_collateral", "CJID-0000280688", "https://e/lm-coll"
+                ),
+            ],
+        )
 
 
 class ServiceTests(ApiTestCase):
@@ -340,6 +361,25 @@ class _FakeAdmin:
     def set_concurrency(self, concurrency: int) -> QueueView:
         return self.queue()
 
+    def network(self) -> NetworkView:
+        """Fixed LAN view for the network endpoint test."""
+        return NetworkView(
+            host="0.0.0.0",
+            port=8765,
+            lan_ip="192.168.1.42",
+            lan_url="http://192.168.1.42:8765",
+            local_url="http://127.0.0.1:8765",
+            lan_enabled=True,
+        )
+
+    def update_status(self) -> UpdateStatusView:
+        """No update pending in API tests."""
+        return UpdateStatusView(status="up-to-date", update_available=False)
+
+    def install_update(self, *, auto: bool = False) -> UpdateStatusView:
+        """Same as the status; install behaviour is covered elsewhere."""
+        return self.update_status()
+
     def jobs(
         self,
         workflow: str | None = None,
@@ -440,6 +480,58 @@ class HistoryServiceTests(ApiTestCase):
         closed = client.get("/api/deviations?status=closed")
         self.assertEqual(closed.json()["total"], 0)
 
+    def test_history_rows_carry_refs_and_ref_filters(self) -> None:
+        """The history page returns the five links and filters on their names."""
+        self.make_ready_item()
+        self.add_refs()
+        service, registry, _workflow, _jobs, _edits = self.build()
+        service.decide(WORKFLOW, KEY, "accept")
+        client = TestClient(create_app(registry, service, _FakeAdmin()))
+
+        page = client.get("/api/deviations/history", params={"key": KEY})
+        self.assertEqual(page.status_code, 200)
+        row = page.json()["rows"][0]
+        self.assertEqual(
+            [ref["kind"] for ref in row["refs"]],
+            [
+                "opportunity",
+                "cl_contract",
+                "collateral",
+                "lms2_cl_contract",
+                "lms2_collateral",
+            ],
+        )
+        self.assertEqual(row["refs"][2]["name"], "CJID-0000280688")
+
+        exact = client.get(
+            "/api/deviations/history", params={"ref": "collateral:CJID-0000280688"}
+        )
+        self.assertEqual(exact.json()["total"], 1)
+        contains = client.get(
+            "/api/deviations/history", params={"ref_text": "opportunity:Opportunity"}
+        )
+        self.assertEqual(contains.json()["total"], 1)
+        wrong_kind = client.get(
+            "/api/deviations/history", params={"ref": "collateral:Opportunity 1"}
+        )
+        self.assertEqual(wrong_kind.json()["total"], 0)
+        invalid = client.get("/api/deviations/history", params={"ref": "bad"})
+        self.assertEqual(invalid.status_code, 422)
+
+    def test_network_endpoint_reports_the_lan_url(self) -> None:
+        """The home page reads the bind and LAN address from the API."""
+        service, registry, _workflow, _jobs, _edits = self.build()
+        client = TestClient(create_app(registry, service, _FakeAdmin()))
+
+        response = client.get("/api/network")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["lanIp"], "192.168.1.42")
+        self.assertEqual(body["lanUrl"], "http://192.168.1.42:8765")
+        self.assertEqual(body["localUrl"], "http://127.0.0.1:8765")
+        self.assertTrue(body["lanEnabled"])
+
 
 class RouteTests(ApiTestCase):
     def test_route_table_matches_the_api_document(self) -> None:
@@ -466,6 +558,7 @@ class RouteTests(ApiTestCase):
             ("GET", "/api/workers"),
             ("PATCH", "/api/workers"),
             ("GET", "/api/updates"),
+            ("GET", "/api/network"),
         ]:
             method, path = expected
             self.assertIn(path, paths, path)

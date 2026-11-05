@@ -10,6 +10,7 @@ from app.api.errors import ApiError
 from app.api.schemas import (
     DecisionBody,
     FieldValuesBody,
+    HistoryPageView,
     ItemDetailView,
     ItemsPageView,
     JobView,
@@ -27,7 +28,7 @@ def _pairs(values: list[str] | None, name: str) -> tuple[tuple[str, str], ...]:
         if not separator or not key.strip():
             raise ApiError(
                 422,
-                f"{name} must be field_key:value",
+                f"{name} must be key:value",
                 "invalid_history_filter",
             )
         pairs.append((key.strip(), value))
@@ -57,7 +58,7 @@ def make_router(workflow: Workflow, service: WorkItemService) -> APIRouter:
             workflow.name, status, q, limit, offset, decision, sort, order
         )
 
-    @router.get("/history", response_model=ItemsPageView)
+    @router.get("/history", response_model=HistoryPageView)
     def list_history(
         q: str | None = None,
         key: str | None = None,
@@ -70,13 +71,15 @@ def make_router(workflow: Workflow, service: WorkItemService) -> APIRouter:
         decided_before: str | None = None,
         field: Annotated[list[str] | None, Query()] = None,
         field_text: Annotated[list[str] | None, Query()] = None,
+        ref: Annotated[list[str] | None, Query()] = None,
+        ref_text: Annotated[list[str] | None, Query()] = None,
         limit: int = Query(default=25, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
-    ) -> ItemsPageView:
+    ) -> HistoryPageView:
         """Accepted-deviation snapshots with the standard server-side filter row.
 
         This is a separate read model from the live item list; it survives the current
-        work-item purge.
+        work-item purge. ``ref``/``ref_text`` filter the five object links by name.
         """
         return service.list_history(
             workflow.name,
@@ -94,6 +97,8 @@ def make_router(workflow: Workflow, service: WorkItemService) -> APIRouter:
                 decided_before=decided_before,
                 field_text=_pairs(field_text, "field_text"),
                 field_values=_pairs(field, "field"),
+                ref_text=_pairs(ref_text, "ref_text"),
+                ref_values=_pairs(ref, "ref"),
                 limit=limit,
                 offset=offset,
             ),

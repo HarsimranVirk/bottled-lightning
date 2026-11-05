@@ -13,6 +13,8 @@ export type WorkflowFieldView = components['schemas']['WorkflowFieldView']
 export type ItemRow = components['schemas']['ItemRowView']
 export type ItemDetail = components['schemas']['ItemDetailView']
 export type ItemsPage = components['schemas']['ItemsPageView']
+export type HistoryRow = components['schemas']['HistoryRowView']
+export type HistoryPage = components['schemas']['HistoryPageView']
 export type FieldView = components['schemas']['FieldView']
 export type DecisionView = components['schemas']['DecisionView']
 export type DecisionKind = DecisionView['decision']
@@ -30,6 +32,8 @@ export type DevQueryView = components['schemas']['DevQueryView']
 export type DevCell = DevQueryView['rows'][number][number]
 export type PurgeScope = components['schemas']['PurgeIn']['scope']
 export type PurgeResult = components['schemas']['PurgeView']
+export type NetworkView = components['schemas']['NetworkView']
+export type UpdateStatus = components['schemas']['UpdateStatusView']
 
 /** A failed request, normalised from the API's `{detail: {code, message}}` body. */
 export class ApiError extends Error {
@@ -186,6 +190,8 @@ export interface HistoryQuery {
   decidedBefore?: string
   fields?: { key: string; value: string }[]
   fieldText?: { key: string; text: string }[]
+  refs?: { kind: string; value: string }[]
+  refText?: { kind: string; text: string }[]
   limit?: number
   offset?: number
 }
@@ -208,6 +214,12 @@ function historyQuery(params: HistoryQuery): string {
   }
   for (const filter of params.fieldText ?? []) {
     search.append('field_text', `${filter.key}:${filter.text}`)
+  }
+  for (const filter of params.refs ?? []) {
+    search.append('ref', `${filter.kind}:${filter.value}`)
+  }
+  for (const filter of params.refText ?? []) {
+    search.append('ref_text', `${filter.kind}:${filter.text}`)
   }
   if (params.limit !== undefined) search.set('limit', String(params.limit))
   if (params.offset !== undefined) search.set('offset', String(params.offset))
@@ -249,7 +261,7 @@ export const api = {
     request(`/api/${route}${itemsQuery(params)}`),
   item: (route: string, key: string): Promise<ItemDetail> =>
     request(`/api/${route}/${encodeURIComponent(key)}`),
-  history: (route: string, params: HistoryQuery = {}): Promise<ItemsPage> =>
+  history: (route: string, params: HistoryQuery = {}): Promise<HistoryPage> =>
     request(`/api/${route}/history${historyQuery(params)}`),
   historyItem: (route: string, key: string): Promise<ItemDetail> =>
     request(`/api/${route}/history/${encodeURIComponent(key)}`),
@@ -280,6 +292,12 @@ export const api = {
     request(`/api/jobs${jobsQuery(params)}`),
   jobLogs: (id: number): Promise<JobLogs> => request(`/api/jobs/${id}/logs`),
   workers: (): Promise<QueueView> => request('/api/workers'),
+  network: (): Promise<NetworkView> => request('/api/network'),
+  updates: (): Promise<UpdateStatus> => request('/api/updates'),
+  checkUpdate: (): Promise<UpdateStatus> =>
+    request('/api/updates/checks', { method: 'POST' }),
+  installUpdate: (): Promise<UpdateStatus> =>
+    request('/api/updates/installations', { method: 'POST' }),
   login: (): Promise<SessionView> => request('/api/sessions', { method: 'POST' }),
   logout: (): Promise<void> => requestVoid('/api/sessions', { method: 'DELETE' }),
   requestSync: (workflow: string): Promise<{ status: string; workflow: string }> =>

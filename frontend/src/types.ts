@@ -119,7 +119,7 @@ export interface paths {
          * @description Accepted-deviation snapshots with the standard server-side filter row.
          *
          *     This is a separate read model from the live item list; it survives the current
-         *     work-item purge.
+         *     work-item purge. ``ref``/``ref_text`` filter the five object links by name.
          */
         get: operations["list_history_api_deviations_history_get"];
         put?: never;
@@ -302,6 +302,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/network": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Network
+         * @description Bind host, port and the LAN address for the home page.
+         */
+        get: operations["get_network_api_network_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sessions": {
         parameters: {
             query?: never;
@@ -363,7 +383,7 @@ export interface paths {
         };
         /**
          * Update Status
-         * @description Last update-check result.
+         * @description Last update-check or install result.
          */
         get: operations["update_status_api_updates_get"];
         put?: never;
@@ -405,7 +425,7 @@ export interface paths {
         put?: never;
         /**
          * Install Update
-         * @description Apply a pending update (the updater owns install safety).
+         * @description Install the pending update; ``409`` when it is not safe to restart now.
          */
         post: operations["install_update_api_updates_installations_post"];
         delete?: never;
@@ -630,6 +650,48 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /**
+         * HistoryPageView
+         * @description One page of approved-history rows plus the filtered total.
+         */
+        HistoryPageView: {
+            /** Count */
+            count: number;
+            /** Rows */
+            rows: components["schemas"]["HistoryRowView"][];
+            /** Total */
+            total: number;
+            /** Workflow */
+            workflow: string;
+        };
+        /**
+         * HistoryRowView
+         * @description One approved-history row; adds the snapshot's object links.
+         */
+        HistoryRowView: {
+            activeJob?: components["schemas"]["JobView"] | null;
+            /** Approvedat */
+            approvedAt?: string | null;
+            decision?: components["schemas"]["DecisionView"] | null;
+            /** Epoch */
+            epoch: number;
+            /** Fields */
+            fields: {
+                [key: string]: components["schemas"]["FieldView"];
+            };
+            /** Key */
+            key: string;
+            /** Present */
+            present: boolean;
+            /** Reason */
+            reason?: string | null;
+            /** Recordurl */
+            recordUrl?: string | null;
+            /** Refs */
+            refs: components["schemas"]["PageRefView"][];
+            /** Status */
+            status: string;
+        };
         /** ItemDetailView */
         ItemDetailView: {
             activeJob?: components["schemas"]["JobView"] | null;
@@ -746,6 +808,24 @@ export interface components {
             rows: components["schemas"]["JobView"][];
             /** Total */
             total: number;
+        };
+        /**
+         * NetworkView
+         * @description Server address information shown on the home page.
+         */
+        NetworkView: {
+            /** Host */
+            host: string;
+            /** Lanenabled */
+            lanEnabled: boolean;
+            /** Lanip */
+            lanIp?: string | null;
+            /** Lanurl */
+            lanUrl?: string | null;
+            /** Localurl */
+            localUrl: string;
+            /** Port */
+            port: number;
         };
         /** PageRefView */
         PageRefView: {
@@ -1107,6 +1187,8 @@ export interface operations {
                 decided_before?: string | null;
                 field?: string[] | null;
                 field_text?: string[] | null;
+                ref?: string[] | null;
+                ref_text?: string[] | null;
                 limit?: number;
                 offset?: number;
             };
@@ -1122,7 +1204,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ItemsPageView"];
+                    "application/json": components["schemas"]["HistoryPageView"];
                 };
             };
             /** @description Validation Error */
@@ -1499,6 +1581,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_network_api_network_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NetworkView"];
                 };
             };
         };

@@ -1,9 +1,9 @@
 """Bulk retention deletes for current work items and approved history.
 
-This is the only place that issues destructive SQL for retention. The service above it
-chooses a server-side cutoff; nothing from the API or the browser is interpolated into a
-statement. Both operations use one transaction and a temporary key table so the same item
-set drives the count and every child delete.
+This is the only place that issues operator-triggered destructive SQL for retention. The
+service above it chooses a server-side cutoff; nothing from the API or the browser is
+interpolated into a statement. Both operations use one transaction and a temporary key
+table so the same item set drives the count and every child delete.
 """
 
 from __future__ import annotations
@@ -15,6 +15,41 @@ from app.core.models import to_iso
 from app.db.connection import Database
 
 _ACTIVE_JOB_STATUSES = ("queued", "running", "blocked_auth")
+
+#: The only job statuses the current purge may remove. Active rows are never deleted,
+#: even when their item is old, because the queue, the lease check and this module's own
+#: selection query read them.
+_TERMINAL_JOB_STATUSES = ("succeeded", "failed", "cancelled")
+
+_TERMINAL_PLACEHOLDERS = ", ".join("?" for _ in _TERMINAL_JOB_STATUSES)
+
+#: Jobs belonging to a purged item, restricted to terminal rows.
+#:
+#: The terminal filter is deliberately repeated here instead of relying only on
+#: ``_purge_current``: it encodes invariant I13 in the destructive statement itself, so
+#: the delete cannot remove an active job even if the selection query, the transaction
+#: boundary or this statement's caller changes. The count and the delete share it.
+_JOBS_IN_SCOPE = f"""
+ EXISTS (
+   SELECT 1 FROM _purge_current p
+    WHERE p.workflow = jobs.workflow
+      AND p.item_key = jobs.item_key
+ )
+   AND jobs.status IN ({_TERMINAL_PLACEHOLDERS})
+"""
+
+#: Logs of the jobs above, joined through ``jobs`` because ``job_logs`` only stores
+#: ``job_id``. Same terminal filter, so the dry-run count matches the delete exactly.
+_JOB_LOGS_IN_SCOPE = f"""
+ EXISTS (
+   SELECT 1 FROM jobs j
+     JOIN _purge_current p
+       ON p.workflow = j.workflow
+      AND p.item_key = j.item_key
+    WHERE j.id = job_logs.job_id
+      AND j.status IN ({_TERMINAL_PLACEHOLDERS})
+ )
+"""
 
 _CURRENT_CHILDREN = (
     "work_item_fields",
@@ -38,8 +73,9 @@ class PurgeRepository:
     Execute the two manual retention scopes and return per-table deletion counts.
 
     ``current`` measures an item's age from ``closed_at``, ``last_seen`` or ``first_seen``
-    and skips items with an active job. ``history`` measures snapshots from ``decided_at``.
-    A dry run computes the same counts without deleting the real rows.
+    and skips items with an active job; it also removes those items' terminal jobs and
+    their logs. ``history`` measures snapshots from ``decided_at``. A dry run computes
+    the same counts without deleting the real rows.
 
     Example:
         repo = PurgeRepository(db)
@@ -52,11 +88,13 @@ class PurgeRepository:
 
     def current(self, cutoff: datetime, dry_run: bool) -> dict[str, int]:
         """
-        Delete current work items older than ``cutoff`` and their child rows.
+        Delete current work items older than ``cutoff`` and everything they own.
 
-        Items with a queued, running or blocked-auth job are protected even when their
-        timestamps are old. Jobs, logs, syncs, sessions and approved history are never
-        touched. Returns the count for every table considered, including zeros.
+        Removes the item's child rows and its terminal jobs (with their logs). Items
+        with a queued, running or blocked-auth job are protected even when their
+        timestamps are old, and an active job row is never deleted. Sync runs, sessions,
+        session events and approved history are never touched. Returns the count for
+        every table considered, including zeros.
         """
         with self._db.transaction() as conn:
             self._prepare_current(conn, cutoff)
@@ -112,7 +150,7 @@ class PurgeRepository:
         )
 
     def _current_counts(self, conn: sqlite3.Connection) -> dict[str, int]:
-        """Count the current-scope rows before any delete."""
+        """Count the current-scope rows (items, children, jobs, logs) before any delete."""
         counts: dict[str, int] = {
             "work_items": self._scalar(conn, "SELECT COUNT(*) FROM _purge_current")
         }
@@ -128,10 +166,23 @@ class PurgeRepository:
                        )
                 """,
             )
+        counts["jobs"] = self._scalar(
+            conn,
+            f"SELECT COUNT(*) FROM jobs WHERE {_JOBS_IN_SCOPE}",
+            list(_TERMINAL_JOB_STATUSES),
+        )
+        counts["job_logs"] = self._scalar(
+            conn,
+            f"SELECT COUNT(*) FROM job_logs WHERE {_JOB_LOGS_IN_SCOPE}",
+            list(_TERMINAL_JOB_STATUSES),
+        )
         return counts
 
     def _delete_current(self, conn: sqlite3.Connection) -> None:
-        """Delete the current-scope children and then the work items."""
+        """Delete the current-scope logs, jobs, children and finally the work items."""
+        terminal = list(_TERMINAL_JOB_STATUSES)
+        conn.execute(f"DELETE FROM job_logs WHERE {_JOB_LOGS_IN_SCOPE}", terminal)
+        conn.execute(f"DELETE FROM jobs WHERE {_JOBS_IN_SCOPE}", terminal)
         for table in _CURRENT_CHILDREN:
             conn.execute(
                 f"""
@@ -223,7 +274,9 @@ class PurgeRepository:
         )
 
     @staticmethod
-    def _scalar(conn: sqlite3.Connection, sql: str) -> int:
+    def _scalar(
+        conn: sqlite3.Connection, sql: str, params: list[str] | None = None
+    ) -> int:
         """Run a one-column count and return an integer (zero for no row)."""
-        row = conn.execute(sql).fetchone()
+        row = conn.execute(sql, params or []).fetchone()
         return 0 if row is None else int(str(row[0]))

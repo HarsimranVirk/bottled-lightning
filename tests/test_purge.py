@@ -73,6 +73,20 @@ class PurgeTests(DbTestCase):
             WORKFLOW, key, None, utcnow() - age
         )
 
+    def add_terminal_job(self, key: str, *, outcome: str, logs: int = 0) -> int:
+        """Create a finished job for ``key`` with ``logs`` progress lines."""
+        jobs = JobRepository(self.db)
+        job = jobs.enqueue(WORKFLOW, JobKind.EXTRACT, key)
+        for n in range(logs):
+            jobs.log(job.id, f"line {n}")
+        if outcome == "succeeded":
+            jobs.complete(job.id)
+        elif outcome == "failed":
+            jobs.fail(job.id, "boom")
+        else:
+            jobs.cancel(job.id)
+        return job.id
+
     def test_current_purge_deletes_old_item_and_children(self) -> None:
         """The current scope removes the item, its children and its decisions."""
         self.make_item(OLD_KEY, age=timedelta(hours=CURRENT_RETENTION_HOURS + 1))
@@ -107,13 +121,78 @@ class PurgeTests(DbTestCase):
         self.assertIsNotNone(WorkItemRepository(self.db).get(WORKFLOW, NEW_KEY))
 
     def test_current_purge_skips_active_job(self) -> None:
-        """An old item with a queued job is protected."""
+        """An old item with a queued job is protected, and the job and log survive."""
         self.make_item(OLD_KEY, age=timedelta(hours=CURRENT_RETENTION_HOURS + 1))
         jobs = JobRepository(self.db)
-        jobs.enqueue(WORKFLOW, JobKind.EXTRACT, OLD_KEY)
+        job = jobs.enqueue(WORKFLOW, JobKind.EXTRACT, OLD_KEY)
+        jobs.log(job.id, "queued")
         result = PurgeService(self.db).purge(PurgeScope.CURRENT)
         self.assertEqual(result.total, 0)
         self.assertIsNotNone(WorkItemRepository(self.db).get(WORKFLOW, OLD_KEY))
+        conn = self.db.connect()
+        self.assertEqual(
+            int(str(conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0])), 1
+        )
+        self.assertEqual(
+            int(str(conn.execute("SELECT COUNT(*) FROM job_logs").fetchone()[0])), 1
+        )
+
+    def test_current_purge_deletes_terminal_jobs_and_logs(self) -> None:
+        """All three terminal statuses and their logs go with the purged item."""
+        self.make_item(OLD_KEY, age=timedelta(hours=CURRENT_RETENTION_HOURS + 1))
+        self.add_terminal_job(OLD_KEY, outcome="succeeded", logs=2)
+        self.add_terminal_job(OLD_KEY, outcome="failed")
+        self.add_terminal_job(OLD_KEY, outcome="cancelled")
+
+        result = PurgeService(self.db).purge(PurgeScope.CURRENT)
+
+        self.assertEqual(result.deleted["jobs"], 3)
+        self.assertEqual(result.deleted["job_logs"], 2)
+        conn = self.db.connect()
+        self.assertEqual(
+            int(str(conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0])), 0
+        )
+        self.assertEqual(
+            int(str(conn.execute("SELECT COUNT(*) FROM job_logs").fetchone()[0])), 0
+        )
+
+    def test_current_purge_keeps_jobs_of_recent_items(self) -> None:
+        """A job survives while its item is still inside the current store."""
+        self.make_item(NEW_KEY, age=timedelta(hours=1))
+        self.add_terminal_job(NEW_KEY, outcome="succeeded", logs=3)
+
+        result = PurgeService(self.db).purge(PurgeScope.CURRENT)
+
+        self.assertEqual(result.total, 0)
+        self.assertEqual(result.deleted["jobs"], 0)
+        self.assertEqual(result.deleted["job_logs"], 0)
+        conn = self.db.connect()
+        self.assertEqual(
+            int(str(conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0])), 1
+        )
+
+    def test_dry_run_counts_jobs_and_logs(self) -> None:
+        """The preview reports the job/log rows and deletes nothing."""
+        self.make_item(OLD_KEY, age=timedelta(hours=CURRENT_RETENTION_HOURS + 1))
+        self.add_terminal_job(OLD_KEY, outcome="succeeded", logs=4)
+
+        service = PurgeService(self.db)
+        preview = service.purge(PurgeScope.CURRENT, dry_run=True)
+
+        self.assertEqual(preview.deleted["jobs"], 1)
+        self.assertEqual(preview.deleted["job_logs"], 4)
+        conn = self.db.connect()
+        self.assertEqual(
+            int(str(conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0])), 1
+        )
+        self.assertEqual(
+            int(str(conn.execute("SELECT COUNT(*) FROM job_logs").fetchone()[0])), 4
+        )
+
+        real = service.purge(PurgeScope.CURRENT)
+        self.assertEqual(real.deleted, preview.deleted)
+        self.assertEqual(real.deleted["jobs"], 1)
+        self.assertEqual(real.deleted["job_logs"], 4)
 
     def test_dry_run_reports_without_deleting(self) -> None:
         """A dry run returns the same counts and changes nothing."""
