@@ -2,7 +2,7 @@
 
 import contextlib
 import threading
-from typing import Literal, cast
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -18,8 +18,6 @@ from app.types import (
     LoginState,
     PageRef,
     ResultsResponse,
-    ResyncQueue,
-    ResyncResult,
     ResyncState,
     SessionEventInfo,
     SessionInfo,
@@ -27,7 +25,8 @@ from app.types import (
     ViewRecord,
 )
 
-from . import config, jobs, store
+from . import config, store, sync
+from . import legacy_jobs as jobs
 
 router = APIRouter(prefix="/api")
 
@@ -35,20 +34,10 @@ router = APIRouter(prefix="/api")
 _login_lock = threading.Lock()
 _login_state: dict[str, str] = {"status": "idle", "detail": ""}
 
-# --- resync state ---
-_resync_lock = threading.Lock()
-_resync_state: dict[str, object] = {"status": "idle", "detail": "", "result": None}
-
 
 def _set_login_state(status: str, detail: str = "") -> None:
     _login_state["status"] = status
     _login_state["detail"] = detail
-
-
-def _set_resync_state(status: str, detail: str = "", result: ResyncResult | None = None) -> None:
-    _resync_state["status"] = status
-    _resync_state["detail"] = detail
-    _resync_state["result"] = result
 
 
 class LoginIn(BaseModel):
@@ -111,8 +100,9 @@ def create_view_job(view_id: int) -> dict[str, int]:
     view = store.get_view(view_id)
     if not view:
         raise HTTPException(404, "view not found")
-    job_id = store.create_job(view_id)
-    jobs.run_job_async(view_id, job_id)
+    job_id = jobs.start_extraction(view_id, sync.current_snapshot())
+    if job_id is None:
+        raise HTTPException(409, "extraction already running")
     return {"job_id": job_id, "view_id": view_id}
 
 
@@ -136,31 +126,9 @@ def get_job_logs(job_id: int) -> dict[str, list[str]]:
 
 
 # --- deviations (Z02) ---
-Z02_VIEW_NAME = "Loan Deviations Z02"
-Z02_OBJECT_API = "Consumer_Loan_Deviation__c"
-Z02_FILTER = "Z2_Loan_para_pricing1"
-Z02_PATTERN = r"Deviation-\d+-\d+"
-
-
-def _get_z02_view() -> dict[str, str | int | None]:
-    for v in store.list_views():
-        if v["name"] == Z02_VIEW_NAME:
-            return v
-        if Z02_FILTER in str(v.get("url", "")):
-            return v
-    url = config.LIST_URL_TEMPLATE.format(
-        host=config.ORG_BASE, object_api=Z02_OBJECT_API, filter=Z02_FILTER
-    )
-    store.add_view(Z02_VIEW_NAME, url, Z02_PATTERN)
-    views = store.list_views()
-    if not views:
-        raise HTTPException(500, "failed to create view")
-    return views[0]
-
-
 @router.get("/deviations")
 def list_deviations(decision: str | None = None) -> DeviationsResponse:
-    view = _get_z02_view()
+    view = sync.z02_view()
     _vid = view.get("id")
     vid = _vid if isinstance(_vid, int) else 0
     jobs_list = store.list_jobs()
@@ -293,19 +261,21 @@ def update_deviation(value: str, body: DecisionIn) -> dict[str, JsonValue]:
         store.delete_deviation_active(value)
     det = store.get_deviation_details(value)
     if det is not None:
-        return cast(dict[str, JsonValue], det)  # det values are str | None, a subset of JsonValue
+        payload: dict[str, JsonValue] = {str(key): value for key, value in det.items()}
+        return payload
     return {"value": value, "decision": body.decision}
 
 
 @router.post("/deviations/jobs", status_code=202)
 @router.post("/deviations/run", status_code=202)
 @router.post("/deviations/runs", status_code=202)
-def create_deviation_job() -> dict[str, int]:
-    view = _get_z02_view()
-    _vid = view.get("id")
-    vid = _vid if isinstance(_vid, int) else 0
-    job_id = store.create_job(vid)
-    jobs.run_job_async(vid, job_id)
+def create_deviation_job(refresh: bool = False) -> dict[str, int]:
+    vid = sync.z02_view_id()
+    if not vid:
+        raise HTTPException(500, "deviations view is not available")
+    job_id = jobs.start_extraction(vid, sync.current_snapshot(), force=refresh)
+    if job_id is None:
+        raise HTTPException(409, "extraction already running")
     return {"job_id": job_id, "view_id": vid}
 
 
@@ -399,7 +369,8 @@ def create_session(body: LoginIn | None = None) -> StartLoginResponse:
 
     def _run() -> None:
         try:
-            from . import browser, jobs
+            from . import browser
+            from . import legacy_jobs as jobs
 
             ok = browser.do_manual_login(reset=reset)
             if ok:
@@ -428,118 +399,11 @@ def delete_session() -> dict[str, str]:
 
 
 # --- sync / resync queue ---
-def _get_resync_state() -> ResyncState:
-    raw_result = _resync_state.get("result")
-    result_val = raw_result if isinstance(raw_result, ResyncResult) else None
-    return ResyncState(
-        status=str(_resync_state.get("status", "idle")),
-        detail=str(_resync_state.get("detail", "")),
-        result=result_val,
-    )
-
-
-def _run_resync() -> None:
-    try:
-        _set_resync_state("running", "extracting current list from Salesforce")
-        from . import deviations_z02
-        from .browser import SalesforceSession
-        from .deviations_z02.pipeline import extract_list_and_links
-
-        profile = deviations_z02.PROFILE
-        view = _get_z02_view()
-        _vid = view.get("id")
-        vid = _vid if isinstance(_vid, int) else 0
-
-        current_rows = store.latest_values(vid)
-        db_values = {str(r.get("value")) for r in current_rows}
-        db_count = len(db_values)
-
-        queue_pending = queue_accept = queue_reject = 0
-        for r in current_rows:
-            det = store.get_deviation_details(str(r.get("value")))
-            dec = (det.get("decision") if det else None) or "pending"
-            if dec == "accept":
-                queue_accept += 1
-            elif dec == "reject":
-                queue_reject += 1
-            else:
-                queue_pending += 1
-
-        session = SalesforceSession(headless=True)
-        with session:
-            if not session.ensure_logged_in():
-                raise RuntimeError("session expired — run a manual login and retry")
-            numbers, total, _links, approval_dates = extract_list_and_links(
-                profile, session, lambda _m: None
-            )
-
-        sf_values = set(numbers)
-        new_in_sf = sorted(sf_values - db_values)
-        missing_in_sf = sorted(db_values - sf_values)
-
-        header_total = total
-        count_mismatch = header_total is not None and len(sf_values) != header_total
-
-        result_data = store.resync_queue(vid, sf_values, approval_dates=approval_dates)
-
-        # refresh queue tallies after reconciliation
-        queue_pending = queue_accept = queue_reject = 0
-        for r in store.latest_values(vid):
-            det = store.get_deviation_details(str(r.get("value")))
-            dec = (det.get("decision") if det else None) or "pending"
-            if dec == "accept":
-                queue_accept += 1
-            elif dec == "reject":
-                queue_reject += 1
-            else:
-                queue_pending += 1
-
-        ra = result_data.get("added", [])
-        rr = result_data.get("removed", [])
-        result = ResyncResult(
-            sf_count=len(sf_values),
-            header_total=header_total,
-            count_mismatch=count_mismatch,
-            db_count=db_count,
-            new_in_sf=new_in_sf,
-            missing_in_sf=missing_in_sf,
-            added=[str(x) for x in (ra if isinstance(ra, list) else [])],
-            removed=[str(x) for x in (rr if isinstance(rr, list) else [])],
-            queue=ResyncQueue(pending=queue_pending, accept=queue_accept, reject=queue_reject),
-        )
-        _set_resync_state("done", f"resynced: {len(sf_values)} in SF", result)
-        # If new deviations appeared in SF, kick off an extraction to populate details.
-        if new_in_sf:
-            with contextlib.suppress(Exception):
-                if store.running_jobs() == 0:
-                    v = _get_z02_view()
-                    _vid2 = v.get("id")
-                    vid2 = _vid2 if isinstance(_vid2, int) else 0
-                    if vid2:
-                        job_id = store.create_job(vid2)
-                        jobs.run_job_async(vid2, job_id)
-                        _set_resync_state(
-                            "done", f"resynced: {len(sf_values)} in SF; extraction started", result
-                        )
-    except Exception as e:  # noqa: BLE001
-        _set_resync_state("failed", f"{type(e).__name__}: {e}", None)
-
-
-def _start_resync() -> None:
-    with _resync_lock:
-        if str(_resync_state.get("status")) == "running":
-            raise RuntimeError("resync already running")
-        _set_resync_state("running", "starting")
-    threading.Thread(target=_run_resync, name="resync", daemon=True).start()
-
-
 @router.post("/syncs", status_code=202)
 @router.post("/deviations/syncs", status_code=202)
 @router.post("/deviations/sync", status_code=202)
 def create_sync() -> dict[str, str]:
-    try:
-        _start_resync()
-    except RuntimeError:
+    if not sync.trigger():
         raise HTTPException(409, "resync already running")
     return {"status": "started"}
 
@@ -547,7 +411,7 @@ def create_sync() -> dict[str, str]:
 @router.get("/syncs")
 @router.get("/deviations/syncs")
 def get_sync() -> ResyncState:
-    return _get_resync_state()
+    return sync.state()
 
 
 # --- updates (stub) ---

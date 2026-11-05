@@ -5,6 +5,13 @@ import time
 
 from playwright.sync_api import Page
 
+from app.workflows.deviations_z02.description import (
+    clean_description as _clean_v2,
+)
+from app.workflows.deviations_z02.description import (
+    parse_description_fields as _parse_v2,
+)
+
 
 def collect_matches(page: Page, pattern: str, retries: int = 3) -> set[str]:
     rx = re.compile(pattern)
@@ -66,26 +73,22 @@ def click_show_more(page: Page, max_clicks: int = 300) -> int:
 
 
 def parse_description_fields(description: str) -> dict[str, str | None]:
-    def grab(rx: str) -> str | None:
-        m = re.search(rx, description, re.MULTILINE)
-        return m.group(1).strip() or None if m else None
+    """Legacy shape (``emi`` key) over the v2 parser.
 
+    Single implementation lives in ``app/workflows/deviations_z02/description.py``; the
+    mapping below keeps the pre-refactor extractors working until they are deleted.
+    """
+    parsed = _parse_v2(description)
     return {
-        "property_value": grab(r"(?m)^\s*Property Value[^-\n]*-\s?(.+)$"),
-        "loan_amount": grab(r"(?m)^\s*Loan Amount[^-\n]*-\s?(.+)$"),
-        "tenure": grab(r"(?m)^\s*Tenure[^-\n]*-\s?(.+)$"),
-        "emi": grab(r"(?m)^\s*EMIs?\s*&[^-\n]*-\s?(.+)$"),
+        "property_value": parsed["property_value"],
+        "loan_amount": parsed["loan_amount"],
+        "tenure": parsed["tenure"],
+        "emi": parsed["emi_incl_hffc"],
     }
 
 
 def clean_description(raw: str) -> str:
-    drop = (
-        r"^\s*(Help |Edit |)?Loan Deviation Description\s*$",
-        r"^\s* Help Loan Deviation Description\s*$",
-    )
-    lines = raw.splitlines()
-    lines = [ln for ln in lines if not any(re.match(pat, ln, re.IGNORECASE) for pat in drop)]
-    return "\n".join(lines).strip()
+    return _clean_v2(raw)
 
 
 def looks_logged_in(page: Page) -> bool:

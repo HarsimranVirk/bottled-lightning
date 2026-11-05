@@ -1,210 +1,137 @@
-import { useCallback, useEffect, useState } from 'react'
+/** App shell: Salt tabs for navigation, providers and the global health banner. */
+
+import type { JSX } from 'react'
 import {
-  SaltProviderNext,
-  Button,
-  StackLayout,
+  FlexItem,
   FlexLayout,
+  SaltProviderNext,
+  Tab,
+  TabBar,
+  TabList,
+  TabTrigger,
+  Tabs,
   Text,
-  StatusIndicator,
 } from '@salt-ds/core'
-import Home from './pages/Home'
-import DeviationsZ02 from './pages/DeviationsZ02'
-import Deck from './pages/Deck'
-import History from './pages/History'
-import { api, errorMessage } from './api'
-import { loadStored, saveStored } from './shared'
-import type { Route, SessionInfo } from './types'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { BrowserRouter, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 
-const ROUTES: readonly Route[] = ['home', 'deviations-z02']
+import { AppFooter } from './components/AppFooter'
+import { QueueBar } from './components/QueueBar'
+import { SyncBanner } from './components/SyncBanner'
+import { DevStates } from './pages/DevStates'
+import { DeviationsPage } from './pages/DeviationsPage'
+import { HomePage } from './pages/HomePage'
+import { JobsPage } from './pages/JobsPage'
+import {
+  useLogin,
+  useRequestSync,
+  useSession,
+  useSync,
+  useVersion,
+  useWorkers,
+  useWorkflows,
+} from './queries'
 
-function readRoute(): Route {
-  const raw = window.location.hash.replace(/^#\/?/, '')
-  return ROUTES.includes(raw as Route) ? (raw as Route) : 'home'
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: true } },
+})
+
+const TAB_PATHS: Record<string, string> = {
+  home: '/',
+  deviations: '/deviations-z02',
+  jobs: '/jobs',
 }
 
-function useHashRoute(): [Route, (route: Route) => void] {
-  const [route, setRoute] = useState<Route>(readRoute)
-  useEffect(() => {
-    const onChange = (): void => setRoute(readRoute())
-    window.addEventListener('hashchange', onChange)
-    return () => window.removeEventListener('hashchange', onChange)
-  }, [])
-  const navigate = (next: Route): void => { window.location.hash = `/${next}` }
-  return [route, navigate]
+function tabFor(pathname: string): string {
+  if (pathname.startsWith('/jobs')) return 'jobs'
+  if (pathname.startsWith('/deviations-z02')) return 'deviations'
+  return 'home'
 }
 
-interface NavItem {
-  id: Route
-  label: string
-  group?: string
-}
-
-const NAV: readonly NavItem[] = [
-  { id: 'home', label: 'Home' },
-  { id: 'deviations-z02', label: 'Deviations Z02' },
-]
-
-function App() {
-  const [route, navigate] = useHashRoute()
-  const [info, setInfo] = useState<SessionInfo | null>(() => loadStored())
-  const [error, setError] = useState<string | null>(null)
-  const [version, setVersion] = useState<string | null>(null)
-  const [navOpen, setNavOpen] = useState(false)
-  const [z2Tab, setZ2Tab] = useState<'deck' | 'history' | 'extraction'>('deck')
-  const busy = info?.login?.status === 'running'
-
-  const refresh = useCallback(async (): Promise<void> => {
-    try {
-      const data = await api.sessionStatus()
-      setInfo(data)
-      saveStored(data)
-      setError(null)
-    } catch (e) {
-      setError(`Backend unreachable: ${errorMessage(e)}`)
-    }
-  }, [])
-
-  useEffect(() => {
-    void refresh()
-    const id = setInterval(refresh, busy ? 2000 : 5000)
-    return () => clearInterval(id)
-  }, [busy, refresh])
-
-  useEffect(() => {
-    void api.updateStatus().then((data) => setVersion(data.app_version)).catch(() => undefined)
-  }, [])
-
-  const startLogin = async (reset: boolean): Promise<void> => {
-    try {
-      await api.startLogin(reset)
-      void refresh()
-    } catch (e) {
-      setError(errorMessage(e))
-    }
-  }
-
-  const go = (r: Route): void => {
-    navigate(r)
-    setNavOpen(false)
-  }
+function Shell(): JSX.Element {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const workflows = useWorkflows()
+  const workflow = workflows.data?.[0]
+  const session = useSession()
+  const sync = useSync(workflow?.name ?? null)
+  const version = useVersion()
+  const workers = useWorkers()
+  const login = useLogin()
+  const refresh = useRequestSync(workflow?.name ?? null)
 
   return (
-    <SaltProviderNext
-      mode="light"
-      density="high"
-      accent="blue"
-      corner="sharp"
-      headingFont="Open Sans"
-      actionFont="Open Sans"
-    >
-      <StackLayout gap={4} className="app-shell">
-        <header className="app-header">
-          <FlexLayout justify="space-between" align="center" gap={2}>
-            <StackLayout gap={0.5} style={{ minWidth: 0 }}>
-              <Text color="secondary" styleAs="label" className="app-subtitle">
-                Salesforce Lightning Automation · local network service
-              </Text>
-              <Text styleAs="h3" onClick={() => go('home')} style={{ cursor: 'pointer', margin: 0 }}>
-                bottled-lightning
-              </Text>
-            </StackLayout>
-
-            {/* Desktop nav */}
-            <nav className="app-nav app-nav--desktop" aria-label="Primary">
-              {NAV.map((n) => (
-                <Button
-                  key={n.id}
-                  appearance="transparent"
-                  sentiment={route === n.id ? 'accented' : 'neutral'}
-                  onClick={() => go(n.id)}
-                >
-                  {n.label}
-                </Button>
-              ))}
-            </nav>
-
-            {/* Mobile nav toggle */}
-            <Button
-              className="app-nav-toggle"
-              appearance="bordered"
-              onClick={() => setNavOpen((v) => !v)}
-              aria-expanded={navOpen}
-              aria-label="Toggle navigation"
+    <div className="shell">
+      <header className="app-header">
+        <FlexLayout justify="space-between" align="center" gap={2} wrap>
+          <FlexLayout gap={3} align="center" wrap>
+            <Text styleAs="h4">bottled-lightning</Text>
+            <FlexItem grow={1}>
+            <Tabs
+              className="app-tabs"
+              value={tabFor(location.pathname)}
+              onChange={(_event, value) => navigate(TAB_PATHS[value] ?? '/')}
             >
-              {navOpen ? '✕' : '☰'}
-            </Button>
+              <TabBar>
+                <TabList>
+                  <Tab value="home">
+                    <TabTrigger>Home</TabTrigger>
+                  </Tab>
+                  <Tab value="deviations">
+                    <TabTrigger>Deviations Z02</TabTrigger>
+                  </Tab>
+                  <Tab value="jobs">
+                    <TabTrigger>Jobs</TabTrigger>
+                  </Tab>
+                </TabList>
+              </TabBar>
+            </Tabs>
+            </FlexItem>
           </FlexLayout>
+          <QueueBar queue={workers.data} />
+        </FlexLayout>
+      </header>
 
-          {/* Mobile nav panel */}
-          {navOpen && (
-            <nav className="app-nav app-nav--mobile" aria-label="Primary mobile">
-              {NAV.map((n) => (
-                <Button
-                  key={n.id}
-                  appearance="transparent"
-                  sentiment={route === n.id ? 'accented' : 'neutral'}
-                  onClick={() => go(n.id)}
-                  style={{ width: '100%', justifyContent: 'flex-start' }}
-                >
-                  {n.label}
-                </Button>
-              ))}
-            </nav>
-          )}
-        </header>
+      <main className="content">
+        <FlexLayout direction="column" gap={2}>
+          <SyncBanner
+            session={session.data}
+            sync={sync.data}
+            onLogin={() => login.mutate()}
+            onRefresh={() => refresh.mutate()}
+            refreshing={refresh.isPending}
+          />
+          <Outlet />
+        </FlexLayout>
+      </main>
 
-        {error && (
-          <FlexLayout gap={1} align="center">
-            <StatusIndicator status="error" />
-            <Text color="error">{error}</Text>
-          </FlexLayout>
-        )}
-
-        {route === 'deviations-z02' ? (
-          <StackLayout gap={3}>
-            <FlexLayout gap={2} className="sub-nav">
-              <Button
-                appearance="transparent"
-                sentiment={z2Tab === 'deck' ? 'accented' : 'neutral'}
-                onClick={() => setZ2Tab('deck')}
-              >
-                Deck
-              </Button>
-              <Button
-                appearance="transparent"
-                sentiment={z2Tab === 'history' ? 'accented' : 'neutral'}
-                onClick={() => setZ2Tab('history')}
-              >
-                History
-              </Button>
-              <Button
-                appearance="transparent"
-                sentiment={z2Tab === 'extraction' ? 'accented' : 'neutral'}
-                onClick={() => setZ2Tab('extraction')}
-              >
-                Extraction
-              </Button>
-            </FlexLayout>
-            {z2Tab === 'history' ? <History /> : z2Tab === 'extraction' ? <DeviationsZ02 /> : <Deck />}
-          </StackLayout>
-        ) : (
-          <Home info={info} busy={busy} onStartLogin={startLogin} />
-        )}
-
-        <Text color="secondary" styleAs="code" style={{ fontSize: 11 }}>
-          last checked: {info?.checked_at ? new Date(info.checked_at).toLocaleString() : '—'} (mirrored to localStorage)
-        </Text>
-
-      </StackLayout>
-      <footer
-        className="app-footer"
-      >
-        <Text color="secondary" styleAs="code" style={{ fontSize: 11 }}>
-          bottled-lightning {version ? `v${version}` : '…'}
-        </Text>
-      </footer>
-    </SaltProviderNext>
+      <AppFooter
+        version={version.data?.version}
+        session={session.data}
+        sync={sync.data}
+        onRefresh={() => refresh.mutate()}
+        refreshing={refresh.isPending}
+      />
+    </div>
   )
 }
 
-export default App
+export default function App(): JSX.Element {
+  return (
+    <SaltProviderNext>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <Routes>
+            <Route element={<Shell />}>
+              <Route index element={<HomePage />} />
+              <Route path="deviations-z02" element={<DeviationsPage />} />
+              <Route path="deviations-z02/:key" element={<DeviationsPage />} />
+              <Route path="jobs" element={<JobsPage />} />
+              <Route path="dev/states" element={<DevStates />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </QueryClientProvider>
+    </SaltProviderNext>
+  )
+}

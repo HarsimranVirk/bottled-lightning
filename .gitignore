@@ -9,6 +9,7 @@ auth.json
 sf_profile/
 data/
 
+
 # Diagnostics artifacts
 error.png
 diag.png

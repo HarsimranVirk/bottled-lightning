@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS deviation_details (
     lms2_collateral_url TEXT,
     lms2_cl_contract_url TEXT,
     scraped_at TEXT,
+    extracted_at TEXT,
     decision TEXT NOT NULL DEFAULT 'pending',
     decided_at TEXT
 );
@@ -147,6 +148,7 @@ def init_db() -> None:
         "lms2_collateral_url",
         "lms2_cl_contract_url",
         "approval_date",
+        "extracted_at",
     ):
         try:
             conn.execute(f"ALTER TABLE deviation_details ADD COLUMN {col} TEXT")
@@ -157,6 +159,11 @@ def init_db() -> None:
         conn.execute("ALTER TABLE latest_values ADD COLUMN approval_date TEXT")
     except sqlite3.OperationalError:
         pass
+    # backfill the one-shot marker so upgrades don't re-scrape existing rows
+    conn.execute(
+        "UPDATE deviation_details SET extracted_at=scraped_at"
+        " WHERE extracted_at IS NULL AND scraped_at IS NOT NULL"
+    )
     conn.commit()
 
 
@@ -461,6 +468,16 @@ def upsert_deviation_detail(
     conn.commit()
 
 
+def mark_deviation_extracted(value: str) -> None:
+    """Record that the record was visited; queued deviations are immutable in practice."""
+    conn = _conn()
+    conn.execute(
+        "INSERT INTO deviation_details(value) VALUES (?) ON CONFLICT(value) DO NOTHING", (value,)
+    )
+    conn.execute("UPDATE deviation_details SET extracted_at=? WHERE value=?", (now_iso(), value))
+    conn.commit()
+
+
 def set_deviation_decision(value: str, decision: Decision) -> None:
     conn = _conn()
     conn.execute(
@@ -569,7 +586,7 @@ def list_deviation_history(
         "lms2_cl_contract_url",
     }
     where: list[str] = []
-    params: list[object] = []
+    params: list[str] = []
     for key, val in filters.items():
         if key not in allowed:
             continue

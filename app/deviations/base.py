@@ -3,40 +3,10 @@
 from dataclasses import dataclass, field
 
 from app.types import JsonValue
+from app.workflows.deviations_z02.product_map import CL_CONTRACT_PRODUCT_MAP
 
-# Deviation-specific mapping: Opportunity product type -> CL contract product.
-# Applies to all deviation classes (z01-z04); not used by cancellations.
-CL_CONTRACT_PRODUCT_MAP: dict[str, str] = {
-    "Combo Top-Up": "Top Up Loan",
-    "Commercial Property Loan": "Commercial Loan",
-    "Construction Finance Product": "Construction Finance",
-    "HL-BT + Renovation Loan": "Home Loan",
-    "HL-BT + SECO": "Home Loan",
-    "Home Loan": "Home Loan",
-    "Home Loan (BT)": "Home Loan",
-    "Home Loan (BT) + Top Up": "Home Loan",
-    "Home Loan (Resale)": "Home Loan",
-    "LAP + Renovation": "Loan Against Property",
-    "LAP + SECO": "Loan Against Property",
-    "LAP-BT": "Loan Against Property",
-    "LAP-BT + Renovation Loan": "Loan Against Property",
-    "LAP-BT + SECO": "Loan Against Property",
-    "LAP-BT + Top-Up": "Loan Against Property",
-    "Lap- refinance": "Loan Against Property",
-    "Loan Against Property (LAP)": "Loan Against Property",
-    "Loan Against Property against commercial property": "Loan Against Property",
-    "Loan for Repair / Renovation / Extension": "Home Loan",
-    "Loyalty Top-Up": "Top Up Loan",
-    "Own Plot + HL (SeCo)": "Home Loan",
-    "Plot Loan": "Plot Loan",
-    "Plot Loan (BT) + SECO": "Plot Loan",
-    "Plot Loan + HL (SeCo)": "Home Loan",
-    "Renovation": "Home Loan",
-    "SeCo": "Home Loan",
-    "Shop Loan (Resale)": "Commercial Loan",
-    "Shop Loan - BT": "Commercial Loan",
-}
-
+# CL_CONTRACT_PRODUCT_MAP used to live here. The single source is now the v2 workflow
+# package; it is re-exported so the legacy extractors keep working until Phase 9.
 
 __all__ = ["CL_CONTRACT_PRODUCT_MAP", "WorkflowProfile", "get_profile", "list_profiles", "register"]
 

@@ -46,7 +46,9 @@ def _cached_entry(value: str, href: str) -> DetailEntry | None:
     from .. import store
 
     det = store.get_deviation_details(value)
-    if not det or not det.get("description"):
+    # Once the record has been visited, its data is treated as final: queued
+    # deviations are effectively immutable (practically nobody edits them).
+    if not det or det.get("extracted_at") is None:
         return None
     refs_raw = store.get_deviation_page_refs(value)
     refs = [
@@ -57,10 +59,6 @@ def _cached_entry(value: str, href: str) -> DetailEntry | None:
         }
         for r in refs_raw
     ]
-    kinds = {r["kind"] for r in refs}
-    needed = {"opportunity", "cl_contract", "collateral", "lms2_collateral", "lms2_cl_contract"}
-    if not needed.issubset(kinds):
-        return None
     opp_url = next((str(r["url"]) for r in refs if r["kind"] == "opportunity"), None)
     return DetailEntry(
         value=value,
@@ -100,11 +98,14 @@ def extract_one_deviation(
     value: str,
     href: str,
     log: Callable[[str], None],
+    *,
+    force: bool = False,
 ) -> DetailEntry:
-    cached = _cached_entry(value, href)
-    if cached is not None:
-        log(f"cached (skipped browser work): {value}")
-        return cached
+    if not force:
+        cached = _cached_entry(value, href)
+        if cached is not None:
+            log(f"cached (skipped browser work): {value}")
+            return cached
     state = State(links={value: href})
     PerDeviationComposite.extract(profile, session, state, log)
     details = state.details

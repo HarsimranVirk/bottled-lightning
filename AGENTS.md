@@ -12,6 +12,101 @@ Lightning list views we don't have REST API access to. Backend is Python
 the home page handles session auth (manual-login trigger, snapshot status,
 localStorage mirror).
 
+## Feature work goes through plan mode (mandatory)
+
+Never start implementing a new feature request directly. Every feature — and any
+change that alters behaviour, data shape, or an API contract — starts in **plan
+mode**, and no code is written until the design is written down in `docs/`.
+
+A plan is only complete when it contains all four of these, in this order:
+
+1. **FR doc** — create or edit the feature's requirements document in `docs/`
+   (follow the existing shape, e.g. `docs/FR-deviations.md`: status/version
+   header, purpose, in-scope, out-of-scope, numbered requirement IDs `FR-x.y`,
+   edge cases, acceptance criteria). Existing FR docs are edited in place
+   (bump the version) rather than duplicated.
+2. **Class design** — `docs/class-design-<feature>.md`: the classes, Protocols,
+   workflow seams, ownership boundaries, and how the new pieces plug into
+   `app/core` / `app/salesforce` / `app/jobs` / `app/workflows/*`. Every class
+   named there must have a single clear responsibility and documented
+   collaborators.
+3. **Data model** — tables/columns, types, keys, indexes, one-shot vs. mutable
+   semantics, retention, and the migration path. State which store owns the
+   data (`data/app.db` SQLite, in-process state, or the browser session) and what
+   happens to existing rows.
+4. **API design** — endpoints and their request/response payloads (obeying the
+   API conventions below), status/error cases, and the matching TypeScript
+   types in `frontend/src/types.ts`.
+
+Rules for the plan-mode phase:
+
+- **All design decisions are recorded in `docs/` — the docs are the source of
+  truth.** A decision that exists only in chat, a commit message, or a PR
+  description does not count.
+- Implementation starts **only after** the four documents exist and the user has
+  approved the plan. Then `docs/refactor-plan-<feature>.md` (phases, cutover,
+  rollback) is the execution order to follow.
+- If implementation reveals a design gap, **stop and amend the doc first**, then
+  continue. Never let `docs/` drift from the code: a behaviour change and its
+  doc update ship in the same change.
+
+### Design discussion and approval gate (mandatory)
+
+A feature request is **not** approval of a design. Before changing behaviour,
+data shape, an API contract, a Protocol/interface, a database table, or a
+selector strategy, the agent must discuss the design with the user and wait for
+explicit approval. This applies even when the user says "do it" in general
+terms — the agent still proposes the concrete design first.
+
+The discussion must happen **before** code or doc edits, and must be in plain
+language, not a keyword dump:
+
+1. **Explain what is being proposed and why.** Name the exact files, classes,
+   fields, endpoints, and user-visible behaviour that would change. Say what
+   stays the same.
+2. **List the realistic alternatives** (including "do nothing") and the
+   trade-offs: risk, effort, reversibility, effect on existing rows/data, and
+   effect on the operator workflow.
+3. **Ask a concrete question** and wait. A good question is "Approve option A
+   (…), option B (…), or do you want a different shape?" — not "shall I
+   proceed?".
+4. **Do not implement, edit code, or rewrite design docs in the same turn as the
+   proposal** unless the user has explicitly approved the proposal in that
+   conversation. Approval must be explicit ("yes, implement option A", "go
+   ahead with that design"), not inferred from an earlier feature request.
+5. **If the user asks a question, reports a bug, or asks for an explanation, answer
+   or investigate first.** Do not turn it into an unrequested code change.
+6. **If a design gap appears mid-implementation, stop and ask.** Do not silently
+   redesign, rename, or widen scope. Record the gap in the relevant `docs/` file
+   only after the user approves the direction.
+7. **Keep the user in the loop.** After approval, describe each implementation
+   slice in detail before starting it, and do not bundle unrelated design
+   changes into the same slice.
+
+This gate is intentionally stricter than "plan mode": the four documents are the
+record, but the user's explicit approval is what authorises implementation.
+
+## Code documentation (required for every class and method)
+
+Every module, class, Protocol, function, and method in `app/` and `tests/` gets a
+docstring. It must be genuinely explanatory, not a restatement of the name:
+
+- **What it is / does**, in one or two sentences of plain language.
+- **When and how it is called** — which layer invokes it (route, job worker,
+  sync loop, another class), whether it is lazy/one-shot, and any threading,
+  blocking, or ordering constraints (e.g. "runs on a worker thread", "must be
+  called after `Session.ensure()`").
+- **Arguments and return value** semantics, including units/formats (months,
+  Indian-grouped amounts, UTC timestamps) and `None` meanings.
+- **Raises / failure modes** — what surfaces to the caller versus what is logged
+  and swallowed.
+- **A short usage example** where the call shape is not obvious (a 2-4 line
+  snippet, not a full program). Pydantic models and `TypedDict`s can document
+  fields inline with comments if a docstring would be redundant.
+
+Keep docstrings current: touching a signature or behaviour means updating its
+docstring in the same change.
+
 ## Critical Salesforce org facts (learned through many failures — trust these)
 
 1. **Session cookies are host-locked.** The org locks Lightning sessions to
@@ -54,6 +149,12 @@ localStorage mirror).
    `EMIs & other HFFC Loan-…` shapes occur). Amount fields display Indian
    grouping (25,50,000); tenure is stored in months.
 
+Queued deviations are treated as immutable in practice — nobody edits them in
+SF. Detail extraction is one-shot (`deviation_details.extracted_at`): only
+values that were never visited are auto-extracted, and missing page-ref kinds
+do NOT trigger a re-scrape. `POST /api/deviations/jobs?refresh=true` forces a
+full re-scrape when you actually need one.
+
 ## Architecture
 
     app/config.py      settings (org URLs, data dir, update policy; env-overridable)
@@ -63,7 +164,11 @@ localStorage mirror).
                        pattern) + base (WorkflowProfile, registry, product map)
     app/deviations_zNN/ thin workflow packages: PROFILE + own updaters/ (zNN-specific)
     app/cancellations/ separate workflow (own extractors + updaters)
-    app/jobs.py        ThreadPool job runner (serial: 1 browser at a time)
+    app/jobs.py        ThreadPool job runner (serial: 1 browser at a time);
+                       consumes the resync snapshot instead of re-visiting the list
+    app/sync.py        continuous queue resync loop: visits the list view every
+                       RESYNC_INTERVAL_SECONDS (30s), reconciles latest_values,
+                       keeps the ListSnapshot that extraction jobs reuse
     app/store.py       SQLite (data/app.db — general-purpose store): views,
                        jobs, job_rows, latest_values, session_events,
                        sessions (auth snapshots)
@@ -79,6 +184,9 @@ localStorage mirror).
     tests/             updater unit tests (no network)
     frontend/          React (Vite) + Salt DS SPA (TypeScript, strict) —
                        home/auth + deviations deck; API types in src/types.ts
+    docs/              design docs and the source of truth for decisions:
+                       FR-<feature>.md, class-design-<feature>.md,
+                       refactor-plan-<feature>.md (see "plan mode" above)
     data/              runtime state in a checkout (gitignored): db, auth.json,
                        sf_profile; installed builds use the OS app-data dir
 
@@ -124,22 +232,19 @@ saved session — run the manual login once; snapshots refresh automatically.
   `basedpyright`/`pyright` (Pylance) — resolve all reported diagnostics,
   including "X is not a known attribute of None" and similar narrowing
   issues; prefer explicit `None` checks / `isinstance` guards over
-  `setdefault`/`getattr` patterns that defeat type narrowing. **`Any` is
-  forbidden entirely** — do not import or use it anywhere in `app/` or
-  `tests/`. Use concrete types, `TypedDict`, `Protocol`, `Callable`,
-  `object`, or `Unknown`-style explicit types instead. Bare `dict`/`list`
-  are also forbidden; always parameterize (`dict[str, int]`,
-  `list[str]`). The frontend is TypeScript
-  (`.ts`/`.tsx`) with `strict` on and shared API payloads in
-  `frontend/src/types.ts`; `npm --prefix frontend run typecheck` must pass.
+  `setdefault`/`getattr` patterns that defeat type narrowing. Bare `dict`/`list`
+  are forbidden; always parameterize (`dict[str, int]`, `list[str]`). The
+  frontend is TypeScript (`.ts`/`.tsx`) with `strict` on and shared API payloads
+  in `frontend/src/types.ts`; `npm --prefix frontend run typecheck` must pass.
   `npm run build` runs the typecheck, so a type error blocks a release.
-- **Never escape types.** Do not weaken or bypass typing by using `Any`,
-  `object`, `cast`, `# type: ignore`, type-checker `noqa` suppressions, or
-  `response_model=None` hacks merely to make code pass. Model data with
-  concrete types / Pydantic models / `TypedDict` / `Protocol` instead, and
-  fix the underlying type error rather than silencing it. `cast` and
-  `# type: ignore` are only acceptable with a written justification in a
-  comment.
+- **Never escape types. No exceptions.** `Any` and `object` are forbidden
+  entirely — do not import or use them anywhere in `app/` or `tests/`.
+  `cast`, `# type: ignore`, `# pyright: ignore`, and any other type-checker
+  suppression are forbidden too. Model data with concrete types,
+  `TypedDict`, `Protocol`, `Callable`, generics, or real Pydantic models, and
+  **fix the underlying type error** rather than silencing it. If an
+  unavoidable upstream/stub gap truly blocks you, raise it with the user and
+  document the decision in `docs/` — do not suppress it unilaterally.
 - Releases are wheels: bump `__version__` in `app/__init__.py`, tag `vX.Y.Z`
   (the workflow fails on a mismatch) and let CI build. Never edit the version
   only in `pyproject.toml` — it is dynamic and read from `app/__init__.py`.
@@ -162,6 +267,6 @@ saved session — run the manual login once; snapshots refresh automatically.
 - Playwright sync API is used; jobs run in worker threads. Don't use
   asyncio APIs here without a redesign discussion.
 - Don't expand the frontend until the backend workflows are done and stable.
-- Clean up any temporary/scratch files created during work (e.g. in /tmp) before finishing; don't leave throwaway scripts behind.
+- Clean up any temporary/scratch files created during work, wherever on the system (e.g. /tmp, the OS temp dir, scratch dirs, worktrees) before finishing; don't leave throwaway scripts or artifacts behind.
 - Extraction code changes require re-verifying the header-total cross-check.
 - After every edit, run ruff (`ruff check app/ frontend/`) and resolve **all** reported issues (including import sorting I001) before considering the change complete. The project uses ruff for linting/formatting; no ruff warnings may remain.
