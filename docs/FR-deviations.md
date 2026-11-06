@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.24 |
-| **Date** | 2026-11-05 |
+| **Version** | v5.29 |
+| **Date** | 2026-11-06 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
 
@@ -29,7 +29,8 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - Per-deviation extraction across the deviation record, Opportunity, CL contract,
   collateral, LMS 2.0 CL contract and LMS 2.0 collateral.
 - A unified per-deviation view with editable values.
-- Submission: write values → verify → implement the deviation.
+- Submission: ensure the LMS 2.0 CL contract is approved when pending, write
+  values → verify → implement the deviation.
 - A persistent job queue and always-alive SF browser workers.
 - Audit of extraction, edits, applies, validations and closures.
 
@@ -85,16 +86,21 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-1.4** Session expiry is detected on any SF interaction. On expiry the system:
   stops dispatching new jobs; marks queued and in-flight work as blocked-on-auth rather
   than failed; surfaces a clear "manual login required" state in the UI; and resumes or
-  requeues that work automatically once a fresh snapshot exists.
+  requeues that work automatically once a fresh snapshot exists. Resuming includes
+  re-establishing any browser page that could not be opened while the session was invalid:
+  an expired session at process start must never leave a subsystem permanently stopped.
 - **FR-1.5** The operator can see the last login/expiry state and can clear the stored
   session to force a fresh login.
 
 ### FR-2 Deviation list sync
 
 - **FR-2.1** The system keeps one long-lived SF Lightning page on the loan-deviation list
-  view in a dedicated tab that never runs jobs.
+  view in a dedicated tab that never runs jobs. The page is long-lived rather than
+  permanent: it is closed when the session expires and re-opened on the next cycle after a
+  fresh login, and exactly one such page exists per workflow at any time.
 - **FR-2.2** That page is refreshed every 30 seconds (configurable) and the live rows are
-  read from it.
+  read from it. A cycle that finds no open page (the first cycle, or the first after an
+  expiry) opens one before sampling.
 - **FR-2.3** Each refresh reconciles the stored data against SF: newly appearing
   deviations are added, list-visible values of known deviations are updated, and missing
   deviations are closed (FR-2.6). The approval date is such a value: SF fills it after a
@@ -123,6 +129,26 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   parsed, and the number of rows parsed equals that total. An invalid refresh changes no
   state. Closure is applied on the first valid refresh that reports a deviation absent —
   there is no multi-sample rule.
+- **FR-2.10** A manual refresh request runs one cycle whether or not the background cycle
+  has opened the page yet, and shares its serialisation: at most one open and one sample
+  run per workflow at a time, and a manual request waits for an in-flight cycle instead of
+  opening a second page. A sample is never read from a page that was not opened by that
+  cycle.
+- **FR-2.11** An authentication failure at any point in a cycle — opening the page,
+  navigating it, or reading it — closes the page, pauses dispatch (FR-1.4) and ends that
+  cycle. It must never terminate the watcher: the watcher waits for a resumed session and
+  then re-opens exactly one fresh page. No attempt is made while the gate is paused, so an
+  expired session cannot cause a retry loop.
+- **FR-2.12** Any other failure is logged, emitted as one `sync_failed` event, and ends
+  the cycle. The next attempt is never sooner than the configured refresh interval; the
+  watcher has no tighter retry path anywhere.
+- **FR-2.13** A manual refresh is refused, rather than accepted and silently dropped,
+  when the system already knows a login is required: no saved session snapshot, a snapshot
+  marked expired by the last SF interaction, or a paused auth gate. When a request is
+  accepted but the attempt then discovers expiry (a stored snapshot that looked valid but
+  is not), the session is paused and surfaced through the normal session state. Such a
+  request is not retried, and no fabricated error is reported for a response that was
+  already sent.
 
 ### FR-3 Extraction
 
@@ -160,6 +186,10 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-3.8** Linked-object pages are cached and are not re-scraped on every sync.
   Re-extraction happens only for newly seen deviations, or on an explicit operator
   refresh.
+- **FR-3.9** A deviation first seen from the Printable View before its live list record
+  link renders is not stranded: when a later valid refresh supplies the record URL, an
+  item skipped solely with `no record URL on the list row` returns to `PRESENT`, clears
+  that reason and queues one new extraction. Other skip reasons stay terminal.
 
 ### FR-4 Unified view
 
@@ -259,6 +289,17 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   not implemented again and is not attributed to us: the run returns `already_closed`, and
   the first valid refresh that no longer shows the deviation records `closed` with
   `source=external` and reason `already_implemented`. No execute timestamps are written.
+- **FR-6.17** The LMS 2.0 CL contract's approval state is checked immediately before any
+  attempt to modify that contract. An already-approved contract is modified as today. A
+  contract showing **Pending Approval** is approved by the system through the page's
+  Approve control, and the modification starts only after the page confirms the approved
+  state. A contract in any other unapproved state (for example **Rejected**), or a state
+  that cannot be read or confirmed within the request timeout, is not modified: the run
+  fails and the deviation moves to `needs_review`. Approval is a one-way external side
+  effect: if the later field write fails, the contract stays approved and no rollback is
+  attempted (consistent with FR-6.15). A retry against an already-approved contract does
+  not click Approve again. Only the LMS 2.0 CL contract is gated this way; the regular CL
+  contract, collateral, LMS 2.0 collateral and Opportunity are unchanged.
 
 ### FR-7 Jobs & workers
 
@@ -402,23 +443,25 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-9.17** The History view is a separate route from the deck (`?view=history`), and
   opening a history row uses the history detail endpoint. The history detail is read-only
   and never offers an Undo decision action.
-- **FR-9.18** Every data table uses one shared table-filter pattern: a text input and a
-  multiselect dropdown with checkboxes for exact values. An empty selection means all
-  values; selected values are OR within one column, columns compose with AND, and the
-  text plus the selected values in the same column also compose with AND. The trigger
-  shows “All” or “N selected”. Date and duration ranges use the shared range variant
-  (two inputs) instead of a checkbox list.
+- **FR-9.18** Every data table uses one shared table-filter control: a single searchable
+  multiselect (Salt `ComboBox` with checkboxes) that is both the text field and the
+  exact-value dropdown. On free-text columns, typing is the contains filter and also
+  narrows the options. On fixed-option enum columns whose displayed label differs from
+  the raw value, typing only narrows the options until a value is checked. An empty
+  selection means all values; selected values are OR within one column, columns compose
+  with AND, and the text plus the selected values in the same column also compose with
+  AND. Checked values appear as removable pills. Date and duration ranges use the shared
+  fused From/To range variant instead of a checkbox list. Future tables must reuse these
+  components rather than adding bespoke filter cells.
 - **FR-9.19** The Dev DB results table applies the standard filter to every column,
   using the distinct non-empty values in the current preview as checkbox options. This
   filtering remains client-side over the bounded preview; exports still run the full SQL.
-  Future tables must reuse the shared filter components rather than adding bespoke
-  filter cells.
 - **FR-9.20** Every real table (History, Jobs, Dev DB results) is paginated. History and
   Jobs page on the server with a filtered total; the Dev DB preview pages on the client
   over its capped result, because arbitrary read-only SQL has no stable cursor.
 - **FR-9.21** Every column of every real table is filterable using FR-9.18. Object-link
-  columns filter on the linked object's name with the same text + multiselect pair; the
-  server receives every selected value so totals and later pages stay correct.
+  columns filter on the linked object's name with the same combined control; the server
+  receives every selected value so totals and later pages stay correct.
 - **FR-9.22** Every column of every real table is resizable. Widths persist per table
   across reloads, a Reset action restores the defaults, and resizing is keyboard-operable
   from the header. Resizing is unavailable below 900 px, where columns are hidden by
@@ -429,6 +472,11 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-9.24** The three real tables share one implementation — a single `DataTable`
   component built from Salt DS primitives — so pagination, filters, widths and scrolling
   cannot diverge between screens. Bespoke table markup is not allowed.
+- **FR-9.25** A refused manual refresh uses the existing structured error envelope
+  (`409`, `detail.code = "login_required"`) so the UI can pair it with the session banner
+  instead of offering a dead button. The UI never reports a successful refresh when the
+  request was refused, and a known-bad session state disables **Sync now** / **Retry
+  sync** rather than letting them fail silently.
 
 ### FR-10 Review decisions (accept / reject)
 
@@ -482,8 +530,15 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   descriptions within the limit are always shown in full.
 - **FR-10.11** Decisions never gate sync or extraction. An accepted or rejected item is
   still reconciled with the list view like any other.
-
-### FR-11 Retention & maintenance
+- **FR-10.12** The deck has a search-and-pin picker above the active card. It is one
+  combined text field and multiselect dropdown: typing filters deviation keys, the
+  dropdown lists the deck's current cards with a checkbox per option, checked keys show
+  as removable pills, and **Clear** unpins everything. A checked deviation moves to the
+  front of the deck immediately, without a server round trip; multiple checked
+  deviations keep the order in which they were checked. Unchecking returns a card to its
+  natural newest-seen position. The picker only covers the current deck's decidable rows
+  (decided and absent items stay in History); pinning never filters the deck, changes the
+  tallies, or alters a decision. Pins are ephemeral frontend state and reset on reload.
 
 - **FR-11.1** **Purge current data** deletes work items whose latest activity
   (`closed_at`, `last_seen` or `first_seen`) is older than 24 hours. It deletes that
@@ -589,6 +644,29 @@ opens the Lightning ref URL directly, resolves that iframe, and uses Classic inl
 (double-click, clear the input, fill, verify, Save).
 
 ## Appendix C — Change log
+
+- **v5.29** — the LMS 2.0 CL contract is approved through its page's approval bar before
+  Contract Modification is attempted; an already-approved contract is left alone, and a
+  rejected or unreadable state sends the deviation to `needs_review` (FR-6.17).
+
+- **v5.28** — a row skipped only because its list-row record URL had not rendered yet is
+  revived on the next valid refresh that supplies the URL; ambiguity skips stay terminal
+  (FR-3.9).
+
+- **v5.27** — every table filter is one searchable multiselect instead of a text input
+  plus a separate dropdown; free-text columns keep the contains filter, enum columns
+  search their options until a value is checked, and range filters become one fused
+  From/To group (FR-9.18/9.19/9.21).
+
+- **v5.26** — the deck gains a search-and-pin ComboBox: typing filters deviation keys,
+  checked cards move to the front immediately in check order, and pins stay frontend-only
+  (FR-10.12).
+
+- **v5.25** — the watch cycle owns the list page lifecycle instead of assuming a
+  process-start `open()`: a cycle opens the page when it is closed, an authentication
+  failure closes it, pauses the gate and leaves the watcher running, and a manual refresh
+  is serialised with the background cycle and refused with `login_required` when the
+  session is already known to need a login (FR-1.4, FR-2.1/2.2, FR-2.10–2.13, FR-9.25).
 
 - **v5.24** — the submission pipeline completes: after apply and validate it opens the
   deviation record, reads the `Implemented__c` tick and clicks **Implemented**; a tick

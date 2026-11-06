@@ -2,9 +2,12 @@
 
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { JSX } from 'react'
+import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { ItemRow, WorkflowFieldView } from '../api'
+import { orderDeckRows } from '../deck'
 import { DecisionDeck } from './DecisionDeck'
 
 const FIELDS: WorkflowFieldView[] = [
@@ -46,12 +49,16 @@ function row(key: string, overrides: Partial<ItemRow> = {}): ItemRow {
 }
 
 function deckProps(overrides: Partial<Parameters<typeof DecisionDeck>[0]> = {}) {
+  const rows = overrides.rows ?? [row('Deviation-1-1'), row('Deviation-2-2')]
   return {
-    rows: [row('Deviation-1-1'), row('Deviation-2-2')],
+    rows,
+    pickerRows: rows,
+    selection: [],
+    onSelection: vi.fn(),
     fields: FIELDS,
     terminalLabels: {},
     detail: null,
-    tally: { accept: 1, skip: 2, pending: 2 },
+    tally: { accept: 1, skip: 2, pending: rows.length },
     error: null,
     announcement: '',
     listUrl: LIST_URL,
@@ -65,7 +72,44 @@ function deckProps(overrides: Partial<Parameters<typeof DecisionDeck>[0]> = {}) 
   }
 }
 
+/** Mimics the page's pin ownership so the deck's order can be asserted end to end. */
+function PinningHarness(): JSX.Element {
+  const rows = [row('Deviation-1-1'), row('Deviation-2-2'), row('Deviation-3-3')]
+  const [selection, setSelection] = useState<string[]>([])
+  return (
+    <DecisionDeck
+      {...deckProps({
+        rows: orderDeckRows(rows, selection),
+        pickerRows: rows,
+        selection,
+        onSelection: setSelection,
+        tally: { accept: 0, skip: 0, pending: rows.length },
+      })}
+    />
+  )
+}
+
 describe('DecisionDeck', () => {
+  it('moves a checked deviation to the top of the deck immediately', async () => {
+    const user = userEvent.setup()
+    render(<PinningHarness />)
+
+    expect(screen.getByText('next up: Deviation-2-2')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('combobox', { name: 'Find and pin deviations' }))
+    await user.click(screen.getByRole('option', { name: 'Deviation-3-3' }))
+
+    expect(screen.getByText('next up: Deviation-1-1')).toBeInTheDocument()
+    expect(screen.getByText('3 to review')).toBeInTheDocument()
+  })
+
+  it('hides the picker when the deck is complete', () => {
+    render(<DecisionDeck {...deckProps({ rows: [], tally: { accept: 1, skip: 0, pending: 0 } })} />)
+    expect(
+      screen.queryByRole('combobox', { name: 'Find and pin deviations' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('renders the tallies, approval date and top card values', () => {
     render(<DecisionDeck {...deckProps()} />)
     expect(screen.getByText('1 accepted')).toBeInTheDocument()

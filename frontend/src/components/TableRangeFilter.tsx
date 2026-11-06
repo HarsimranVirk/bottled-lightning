@@ -1,7 +1,13 @@
-/** Standard range table filter: two inputs for continuous date/number columns. */
+/**
+ * Standard range table filter: one bordered From/To group for continuous columns.
+ *
+ * The two bounds stay separate labelled inputs so native date/number entry and keyboard
+ * behaviour are unchanged; the wrapper only makes them read as one filter cell. The
+ * parent owns both values and their server/client semantics. There is no checkbox list.
+ */
 
 import type { JSX } from 'react'
-import { Input, StackLayout } from '@salt-ds/core'
+import { FlexLayout, Input, Text } from '@salt-ds/core'
 
 interface Props {
   fromLabel: string
@@ -15,6 +21,7 @@ interface Props {
   toPlaceholder?: string
 }
 
+/** Render the lower and upper bounds inside one visual range group. */
 export function TableRangeFilter({
   fromLabel,
   toLabel,
@@ -27,7 +34,7 @@ export function TableRangeFilter({
   toPlaceholder,
 }: Props): JSX.Element {
   return (
-    <StackLayout gap={0.5}>
+    <FlexLayout gap={0.5} align="center" className="range-filter">
       <Input
         value={from}
         inputProps={{
@@ -36,7 +43,11 @@ export function TableRangeFilter({
           placeholder: fromPlaceholder,
           onChange: (event) => onFrom(event.target.value),
         }}
+        style={{ flex: '1 1 0', minWidth: 0 }}
       />
+      <Text color="secondary" aria-hidden="true">
+        –
+      </Text>
       <Input
         value={to}
         inputProps={{
@@ -45,7 +56,8 @@ export function TableRangeFilter({
           placeholder: toPlaceholder,
           onChange: (event) => onTo(event.target.value),
         }}
+        style={{ flex: '1 1 0', minWidth: 0 }}
       />
-    </StackLayout>
+    </FlexLayout>
   )
 }

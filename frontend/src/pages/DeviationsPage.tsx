@@ -24,7 +24,7 @@ import type { DecisionKind, ItemRow } from '../api'
 import { DecisionDeck } from '../components/DecisionDeck'
 import { HistoryTable } from '../components/HistoryTable'
 import { ItemDrawer } from '../components/ItemDrawer'
-import { DECIDABLE_STATUSES, isDeckRow } from '../deck'
+import { DECIDABLE_STATUSES, isDeckRow, orderDeckRows } from '../deck'
 import { acceptAndSubmit } from '../submit'
 import type { HistoryFilters } from '../queries'
 import {
@@ -42,6 +42,16 @@ import {
 } from '../queries'
 
 const Z02_WORKFLOW = 'deviations_z02'
+
+/**
+ * One deck pin. The epoch is the row's presence epoch, so a pin is only live while the
+ * same presence of that key is still in the deck; an item that leaves and returns gets a
+ * new epoch and does not silently jump back to the top.
+ */
+interface DeckPin {
+  key: string
+  epoch: number
+}
 
 export function DeviationsPage(): JSX.Element {
   const { key } = useParams()
@@ -61,6 +71,8 @@ export function DeviationsPage(): JSX.Element {
   const [announcement, setAnnouncement] = useState('')
   const [actionError, setActionError] = useState<string | null>(null)
   const [replaying, setReplaying] = useState(false)
+  // Pins are ephemeral and local to this page; they only reorder the fetched rows.
+  const [pins, setPins] = useState<DeckPin[]>([])
 
   const sync = useSync(workflow?.name ?? null)
   // One unfiltered page powers the deck and the tallies, like the legacy deck.
@@ -79,6 +91,23 @@ export function DeviationsPage(): JSX.Element {
 
   const allRows = useMemo(() => deck.data?.rows ?? [], [deck.data])
   const deckRows = useMemo(() => allRows.filter(isDeckRow), [allRows])
+  const rowByKey = useMemo(
+    () => new Map(deckRows.map((row) => [row.key, row])),
+    [deckRows],
+  )
+  // A pin whose row left the deck (decided, absent or purged) has nothing to reorder.
+  const pinnedKeys = useMemo(
+    () =>
+      pins.flatMap((pin) => {
+        const row = rowByKey.get(pin.key)
+        return row !== undefined && row.epoch === pin.epoch ? [pin.key] : []
+      }),
+    [pins, rowByKey],
+  )
+  const orderedRows = useMemo(
+    () => orderDeckRows(deckRows, pinnedKeys),
+    [deckRows, pinnedKeys],
+  )
   const tally = useMemo(
     () => ({
       accept: allRows.filter((row) => row.decision?.decision === 'accept').length,
@@ -88,7 +117,7 @@ export function DeviationsPage(): JSX.Element {
     [allRows, deckRows],
   )
 
-  const topKey = deckRows[0]?.key ?? null
+  const topKey = orderedRows[0]?.key ?? null
   const cardDetail = useItem(route, view === 'deck' ? topKey : null)
 
   function showView(next: 'deck' | 'history'): void {
@@ -99,6 +128,20 @@ export function DeviationsPage(): JSX.Element {
   const patch = usePatchFields(route)
   const undo = useUndoDecision(route)
   const submit = useSubmitJob(route)
+
+  /**
+   * Replace the pin list with the picker's checked keys, in check order. Each pin stores
+   * the row's current epoch so a later poll that removes and re-adds the key cannot make
+   * an old pin live again (D-08).
+   */
+  function handleSelection(keys: string[]): void {
+    setPins(
+      keys.flatMap((key) => {
+        const row = rowByKey.get(key)
+        return row === undefined ? [] : [{ key, epoch: row.epoch }]
+      }),
+    )
+  }
 
   /**
    * Accept is the deck's submission action (Option C): it stores the card's cleaned
@@ -121,6 +164,7 @@ export function DeviationsPage(): JSX.Element {
         submit: () => submit.mutateAsync({ key: row.key }),
         undo: () => undo.mutateAsync({ key: row.key }),
       })
+      setPins((current) => current.filter((pin) => pin.key !== row.key))
       const left = Math.max(0, deckRows.length - 1)
       const action =
         decision === 'accept'
@@ -199,7 +243,10 @@ export function DeviationsPage(): JSX.Element {
 
       {view === 'deck' ? (
         <DecisionDeck
-          rows={deckRows}
+          rows={orderedRows}
+          pickerRows={deckRows}
+          selection={pinnedKeys}
+          onSelection={handleSelection}
           fields={workflow.fields}
           terminalLabels={workflow.terminalLabels}
           detail={cardDetail.data ?? null}

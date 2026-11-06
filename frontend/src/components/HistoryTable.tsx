@@ -7,7 +7,14 @@ import type { JSX } from 'react'
 import { Button, FlexLayout, Link, StackLayout, Text } from '@salt-ds/core'
 
 import type { HistoryRow, WorkflowFieldView } from '../api'
-import { absoluteUrl, displayValue, fieldValue, formatDateTime, orderedFields } from '../format'
+import {
+  absoluteUrl,
+  displayValue,
+  fieldValue,
+  formatDateTime,
+  orderedFields,
+  statusLabel,
+} from '../format'
 import type { HistoryFilters } from '../queries'
 import { EMPTY_HISTORY_FILTERS } from '../queries'
 import type { DataColumn } from './DataTable'
@@ -213,8 +220,9 @@ export function HistoryTable({
           onSelected={(values) => update({ statuses: values })}
           options={STATUSES.map((value) => ({
             value,
-            label: value.replace(/_/g, ' '),
+            label: statusLabel(value, terminalLabels),
           }))}
+          textMode="search"
         />
       ),
       cell: (row) => <StatusChip status={row.status} labels={terminalLabels} />,

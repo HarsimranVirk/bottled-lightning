@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.8 |
-| **Date** | 2026-11-05 |
+| **Version** | v4.12 |
+| **Date** | 2026-11-06 |
 | **Companions** | `docs/FR-deviations.md` (v3), `docs/data-model-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
 | **Change** | Introduced the workflow abstraction; earlier drafts were deviations-only |
 | **Implemented so far** | Phases 1–7 including the full 6: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,urls,adapters}`, `app/jobs/{dispatcher,worker,auth,logger}`, `app/pipeline/{watcher,reconciler,closure}`,
@@ -753,6 +753,9 @@ Record hrefs are resolved against the list page URL (`urljoin`) before they are 
 `open()` and `refresh()` wait for both the rows and the "N items" header before the
 sample is read; Lightning paints rows first, and a header wait is what keeps the first
 cycle after a process start from being recorded as an invalid refresh.
+`ListPage` never decides when it exists: `WorkflowListSource` owns creation and replacement
+of the one page per workflow (§8.1), so a page can be discarded and re-created without the
+reader knowing.
 
 ### 7.5 `ObjectAdapter`
 
@@ -808,6 +811,38 @@ LMS 2.0 contract form without workflow-specific branching in the pipeline. Adapt
 depend on `TabProvider` (two async methods), not on the concrete `TabGroup`, so pipelines
 can be tested without a browser.
 
+#### 7.5.1 LMS 2.0 CL contract approval gate (v4.12)
+
+`Lms2ClContractAdapter.write()` is the only adapter with a pre-write readiness gate. It
+calls `_ensure_approved(page)` before `_open_modification()`, because the LMS 2.0 contract
+detail page refuses Contract Modification saves while the contract is still pending
+approval (FR-6.17). The page is a `c-cl-contract-detail` LWC in a shadow root; its state
+is exposed as `span.pill-status` (text such as **Pending Approval** / **Approved** /
+**Rejected**) and `div.approval-bar` (the **Approve** / **Reject** controls), both reached
+through Playwright's shadow-piercing locators.
+
+A pure helper, `approval_action(status_text, can_approve) -> ApprovalAction`, maps the
+page state to one of four actions (`can_approve` is whether the scoped component shows a
+visible `button.approval-btn-approve`):
+
+| Page state | Action |
+|---|---|
+| text says approved | `PROCEED` — no click, open the modification form |
+| text says pending approval, or the Approve control is present without a readable status | `APPROVE` — click `button.approval-btn-approve`, then the modal's `button.btn-approval-approve` (**✓ Confirm Approval**), and poll until the approved state is visible |
+| text says rejected | `REFUSE` — do not open the modification form |
+| no readable state and no Approve control | `REFUSE` — never write blind |
+
+`APPROVE` only returns success after the page confirms the new state; the adapter then
+continues with the normal fill → verify → Save Changes flow. The first click only opens
+`div.modal-box`; the adapter confirms with `button.btn-approval-approve`
+(**✓ Confirm Approval**), then polls the status pill. Any `REFUSE` or an unconfirmed
+approval returns `WriteOutcome.UNKNOWN`/`REJECTED` for every target and writes nothing, so
+the submission pipeline parks the deviation in `needs_review` (FR-6.6/6.9).
+Approval is an external side effect and is not rolled back if the subsequent write fails;
+a later retry sees the approved state and does not click Approve again. The gate is
+internal to this adapter: `ObjectAdapter`, `AdapterRegistry`, the submission pipeline and
+the other five adapters are unchanged.
+
 ---
 
 ## 8. Pipelines (shared)
@@ -815,16 +850,79 @@ can be tested without a browser.
 ### 8.1 `ListWatcher` — one per workflow
 
 ```python
+class SampleSource(Protocol):
+    async def ensure_open(self) -> None: ...   # idempotent: no-op when already open
+    async def sample(self) -> ListSample: ...  # the page must already be open
+    async def close(self) -> None: ...         # drops the page; safe when already closed
+
+class WorkflowListSource:
+    """One listed page per workflow, created on demand and replaced after auth loss."""
+    async def ensure_open(self) -> None: ...
+    async def sample(self) -> ListSample: ...
+    async def close(self) -> None: ...
+
 class ListWatcher:
-    def __init__(self, workflow: Workflow, browser: BrowserRuntime,
-                 reconciler: Reconciler, settings: Settings) -> None: ...
+    def __init__(self, workflow: Workflow, source: SampleSource,
+                 reconciler: Reconciler, events: EventRepository,
+                 auth: AuthGate, interval_s: float) -> None: ...
     async def run_forever(self) -> None: ...
     async def refresh_once(self) -> SyncRun: ...
+    async def _discard_page(self) -> None: ...   # close under the same lock
 ```
 
-Each workflow gets one dedicated, always-open page on its own list view (FR-2.1, FR-7.5).
-It never runs jobs. It never writes terminal status — it hands the sample to the
-`Reconciler`.
+Each workflow gets one dedicated page on its own list view (FR-2.1, FR-7.5), but the
+page lifecycle belongs to the cycle rather than to process start. `refresh_once()` is the
+only entry point and holds the watcher's `asyncio.Lock` across **ensure-open plus
+sample**, so the background cycle and a manual request can never open two pages or drive
+two reads through the same page:
+
+```python
+async def refresh_once(self) -> SyncRun:
+    async with self._lock:
+        await self._source.ensure_open()
+        return self._reconciler.apply(await self._source.sample())
+```
+
+`run_forever()` has no `open()` before its loop. Every cycle is `await auth.wait()` →
+`refresh_once()` → `sleep(interval)`, and failures are classified by one rule: an auth
+failure parks the system, anything else costs one interval.
+
+```python
+async def run_forever(self) -> None:
+    try:
+        while True:
+            await self._auth.wait()          # blocks while paused
+            try:
+                run = await self.refresh_once()
+                logger.info(...)
+            except SessionExpired as exc:
+                await self._discard_page()    # close under the same lock
+                self._auth.pause(f"watcher: {exc}")
+                continue                      # → auth.wait(), not a retry
+            except Exception:
+                logger.exception(...)
+                self._events.emit("sync_failed", workflow=..., detail="see logs")
+            await asyncio.sleep(self._interval_s)
+    finally:
+        await self._discard_page()
+```
+
+The anti-spin property is structural, not a counter: `SessionExpired` closes the page,
+pauses the gate and `continue`s straight back into `auth.wait()`, which is cleared by that
+same pause. The only way to attempt an open again is an `AuthGate.resume()` (a manual
+login), and even then it is one attempt. Non-auth failures fall through to the interval
+sleep, so the worst retry rate is one attempt per configured refresh interval. The page's
+lifecycle never depends on the watcher task staying alive: if the page is gone, the next
+cycle opens one, so a manual refresh works after a restart of the session without
+restarting the process.
+
+`refresh_once()` deliberately does **not** call `auth.wait()`: a manual request must not
+hang behind a paused gate, and an unexpected expiry has to surface as `SessionExpired` so
+the API can pause the gate instead of blocking a thread. It never retries internally.
+
+It never runs jobs and never writes terminal status — it hands the sample to the
+`Reconciler`. Exceptions from opening are therefore never swallowed: they are the cycle's
+outcome, handled by the two branches above.
 
 ### 8.2 `Reconciler` — generic
 
@@ -846,6 +944,8 @@ for row in sample.rows:
     unknown      → create_present + enqueue EXTRACT                   (FR-2.3)
     known        → touch(last_seen), update last_synced via workflow.map_row
                    (never proposed, FR-2.5); if absent before → begin_epoch (FR-6.13)
+                   if skipped only for a missing record URL and href now exists
+                   → PRESENT + enqueue EXTRACT                        (FR-3.9)
 for known item not in rows:     closure.close_if_absent(...)           (FR-2.6)
 ```
 
@@ -1100,13 +1200,22 @@ class WorkItemService:
 class AdminService:
     def login(self) -> LoginHandle: ...
     def logout(self) -> None: ...
-    def force_sync(self, workflow: str) -> SyncRun: ...
+    def request_sync(self, workflow: str) -> None: ...
     def set_workers(self, count: int) -> QueueState: ...
     def queue(self) -> QueueState: ...
 ```
 
 `WorkItemService` is synchronous: submit only enqueues. Operations that need the browser
 live in `AdminService`, which owns the `BrowserRuntime` bridge.
+
+`request_sync()` is the only admin action that refuses on session state: it raises
+`ApiError(409, "manual login required", "login_required")` when there is no session
+snapshot, `SessionProvider.expired` is set, or `AuthGate.paused` — the three states in
+which the refresh is already known to be impossible. Otherwise it spawns exactly one
+`refresh_once()` on the browser loop and returns immediately (`202`). The spawned task
+catches `SessionExpired` so a snapshot that only *looked* valid still pauses the gate and
+emits the auth event, and logs any other failure instead of letting it die in the
+runtime's fire-and-forget reporter. It never retries.
 
 ### 11.2 Routes
 
@@ -1125,7 +1234,19 @@ Pydantic models at the boundary only: `WorkflowView` (name, labels, catalogue),
 ### 11.4 Shared table filter (frontend)
 
 ```ts
-interface TableFilterOption { value: string; label: string }
+interface SearchSelectOption { value: string; label: string }
+
+interface SearchSelectProps {
+  label: string
+  placeholder?: string
+  query: string
+  onQuery: (query: string) => void
+  selected: string[]
+  onSelected: (values: string[]) => void
+  options: SearchSelectOption[]
+  disabled?: boolean
+  style?: CSSProperties
+}
 
 interface TableFilterProps {
   label: string
@@ -1133,9 +1254,9 @@ interface TableFilterProps {
   onText: (text: string) => void
   selected: string[]
   onSelected: (values: string[]) => void
-  options: TableFilterOption[]
+  options: SearchSelectOption[]
   placeholder?: string
-  inputType?: 'text' | 'date' | 'number'
+  textMode?: 'filter' | 'search'   // default 'filter'
 }
 
 interface TableRangeFilterProps {
@@ -1146,14 +1267,28 @@ interface TableRangeFilterProps {
   onFrom: (value: string) => void
   onTo: (value: string) => void
   type?: 'text' | 'date' | 'number'
+  fromPlaceholder?: string
+  toPlaceholder?: string
 }
 ```
 
-`TableFilter` is the only per-column filter cell for new tables: text/date/number input
-plus a Salt multiselect `Dropdown` whose options render as checkboxes. The parent owns
-the filter state and decides whether filtering is client-side (Dev DB preview) or
-server-side (Jobs/History). `TableRangeFilter` is the range variant and deliberately has
-no checkbox list.
+`SearchSelect` owns the one shared ComboBox: controlled query, client-side option
+filtering by value and label, checked pills and `onSelectionChange`. Pills render the
+option's label (via `valueToString`), so `Implemented` never appears as `completed`. It
+never fetches.
+`DeckPicker` wraps it with the deck's Clear action and stale-key pruning; `TableFilter`
+wraps it and decides whether typing also drives the column text filter:
+
+- `textMode="filter"` (default) — typing calls `onText`, so the contains filter and the
+  option search use the same text;
+- `textMode="search"` — typing keeps a local query and only narrows the options; a check
+  calls `onSelected` and clears the query. Fixed-option enum columns with human labels
+  use this mode.
+
+`TableRangeFilter` renders one bordered From/To group but keeps two labelled inputs, so
+date and number types and keyboard behaviour are unchanged. The parent owns all filter
+state and decides whether filtering is client-side (Dev DB preview) or server-side
+(Jobs/History). No filter control fetches or writes.
 
 ---
 
@@ -1190,6 +1325,10 @@ Each should have a test.
 15. **I15** After every successful `SyncRunRepository.record()`, each workflow has at most
     20 `sync_runs` rows and the newest row is still present, so `latest()` always has a
     reading.
+16. **I16** A watcher cycle is the only place a list page is opened or closed, opening is
+    idempotent while the page is already open, and at most one open/sample runs per
+    workflow at a time (`ListWatcher` lock). An authentication failure closes the page and
+    pauses the gate; it never ends the watcher task (FR-2.10–2.13).
 
 ## 13. Test seams
 

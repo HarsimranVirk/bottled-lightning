@@ -19,7 +19,12 @@ from app.core.repo.events import EventRepository
 from app.core.repo.fields import FieldValueRepository
 from app.core.repo.refs import PageRefRepository
 from app.core.repo.work_items import WorkItemRepository
-from app.core.status import TERMINAL_STATUSES, ExtractOutcome, WorkItemStatus
+from app.core.status import (
+    MISSING_RECORD_URL_REASON,
+    TERMINAL_STATUSES,
+    ExtractOutcome,
+    WorkItemStatus,
+)
 from app.core.workflow import JobLogger
 from app.salesforce.adapters import (
     AdapterRegistry,
@@ -91,7 +96,7 @@ class DeviationsZ02Extraction:
             log(f"{item.key}: already extracted; nothing to do")
             return ExtractOutcome.EXTRACTED
         if not item.record_url:
-            return self._skip(item, "no record URL on the list row", log)
+            return self._skip(item, MISSING_RECORD_URL_REASON, log)
 
         if self._force and item.status in TERMINAL_STATUSES:
             # A forced retry is a new attempt: terminal states re-enter via PRESENT

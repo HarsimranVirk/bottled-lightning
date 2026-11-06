@@ -253,6 +253,13 @@ export function DevStates(): JSX.Element {
             row('needs_review', 'Deviation-04112026-486814'),
             row('editing', 'Deviation-05112026-486901'),
           ]}
+          pickerRows={[
+            row('ready', 'Deviation-03112026-486382'),
+            row('needs_review', 'Deviation-04112026-486814'),
+            row('editing', 'Deviation-05112026-486901'),
+          ]}
+          selection={[]}
+          onSelection={() => {}}
           fields={FIELDS}
           terminalLabels={{ completed: 'Implemented' }}
           detail={detail('ready')}
@@ -272,6 +279,9 @@ export function DevStates(): JSX.Element {
       <Section title="Review deck: complete">
         <DecisionDeck
           rows={[]}
+          pickerRows={[]}
+          selection={[]}
+          onSelection={() => {}}
           fields={FIELDS}
           terminalLabels={{}}
           detail={null}
@@ -291,6 +301,9 @@ export function DevStates(): JSX.Element {
       <Section title="Review deck: decision failed">
         <DecisionDeck
           rows={[row('ready', 'Deviation-03112026-486382')]}
+          pickerRows={[row('ready', 'Deviation-03112026-486382')]}
+          selection={[]}
+          onSelection={() => {}}
           fields={FIELDS}
           terminalLabels={{}}
           detail={detail('ready')}

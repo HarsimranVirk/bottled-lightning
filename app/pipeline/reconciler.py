@@ -2,7 +2,9 @@
 
 This is the only reader of :class:`~app.core.list_view.ListSample`. It never opens a
 page and never writes a terminal status: new rows become items with an EXTRACT job,
-known rows are touched, and missing rows are handed to the closure resolver.
+known rows are touched, a row skipped only because its record URL had not rendered yet is
+revived when a later sample supplies it, and missing rows are handed to the closure
+resolver.
 """
 
 from __future__ import annotations
@@ -15,7 +17,11 @@ from app.core.repo.attributes import AttributeRepository
 from app.core.repo.jobs import JobRepository
 from app.core.repo.sync_runs import SyncRunRepository
 from app.core.repo.work_items import WorkItemRepository
-from app.core.status import JobKind
+from app.core.status import (
+    MISSING_RECORD_URL_REASON,
+    JobKind,
+    WorkItemStatus,
+)
 from app.core.workflow import Workflow
 
 from .closure import ClosureResolver
@@ -78,6 +84,21 @@ class Reconciler:
                 self._attributes.upsert(self._workflow.name, row.key, mapped)
             if was_absent:
                 self._items.begin_epoch(self._workflow.name, row.key)
+            elif (
+                row.href
+                and item.status is WorkItemStatus.SKIPPED
+                and item.reason == MISSING_RECORD_URL_REASON
+            ):
+                # The row was first seen from the Printable View before the live list
+                # exposed its record link. Extraction skipped it terminally; now that
+                # the URL is here, retry exactly that skip (FR-3.9).
+                self._items.transition(
+                    self._workflow.name,
+                    row.key,
+                    WorkItemStatus.PRESENT,
+                    clear_reason=True,
+                )
+                self._jobs.enqueue(self._workflow.name, JobKind.EXTRACT, row.key)
             updated += 1
 
         for item in self._items.present(self._workflow.name):

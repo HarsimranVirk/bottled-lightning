@@ -1,13 +1,18 @@
 /**
- * Standard per-column table filter: a text input plus a multiselect checkbox dropdown.
+ * Standard per-column table filter: one searchable multiselect control.
  *
- * The parent owns the filter state and decides whether the filter is applied in the
- * browser (bounded previews) or sent to the server. Empty `selected` means every value;
- * selected values within one column are OR'd by the caller.
+ * `SearchSelect` supplies the Salt ComboBox; this wrapper decides what typing means.
+ * In `filter` mode (the default) the text is the column's contains filter and also
+ * narrows the options. In `search` mode typing only narrows the options until a value is
+ * checked — used by fixed enums whose human label differs from the raw value. The parent
+ * owns the filter state and decides whether it filters in the browser or on the server;
+ * empty `selected` means every value, and selected values within one column are OR'd.
  */
 
 import type { JSX } from 'react'
-import { Dropdown, Input, Option, StackLayout } from '@salt-ds/core'
+import { useState } from 'react'
+
+import { SearchSelect } from './SearchSelect'
 
 export interface TableFilterOption {
   value: string
@@ -15,7 +20,7 @@ export interface TableFilterOption {
 }
 
 interface Props {
-  /** Accessible name for the text input, e.g. "Filter by status". */
+  /** Accessible name for the text field and dropdown, e.g. "Filter by status". */
   label: string
   text: string
   onText: (text: string) => void
@@ -23,9 +28,14 @@ interface Props {
   onSelected: (values: string[]) => void
   options: TableFilterOption[]
   placeholder?: string
-  inputType?: 'text' | 'date' | 'number'
+  /**
+   * `filter` (default): typing is the column's contains filter and narrows the options.
+   * `search`: typing only narrows the options; the checked values are the filter.
+   */
+  textMode?: 'filter' | 'search'
 }
 
+/** Render one ComboBox whose text either filters rows or only finds options. */
 export function TableFilter({
   label,
   text,
@@ -34,34 +44,39 @@ export function TableFilter({
   onSelected,
   options,
   placeholder,
-  inputType = 'text',
+  textMode = 'filter',
 }: Props): JSX.Element {
+  // Search mode keeps its own query so it never becomes a row filter.
+  const [searchQuery, setSearchQuery] = useState('')
+  const query = textMode === 'search' ? searchQuery : text
+
+  function changeQuery(next: string): void {
+    if (textMode === 'search') {
+      setSearchQuery(next)
+    } else {
+      onText(next)
+    }
+  }
+
+  function changeSelected(next: string[]): void {
+    onSelected(next)
+    // In search mode the text was only a way to reach the option; reset it so the next
+    // value can be found. In filter mode the text is a filter and must stay visible.
+    if (textMode === 'search') {
+      setSearchQuery('')
+    }
+  }
+
   return (
-    <StackLayout gap={0.5}>
-      <Input
-        value={text}
-        inputProps={{
-          'aria-label': label,
-          type: inputType,
-          placeholder,
-          onChange: (event) => onText(event.target.value),
-        }}
-      />
-      <Dropdown
-        aria-label={`${label} values`}
-        multiselect
-        selected={selected}
-        value={selected.length === 0 ? 'All' : `${selected.length} selected`}
-        onSelectionChange={(_event, next) => onSelected(next)}
-        disabled={options.length === 0}
-        style={{ width: '100%', minWidth: 80 }}
-      >
-        {options.map((option) => (
-          <Option key={option.value} value={option.value}>
-            {option.label}
-          </Option>
-        ))}
-      </Dropdown>
-    </StackLayout>
+    <SearchSelect
+      label={label}
+      placeholder={placeholder}
+      query={query}
+      onQuery={changeQuery}
+      selected={selected}
+      onSelected={changeSelected}
+      options={options}
+      style={{ width: '100%', minWidth: 0 }}
+    />
   )
 }

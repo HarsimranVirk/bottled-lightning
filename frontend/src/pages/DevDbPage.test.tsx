@@ -120,7 +120,7 @@ describe('DevDbPage', () => {
 
     expect(screen.getByText('1–25 of 30')).toBeInTheDocument()
 
-    await user.type(screen.getByLabelText('Filter by status'), 'ready')
+    await user.type(screen.getByRole('combobox', { name: 'Filter by status' }), 'ready')
     expect(screen.getByText(/1 of 30 rows/)).toBeInTheDocument()
     expect(screen.getByText('Deviation-0')).toBeInTheDocument()
     expect(screen.queryByText('Deviation-1')).not.toBeInTheDocument()
@@ -137,7 +137,7 @@ describe('DevDbPage', () => {
     mocks.query.data = sampleRows(3)
     renderPage()
 
-    await user.click(screen.getByLabelText('Filter by status values'))
+    await user.click(screen.getByRole('combobox', { name: 'Filter by status' }))
     await user.click(screen.getByRole('option', { name: 'ready' }))
 
     expect(screen.getByText(/1 of 3 rows/)).toBeInTheDocument()

@@ -65,7 +65,7 @@ describe('JobsPanel', () => {
   it('updates a filter on every input', () => {
     const onFilters = vi.fn()
     render(<JobsPanel {...props({ onFilters })} />)
-    fireEvent.change(screen.getByRole('textbox', { name: 'Filter by job id' }), {
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filter by job id' }), {
       target: { value: '42' },
     })
     expect(onFilters).toHaveBeenCalledWith({ ...FILTERS, id: '42' })
@@ -75,7 +75,7 @@ describe('JobsPanel', () => {
     const user = userEvent.setup()
     const onFilters = vi.fn()
     render(<JobsPanel {...props({ onFilters })} />)
-    await user.click(screen.getByLabelText('Filter by status values'))
+    await user.click(screen.getByRole('combobox', { name: 'Filter by status' }))
     await user.click(screen.getByRole('option', { name: 'failed' }))
     expect(onFilters).toHaveBeenCalledWith({
       ...FILTERS,

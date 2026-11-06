@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v3.7 |
-| **Date** | 2026-11-05 |
+| **Version** | v4.1 |
+| **Date** | 2026-11-06 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/api-deviations.md` |
 | **Implemented by** | `app/db/schema.py`, `app/core/repo/*` |
@@ -22,7 +22,46 @@ change that alters the code (see AGENTS.md, plan-mode rules).
 | Items, fields, refs, review decisions, jobs, logs, sync history, auth snapshots | SQLite at `settings.db_path` (`data/app.db` in a checkout, OS app-data dir when installed) | Only repositories open connections; nothing else issues SQL |
 | Queue leases, dispatcher state | SQLite `jobs` | There is no authoritative in-process queue; restarting the process loses nothing |
 | Browser pages, cookies in flight | Chromium context, held by `BrowserRuntime` | Never persisted directly; only the storage-state snapshot is |
+| List page open/closed flag, watcher lock | In-process (`WorkflowListSource`, `ListWatcher`) | Rebuilt on the browser loop; a restart costs one page open, never data |
 | Session snapshot | SQLite `sessions` | As sensitive as a password; never logged or returned by the API |
+
+### 1.1 No schema change for watcher recovery (v3.8)
+
+The watcher now opens, closes and re-opens its list page instead of opening it once at
+process start. That state (the page handle, the `asyncio.Lock`, the "is it open" flag) is
+in-process only and is not persisted, so there is no table, column, index or migration
+change. The only writes this change adds are `session_events` rows through the existing
+`SessionRepository.event()` (`auth_paused`, `auth_resumed`) and `work_item_events` rows for
+`sync_failed` — both already covered by the retention rules in §7 (the session events are
+out of purge scope; item events follow their item). A crash mid-cycle loses nothing: the
+next cycle re-opens the page and reconciles from Salesforce.
+
+### 1.2 No schema change for the deck picker (v3.9)
+
+The deck's search-and-pin selection is React state (`pinnedKeys` in `DeviationsPage`). It
+is not saved to `work_items`, a new table, `localStorage` or the URL. An item's pin
+disappears when the page reloads or when its row leaves the deck, and reordering is
+derived from the already-fetched page. There is therefore no table, column, index,
+migration or retention change; `data/app.db` is untouched.
+
+### 1.3 No schema change for the combined table filter (v4.0)
+
+The combined table filter changes only the frontend control that edits existing filter
+state. The text and exact-value selections are still transient page state and are still
+sent as the same query parameters to Jobs and History; the Dev DB preview still filters
+in the browser. No table, column, index, migration or retention rule changes, and
+`data/app.db` is untouched. Range filters likewise keep their existing `from`/`to`
+values and query parameters.
+
+### 1.4 No schema change for the LMS 2.0 approval gate (v4.1)
+
+Approving the LMS 2.0 CL contract happens in Salesforce during an existing `SUBMIT` job.
+The approval state is read from the contract page on every write and is never persisted
+locally: no table, column, index, migration or retention rule changes. The approval is
+visible through the contract's own SF status and the existing submission/apply logs; the
+per-field `applied`/`rejected` truth that the pipeline already writes records the outcome
+of the submission. A failed write after a successful approval leaves the contract approved
+in SF; that external state is not rolled back or recorded as a separate row.
 
 ## 2. Conventions
 

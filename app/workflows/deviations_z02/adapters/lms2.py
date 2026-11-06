@@ -8,18 +8,23 @@ rows matching the *target* product are ambiguous.
 
 Submission edits the custom detail pages: the collateral page's Edit form (Financials →
 Property Value) and the CL contract page's LOAN QUICK ACTIONS → Contract Modification
-form (Loan amount / Tenure cards). Both pages are LWC shadow DOM, so all locators go
-through Playwright's shadow-piercing engine and never through ``page.evaluate``.
+form (Loan amount / Tenure cards). The contract page must be approved before it accepts a
+modification, so the adapter reads the page's approval bar and approves a pending contract
+first (FR-6.17). Both pages are LWC shadow DOM, so all locators go through Playwright's
+shadow-piercing engine and never through ``page.evaluate``.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from functools import partial
 
-from playwright.async_api import Locator, Page
+from playwright.async_api import Dialog, Locator, Page
 
 from app.core.field import FieldTarget, ValueType, normalise
 from app.core.status import WriteOutcome
@@ -48,6 +53,31 @@ _CONTRACT_FIELD_BY_SECTION: Mapping[str, str] = {
     "Loan amount": "loanAmount",
     "Tenure": "tenure",
 }
+_APPROVAL_STATUS = "span.pill-status"
+_APPROVE_BUTTON = "button.approval-btn-approve"
+_APPROVE_CONFIRM_BUTTON = "button.btn-approval-approve"
+_CONTRACT_HOST = "c-cl-contract-detail"
+_DIALOG_SELECTORS = (
+    "div.modal-box",
+    "div.modal-backdrop",
+    "div.slds-modal",
+    "section.slds-modal",
+    "section[role='dialog']",
+    "div[role='dialog']",
+    "lightning-dialog",
+)
+_CONFIRM_BUTTON_NAMES = ("Confirm", "Approve", "Yes", "OK")
+_APPROVED_MARKER = "approved"
+_REJECTED_MARKER = "rejected"
+_PENDING_MARKER = "pending approval"
+
+
+class ApprovalAction(StrEnum):
+    """What the LMS 2.0 contract header says a write must do first (FR-6.17)."""
+
+    PROCEED = "proceed"
+    APPROVE = "approve"
+    REFUSE = "refuse"
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +99,68 @@ def match_rows(rows: Sequence[LmsRow], target: str | None) -> list[LmsRow]:
     if target is None:
         return list(rows)
     return [row for row in rows if target in row.cells]
+
+
+def approval_status(texts: Sequence[str]) -> str | None:
+    """
+    Pick the approval-state pill out of the contract header's status pills.
+
+    The LMS 2.0 contract header renders several ``span.pill-status`` values (for example
+    ``Pending Disbursal``, the system date and ``Pending Approval``). Only the text that
+    starts with an approval state is returned, with its original spelling preserved for
+    logs. Pending wins over rejected, which wins over approved, so an unrelated
+    "Approved" pill can never hide a pending contract. Case-insensitive; ``None`` when no
+    pill names an approval state.
+
+    Example:
+        approval_status(["Pending Disbursal", "Pending Approval"]) -> "Pending Approval"
+    """
+    matched = [
+        text.strip()
+        for text in texts
+        if _approval_state_prefix(_normalise_status(text)) is not None
+    ]
+    if not matched:
+        return None
+    for marker in (_PENDING_MARKER, _REJECTED_MARKER):
+        for text in matched:
+            if _normalise_status(text).startswith(marker):
+                return text
+    return matched[0]
+
+
+def _normalise_status(text: str) -> str:
+    """Lower-case a pill and drop leading icons/punctuation before matching."""
+    return re.sub(r"^[^a-z]+", "", text.strip().lower())
+
+
+def _approval_state_prefix(lowered: str) -> str | None:
+    """The approval-state prefix in a pill's text, or ``None`` for unrelated pills."""
+    for marker in (_PENDING_MARKER, _REJECTED_MARKER, _APPROVED_MARKER):
+        if lowered.startswith(marker):
+            return marker
+    return None
+
+
+def approval_action(status_text: str | None, can_approve: bool) -> ApprovalAction:
+    """
+    Decide what the approval gate must do before Contract Modification.
+
+    ``can_approve`` is whether the page currently shows a visible Approve control. A
+    readable approved state proceeds; a rejected state refuses; a pending or unreadable
+    state is approved only when the control exists. Every other combination refuses
+    rather than writing to a contract whose state is unknown (FR-6.17, D-02/D-04).
+    """
+    lowered = _normalise_status(status_text or "")
+    if lowered.startswith(_APPROVED_MARKER):
+        return ApprovalAction.PROCEED
+    if lowered.startswith(_REJECTED_MARKER):
+        return ApprovalAction.REFUSE
+    if lowered.startswith(_PENDING_MARKER):
+        return ApprovalAction.APPROVE if can_approve else ApprovalAction.REFUSE
+    if can_approve:
+        return ApprovalAction.APPROVE
+    return ApprovalAction.REFUSE
 
 
 def _same_amount(raw: str | None, intended: str) -> bool:
@@ -200,7 +292,9 @@ class Lms2ClContractAdapter(_Lms2Adapter):
     async def write(
         self, page: Page, values: Mapping[FieldTarget, str]
     ) -> dict[FieldTarget, WriteOutcome]:
-        """Fill the Loan amount and Tenure cards, then Save Changes."""
+        """Approve the contract when pending, then fill the cards and Save Changes."""
+        if not await self._ensure_approved(page):
+            return {target: WriteOutcome.UNKNOWN for target in values}
         outcomes: dict[FieldTarget, WriteOutcome] = {}
         if not await self._open_modification(page):
             return {target: WriteOutcome.UNKNOWN for target in values}
@@ -230,6 +324,123 @@ class Lms2ClContractAdapter(_Lms2Adapter):
             return {target: WriteOutcome.UNKNOWN for target in values}
         finally:
             await self._cancel_modification(page)
+
+    async def _ensure_approved(self, page: Page) -> bool:
+        """
+        Make sure the LMS 2.0 contract accepts a Contract Modification.
+
+        Called by ``write()`` before the modification form is opened. An approved
+        contract returns ``True`` without a click; a pending one is approved and its new
+        state polled up to the request timeout. A rejected, unreadable or unconfirmed
+        contract returns ``False`` so the caller writes nothing (FR-6.17). The approval
+        is a one-way SF side effect and is never rolled back (D-05).
+        """
+        status, can_approve = await self._approval_state(page)
+        action = approval_action(status, can_approve)
+        if action is ApprovalAction.PROCEED:
+            return True
+        if action is not ApprovalAction.APPROVE:
+            logger.warning(
+                "lms cl-contract approval refused (status=%r, approve=%s)",
+                status,
+                can_approve,
+            )
+            return False
+        logger.info("lms cl-contract is pending approval; approving before write")
+        if not await self._click_approve(page):
+            logger.warning("lms cl-contract approve control could not be clicked")
+            return False
+        approved = await poll(lambda: self._is_approved(page), self._timeout_ms)
+        if not approved:
+            logger.warning(
+                "lms cl-contract approval was not confirmed (was %r)", status
+            )
+        return approved
+
+    async def _approval_state(self, page: Page) -> tuple[str | None, bool]:
+        """
+        Read the contract header's approval pill and Approve control.
+
+        Returns the matching pill text (or ``None``) and whether the Approve button is
+        visible. Both live in the ``c-cl-contract-detail`` shadow root, which Playwright
+        locators pierce. Read-only; a re-render mid-read degrades to "unknown" rather
+        than raising.
+        """
+        scope = await _contract_scope(page)
+        pills = scope.locator(_APPROVAL_STATUS)
+        texts: list[str] = []
+        try:
+            count = await pills.count()
+            for index in range(count):
+                text = await safe_inner_text(pills.nth(index), 2000)
+                if text is not None:
+                    texts.append(text)
+        except Exception as exc:  # noqa: BLE001 - page may re-render mid-read
+            logger.debug("lms approval status read failed: %s", exc)
+        can_approve = await _is_visible(scope.locator(_APPROVE_BUTTON))
+        return approval_status(texts), can_approve
+
+    async def _click_approve(self, page: Page) -> bool:
+        """
+        Click Approve and accept an optional confirmation.
+
+        A native browser dialog is accepted one-shot for the duration of the click; a
+        custom Lightning modal is searched for an Approve/Confirm/Yes/OK button. Returns
+        ``False`` when the approval control never becomes clickable.
+        """
+        approve = (await _contract_scope(page)).locator(_APPROVE_BUTTON)
+        if not await poll(lambda: _has_count(approve, 1), self._timeout_ms):
+            return False
+        page.on("dialog", _accept_dialog)
+        try:
+            if not await click_first_visible(approve, self._timeout_ms):
+                return False
+            await self._confirm_dialog(page)
+            return True
+        finally:
+            page.remove_listener("dialog", _accept_dialog)
+
+    async def _confirm_dialog(self, page: Page) -> None:
+        """
+        Confirm the Approve modal that the approval click opens.
+
+        The page's **Approve** button only opens a modal (``div.modal-box``); the actual
+        approval is the ``button.btn-approval-approve`` button labelled
+        ``✓ Confirm Approval``. That class is tried first; a generic dialog scan is the
+        fallback for a page variant. Clicking the approval bar's own Approve button twice
+        is impossible because the bar button is not inside a dialog container.
+        """
+        await page.wait_for_timeout(500)
+        scope = await _contract_scope(page)
+        confirm = scope.locator(_APPROVE_CONFIRM_BUTTON)
+        ready = await poll(lambda: _is_visible(confirm), 10_000)
+        if ready and await click_first_visible(confirm, 5000):
+            return
+        for selector in _DIALOG_SELECTORS:
+            dialogs = scope.locator(selector)
+            try:
+                count = await dialogs.count()
+            except Exception as exc:  # noqa: BLE001 - re-render between readers
+                logger.debug("lms approval dialog lookup failed: %s", exc)
+                continue
+            for index in range(count):
+                dialog = dialogs.nth(index)
+                if not await _is_visible(dialog):
+                    continue
+                for name in _CONFIRM_BUTTON_NAMES:
+                    confirm = dialog.get_by_role("button", name=name, exact=False)
+                    if await _is_visible(confirm):
+                        try:
+                            await confirm.first.click(timeout=2000)
+                        except Exception as exc:  # noqa: BLE001 - overlay may close
+                            logger.debug("lms approval confirm click failed: %s", exc)
+                        return
+                continue
+
+    async def _is_approved(self, page: Page) -> bool:
+        """Whether the contract header now reports an approved state."""
+        status, _ = await self._approval_state(page)
+        return approval_action(status, False) is ApprovalAction.PROCEED
 
     async def _card(self, page: Page, target: FieldTarget) -> Locator | None:
         """The Contract Modification card for a target (Loan amount or Tenure)."""
@@ -380,6 +591,43 @@ class Lms2CollateralAdapter(_Lms2Adapter):
 async def _has_count(locator: Locator, minimum: int) -> bool:
     """Whether a locator currently matches at least ``minimum`` elements."""
     return await locator.count() >= minimum
+
+
+async def _is_visible(locator: Locator) -> bool:
+    """Whether the locator has a visible match; a re-render reads as ``False``."""
+    try:
+        return await locator.count() > 0 and await locator.first.is_visible()
+    except Exception as exc:  # noqa: BLE001 - detached during a re-render
+        logger.debug("visibility read failed: %s", exc)
+        return False
+
+
+async def _contract_scope(page: Page) -> Locator:
+    """The CL contract component, or the whole page before it has rendered.
+
+    Scoping the approval pills, button and dialogs to ``c-cl-contract-detail`` keeps an
+    unrelated Lightning status pill or modal elsewhere on the page out of the decision.
+    """
+    host = page.locator(_CONTRACT_HOST)
+    return host if await _is_visible(host) else page.locator("html")
+
+
+async def _accept_dialog_async(dialog: Dialog) -> None:
+    """Accept a native browser dialog, logging a failure that arrives too late."""
+    try:
+        await dialog.accept()
+    except Exception as exc:  # noqa: BLE001 - dialog may already be gone
+        logger.debug("native dialog accept failed: %s", exc)
+
+
+_DIALOG_TASKS: set[asyncio.Task[None]] = set()
+
+
+def _accept_dialog(dialog: Dialog) -> None:
+    """Schedule acceptance from Playwright's synchronous dialog callback."""
+    task = asyncio.create_task(_accept_dialog_async(dialog))
+    _DIALOG_TASKS.add(task)
+    task.add_done_callback(_DIALOG_TASKS.discard)
 
 
 async def _open_lms_tab(page: Page, timeout_ms: int) -> None:

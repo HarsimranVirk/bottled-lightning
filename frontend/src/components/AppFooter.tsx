@@ -38,7 +38,11 @@ export function AppFooter({
           <Text styleAs="label" color="secondary">
             {statusText(session, sync)}
           </Text>
-          <Button appearance="transparent" onClick={onRefresh} disabled={refreshing}>
+          <Button
+            appearance="transparent"
+            onClick={onRefresh}
+            disabled={refreshing || session?.state !== 'valid'}
+          >
             <RefreshIcon aria-hidden /> Sync now
           </Button>
         </FlexLayout>
