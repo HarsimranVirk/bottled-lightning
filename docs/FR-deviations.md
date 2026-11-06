@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.24 |
-| **Date** | 2026-11-05 |
+| **Version** | v5.25 |
+| **Date** | 2026-11-06 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
 
@@ -85,16 +85,21 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-1.4** Session expiry is detected on any SF interaction. On expiry the system:
   stops dispatching new jobs; marks queued and in-flight work as blocked-on-auth rather
   than failed; surfaces a clear "manual login required" state in the UI; and resumes or
-  requeues that work automatically once a fresh snapshot exists.
+  requeues that work automatically once a fresh snapshot exists. Resuming includes
+  re-establishing any browser page that could not be opened while the session was invalid:
+  an expired session at process start must never leave a subsystem permanently stopped.
 - **FR-1.5** The operator can see the last login/expiry state and can clear the stored
   session to force a fresh login.
 
 ### FR-2 Deviation list sync
 
 - **FR-2.1** The system keeps one long-lived SF Lightning page on the loan-deviation list
-  view in a dedicated tab that never runs jobs.
+  view in a dedicated tab that never runs jobs. The page is long-lived rather than
+  permanent: it is closed when the session expires and re-opened on the next cycle after a
+  fresh login, and exactly one such page exists per workflow at any time.
 - **FR-2.2** That page is refreshed every 30 seconds (configurable) and the live rows are
-  read from it.
+  read from it. A cycle that finds no open page (the first cycle, or the first after an
+  expiry) opens one before sampling.
 - **FR-2.3** Each refresh reconciles the stored data against SF: newly appearing
   deviations are added, list-visible values of known deviations are updated, and missing
   deviations are closed (FR-2.6). The approval date is such a value: SF fills it after a
@@ -123,6 +128,26 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   parsed, and the number of rows parsed equals that total. An invalid refresh changes no
   state. Closure is applied on the first valid refresh that reports a deviation absent —
   there is no multi-sample rule.
+- **FR-2.10** A manual refresh request runs one cycle whether or not the background cycle
+  has opened the page yet, and shares its serialisation: at most one open and one sample
+  run per workflow at a time, and a manual request waits for an in-flight cycle instead of
+  opening a second page. A sample is never read from a page that was not opened by that
+  cycle.
+- **FR-2.11** An authentication failure at any point in a cycle — opening the page,
+  navigating it, or reading it — closes the page, pauses dispatch (FR-1.4) and ends that
+  cycle. It must never terminate the watcher: the watcher waits for a resumed session and
+  then re-opens exactly one fresh page. No attempt is made while the gate is paused, so an
+  expired session cannot cause a retry loop.
+- **FR-2.12** Any other failure is logged, emitted as one `sync_failed` event, and ends
+  the cycle. The next attempt is never sooner than the configured refresh interval; the
+  watcher has no tighter retry path anywhere.
+- **FR-2.13** A manual refresh is refused, rather than accepted and silently dropped,
+  when the system already knows a login is required: no saved session snapshot, a snapshot
+  marked expired by the last SF interaction, or a paused auth gate. When a request is
+  accepted but the attempt then discovers expiry (a stored snapshot that looked valid but
+  is not), the session is paused and surfaced through the normal session state. Such a
+  request is not retried, and no fabricated error is reported for a response that was
+  already sent.
 
 ### FR-3 Extraction
 
@@ -429,6 +454,11 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-9.24** The three real tables share one implementation — a single `DataTable`
   component built from Salt DS primitives — so pagination, filters, widths and scrolling
   cannot diverge between screens. Bespoke table markup is not allowed.
+- **FR-9.25** A refused manual refresh uses the existing structured error envelope
+  (`409`, `detail.code = "login_required"`) so the UI can pair it with the session banner
+  instead of offering a dead button. The UI never reports a successful refresh when the
+  request was refused, and a known-bad session state disables **Sync now** / **Retry
+  sync** rather than letting them fail silently.
 
 ### FR-10 Review decisions (accept / reject)
 
@@ -589,6 +619,12 @@ opens the Lightning ref URL directly, resolves that iframe, and uses Classic inl
 (double-click, clear the input, fill, verify, Save).
 
 ## Appendix C — Change log
+
+- **v5.25** — the watch cycle owns the list page lifecycle instead of assuming a
+  process-start `open()`: a cycle opens the page when it is closed, an authentication
+  failure closes it, pauses the gate and leaves the watcher running, and a manual refresh
+  is serialised with the background cycle and refused with `login_required` when the
+  session is already known to need a login (FR-1.4, FR-2.1/2.2, FR-2.10–2.13, FR-9.25).
 
 - **v5.24** — the submission pipeline completes: after apply and validate it opens the
   deviation record, reads the `Implemented__c` tick and clicks **Implemented**; a tick

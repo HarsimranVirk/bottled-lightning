@@ -70,7 +70,6 @@ def main() -> int:
         )
 
         async def work() -> SyncRun:
-            await source.open()
             try:
                 return await watcher.refresh_once()
             finally:

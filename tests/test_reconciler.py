@@ -6,6 +6,7 @@ import asyncio
 import unittest
 from collections.abc import Callable, Mapping
 
+from app.core.errors import SessionExpired
 from app.core.list_view import ListRow, ListSample, ListViewSpec
 from app.core.models import WorkItem, utcnow
 from app.core.repo.jobs import JobQuery, JobRepository
@@ -305,34 +306,123 @@ class AbsentNeedsReviewTests(ReconcilerTestCase):
 
 
 class _FakeSource:
-    def __init__(self, samples: list[ListSample]) -> None:
+    """``SampleSource`` fake: counts open/sample/close and can fail on demand."""
+
+    def __init__(
+        self,
+        samples: list[ListSample],
+        *,
+        fail_opens: int = 0,
+        error: Exception | None = None,
+    ) -> None:
+        """Keep the samples to replay; ``fail_opens``/``error`` model auth and read faults."""
         self._samples = samples
-        self.opened = 0
-        self.closed = 0
+        self._fail_opens = fail_opens
+        self._error = error
+        self._open = False
+        self.attempts = 0
+        self.opens = 0
+        self.closes = 0
         self.calls = 0
 
-    async def open(self) -> None:
-        self.opened += 1
+    async def ensure_open(self) -> None:
+        """Open once; a failure leaves the source closed so the next call retries."""
+        if self._open:
+            return
+        self.attempts += 1
+        if self._error is not None:
+            raise self._error
+        if self._fail_opens > 0:
+            self._fail_opens -= 1
+            raise SessionExpired("not logged in")
+        self._open = True
+        self.opens += 1
 
     async def sample(self) -> ListSample:
+        """Replay the next sample; refuses to sample a page that was never opened."""
+        if not self._open:
+            raise AssertionError("sample() before ensure_open()")
         self.calls += 1
         return self._samples[min(self.calls - 1, len(self._samples) - 1)]
 
     async def close(self) -> None:
-        self.closed += 1
+        """Drop the page; safe to call repeatedly."""
+        self._open = False
+        self.closes += 1
 
 
 class ListWatcherTests(ReconcilerTestCase):
-    def test_refresh_once_applies_the_sample(self) -> None:
+    def make(
+        self, source: _FakeSource, *, interval: float = 30.0
+    ) -> tuple[ListWatcher, AuthGate]:
+        """Wire a watcher over the fake source on this test's database."""
         reconciler, _closure, workflow = self.build()
         deps = self.deps()
-        source = _FakeSource([sample(row())])
         auth = AuthGate(self.job_repo(), deps.events)
-        watcher = ListWatcher(workflow, source, reconciler, deps.events, auth, 30.0)
+        return (
+            ListWatcher(workflow, source, reconciler, deps.events, auth, interval),
+            auth,
+        )
 
-        run = asyncio.run(watcher.refresh_once())
-        self.assertTrue(run.valid)
-        self.assertIsNotNone(deps.items.get(WORKFLOW, KEY))
+    def test_refresh_once_opens_the_page_then_reuses_it(self) -> None:
+        source = _FakeSource([sample(row())])
+        watcher, _auth = self.make(source)
+
+        async def scenario() -> None:
+            first = await watcher.refresh_once()
+            self.assertTrue(first.valid)
+            await watcher.refresh_once()
+
+        asyncio.run(scenario())
+        self.assertEqual(source.opens, 1)
+        self.assertEqual(source.calls, 2)
+
+    def test_expired_open_pauses_and_reopens_once_after_resume(self) -> None:
+        source = _FakeSource([sample(row())], fail_opens=1)
+        watcher, auth = self.make(source, interval=0.01)
+
+        async def scenario() -> None:
+            task = asyncio.create_task(watcher.run_forever())
+            await _wait_until(lambda: auth.paused, 5.0)
+            await asyncio.sleep(0.1)  # a paused gate must not retry
+            self.assertEqual(source.attempts, 1)
+            auth.resume()
+            await _wait_until(lambda: source.calls > 0, 5.0)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(scenario())
+        self.assertEqual(source.opens, 1)
+        self.assertGreaterEqual(source.calls, 1)
+
+    def test_concurrent_refreshes_share_one_page(self) -> None:
+        source = _FakeSource([sample(row())])
+        watcher, _auth = self.make(source)
+
+        async def scenario() -> None:
+            await asyncio.gather(watcher.refresh_once(), watcher.refresh_once())
+
+        asyncio.run(scenario())
+        self.assertEqual(source.opens, 1)
+        self.assertEqual(source.calls, 2)
+
+    def test_non_auth_failure_retries_at_the_interval(self) -> None:
+        source = _FakeSource([sample(row())], error=RuntimeError("page detached"))
+        watcher, auth = self.make(source, interval=0.02)
+
+        async def scenario() -> None:
+            task = asyncio.create_task(watcher.run_forever())
+            await asyncio.sleep(0.15)
+            self.assertFalse(task.done())
+            self.assertFalse(auth.paused)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(scenario())
+        self.assertGreaterEqual(source.attempts, 2)
+        self.assertLessEqual(source.attempts, 12)
 
     def test_paused_gate_waits_before_sampling(self) -> None:
         reconciler, _closure, workflow = self.build()
@@ -353,8 +443,8 @@ class ListWatcherTests(ReconcilerTestCase):
                 await task
 
         asyncio.run(scenario())
-        self.assertEqual(source.opened, 1)
-        self.assertEqual(source.closed, 1)
+        self.assertEqual(source.opens, 1)
+        self.assertEqual(source.closes, 1)
 
 
 async def _wait_until(predicate: Callable[[], bool], timeout: float) -> None:

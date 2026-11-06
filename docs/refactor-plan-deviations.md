@@ -3,10 +3,10 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v3.2 |
-| **Date** | 2026-11-04 |
-| **Target design** | `docs/class-design-deviations.md` (v3) |
-| **Requirements** | `docs/FR-deviations.md` (v3) |
+| **Version** | v3.3 |
+| **Date** | 2026-11-06 |
+| **Target design** | `docs/class-design-deviations.md` (v4.9) |
+| **Requirements** | `docs/FR-deviations.md` (v5.25) |
 
 > This plan implements the workflow seam: core mechanism in
 > `app/core`, `app/salesforce`, `app/pipeline`, `app/jobs`; deviations lives in
@@ -446,3 +446,48 @@ wheel.
 
 `smoke_watch.py` runs one real watcher cycle (`header == rows`, added/updated/closed
 counters) without starting the dispatcher, so the sync path can be checked in isolation.
+
+---
+
+## 9. Change C-1 — watcher page lifecycle and manual-refresh refusal
+
+This is a post-refactor change, executed against the locked register
+`docs/decisions-deviations.md` (D-01…D-07). It touches the shared pipeline and one admin
+action; no workflow-specific code changes.
+
+### Slices
+
+| Slice | Decisions | Requirements | Files | Tests |
+|---|---|---|---|---|
+| S1 — cycle owns the page | D-01, D-02, D-04, D-05 | FR-1.4, FR-2.1, FR-2.2, FR-2.11, FR-2.12 | `app/pipeline/watcher.py` | `test_reconciler.py`: expired `open()` pauses and does not end the loop; one reopen after `resume()`; non-auth failure sleeps an interval |
+| S2 — one cycle at a time | D-03 | FR-2.10 | `app/pipeline/watcher.py` | `test_reconciler.py`: concurrent `refresh_once()` calls open once and sample once |
+| S3 — refuse a known-bad manual refresh | D-06 | FR-2.13, FR-9.25 | `app/api/services.py` | new API/service test: 409 `login_required` for no snapshot / expired / paused; 202 otherwise; spawned task pauses on a surprise `SessionExpired` |
+| S4 — UI matches session state | D-07 | FR-9.25 | `frontend/src/App.tsx`, `components/AppFooter.tsx`, `components/SyncBanner.tsx`, `queries.ts` | `AppFooter.test.tsx`, `SyncBanner.test.tsx`: buttons disabled when the session is not valid |
+
+Order matters only between S1 and S3: the refusal test needs `refresh_once()` to be safe to
+call. S2 and S4 are independent.
+
+### Cutover
+
+No data migration and no schema change (data-model §1.1). The change ships as one commit per
+slice; restarting the process is the only cutover step. A running instance picks it up on the
+next start — there is no in-flight state to drain, because the watcher page is in-process
+only.
+
+### Rollback
+
+Revert the slice commits. Nothing persisted by the change needs unwinding: the only writes
+are `session_events` (`auth_paused`/`auth_resumed`) and `work_item_events` (`sync_failed`)
+rows, which the existing retention rules already cover.
+
+### Gate
+
+- `ruff check app/ frontend/`, `mypy --strict app tests`, `basedpyright`, and
+  `npm --prefix frontend run typecheck` clean.
+- `python -m unittest discover -s tests` green, including the four tests above.
+- Live check: with an expired snapshot, restart the app; confirm the log shows one
+  `auth_paused` and no dead watcher; log in; confirm the next automatic cycle reopens the
+  page and records a valid `sync_run`, and that **Sync now** returns `202` and updates the
+  footer.
+- Header-total cross-check unchanged: `header_total == rows_read` still gates validity
+  (FR-2.4/2.9).

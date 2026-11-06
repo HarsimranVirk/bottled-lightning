@@ -29,6 +29,8 @@
 2. The five link columns sit after **SF approval**. Click a name to open that object.
 3. Filter a link column like any other: type part of the name, or open the dropdown and
    tick exact names.
+4. The **Status** filter uses the same words as the status chip, so a completed deviation
+   appears as **Implemented** (it filters on the underlying `completed` value).
 
 Equivalent request:
 

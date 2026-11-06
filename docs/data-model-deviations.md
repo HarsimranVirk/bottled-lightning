@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v3.7 |
-| **Date** | 2026-11-05 |
+| **Version** | v3.8 |
+| **Date** | 2026-11-06 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/api-deviations.md` |
 | **Implemented by** | `app/db/schema.py`, `app/core/repo/*` |
@@ -22,7 +22,19 @@ change that alters the code (see AGENTS.md, plan-mode rules).
 | Items, fields, refs, review decisions, jobs, logs, sync history, auth snapshots | SQLite at `settings.db_path` (`data/app.db` in a checkout, OS app-data dir when installed) | Only repositories open connections; nothing else issues SQL |
 | Queue leases, dispatcher state | SQLite `jobs` | There is no authoritative in-process queue; restarting the process loses nothing |
 | Browser pages, cookies in flight | Chromium context, held by `BrowserRuntime` | Never persisted directly; only the storage-state snapshot is |
+| List page open/closed flag, watcher lock | In-process (`WorkflowListSource`, `ListWatcher`) | Rebuilt on the browser loop; a restart costs one page open, never data |
 | Session snapshot | SQLite `sessions` | As sensitive as a password; never logged or returned by the API |
+
+### 1.1 No schema change for watcher recovery (v3.8)
+
+The watcher now opens, closes and re-opens its list page instead of opening it once at
+process start. That state (the page handle, the `asyncio.Lock`, the "is it open" flag) is
+in-process only and is not persisted, so there is no table, column, index or migration
+change. The only writes this change adds are `session_events` rows through the existing
+`SessionRepository.event()` (`auth_paused`, `auth_resumed`) and `work_item_events` rows for
+`sync_failed` — both already covered by the retention rules in §7 (the session events are
+out of purge scope; item events follow their item). A crash mid-cycle loses nothing: the
+next cycle re-opens the page and reconciles from Salesforce.
 
 ## 2. Conventions
 

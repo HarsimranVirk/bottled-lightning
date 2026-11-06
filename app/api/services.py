@@ -15,6 +15,7 @@ from typing import Protocol
 
 from app import config, updater
 from app.config import Settings
+from app.core.errors import SessionExpired
 from app.core.field import normalise
 from app.core.models import (
     ApprovedDeviation,
@@ -828,15 +829,48 @@ class AdminService:
         )
 
     def request_sync(self, workflow: str) -> None:
+        """Request one immediate refresh of a workflow's list view (FR-2.10, FR-2.13).
+
+        Raises ``ApiError`` 404 for an unknown workflow and 409 ``login_required``
+        when the refresh is already known to be impossible. Otherwise one cycle is
+        spawned on the browser loop and the caller returns immediately (``202``);
+        that cycle opens the page itself when it is not open yet.
+
+        Example:
+            admin.request_sync("deviations_z02")   # 202, work happens on the loop
+        """
         name = self._workflow_name(workflow)
         watcher = self._watchers.get(name)
         if watcher is None:
             raise ApiError(404, f"no watcher for {name}", "unknown_workflow")
+        self._require_session()
 
         async def _once() -> None:
-            await watcher.refresh_once()
+            try:
+                await watcher.refresh_once()
+            except SessionExpired as exc:
+                # A snapshot that only looked valid: park the system instead of
+                # letting the fire-and-forget task die silently (FR-2.13).
+                self._auth.pause(f"sync: {exc}")
+            except Exception:
+                logger.exception("manual refresh failed for %s", name)
 
         self._runtime.spawn(_once)
+
+    def _require_session(self) -> None:
+        """Refuse work when a manual login is already known to be required (FR-2.13).
+
+        Uses the same three signals ``session()`` reports: no stored snapshot, a
+        snapshot the last SF interaction marked expired, or a paused gate. A
+        snapshot that merely *looks* valid is not refused here — its cycle pauses
+        the gate and surfaces through ``GET /api/sessions`` instead.
+        """
+        if (
+            self._sessions.snapshot() is None
+            or self._provider.expired
+            or self._auth.paused
+        ):
+            raise ApiError(409, "manual login required", "login_required")
 
     def queue(self) -> QueueView:
         counts = self._jobs.counts()

@@ -412,6 +412,11 @@ export function useRequestSync(
     onSuccess: () => {
       if (workflow !== null) void client.invalidateQueries({ queryKey: keys.sync(workflow) })
     },
+    // A refusal (`login_required`) means the session is no longer usable: refresh the
+    // banner now instead of leaving a stale "active" state until the next poll (D-07).
+    onError: () => {
+      void client.invalidateQueries({ queryKey: keys.session })
+    },
   })
 }
 

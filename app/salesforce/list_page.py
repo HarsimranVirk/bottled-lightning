@@ -46,11 +46,14 @@ def parse_item_total(text: str) -> int | None:
 
 class ListPage:
     """
-    Owns one always-open list-view page (FR-2.1).
+    Owns one list-view page for as long as its source keeps it (FR-2.1).
 
     A sample combines three reads: the header total, the record links from the
     live (virtualised) list, and all rows plus approval dates from the Printable
     View popup. Validity is decided afterwards by ``ListSample.valid``.
+    ``WorkflowListSource`` decides when the page exists: it is opened on demand and
+    replaced after an authentication failure, so nothing here assumes a page
+    outlives the cycle.
 
     Example:
         page = await context.new_page()
@@ -66,7 +69,7 @@ class ListPage:
         spec: ListViewSpec,
         timeout_ms: int,
     ) -> None:
-        """Wrap one always-open page for one list view."""
+        """Wrap one page for one list view."""
         self._context = context
         self._page = page
         self._spec = spec

@@ -86,6 +86,14 @@ describe('HistoryTable', () => {
     expect(screen.getByLabelText('Filter by Loan Amount')).toBeInTheDocument()
   })
 
+  it('labels status options with the workflow terminal wording', async () => {
+    const user = userEvent.setup()
+    render(<HistoryTable {...props()} />)
+    await user.click(screen.getByLabelText('Filter by status values'))
+    expect(screen.getByRole('option', { name: 'Implemented' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Ready' })).toBeInTheDocument()
+  })
+
   it('renders object links and a dash for a missing kind', () => {
     render(<HistoryTable {...props()} />)
     expect(
@@ -122,7 +130,7 @@ describe('HistoryTable', () => {
     })
 
     await user.click(screen.getByLabelText('Filter by status values'))
-    await user.click(screen.getByRole('option', { name: 'ready' }))
+    await user.click(screen.getByRole('option', { name: 'Ready' }))
     expect(onFilters).toHaveBeenLastCalledWith({
       ...EMPTY_HISTORY_FILTERS,
       statuses: ['ready'],

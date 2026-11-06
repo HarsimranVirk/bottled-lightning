@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.8 |
-| **Date** | 2026-11-05 |
+| **Version** | v4.9 |
+| **Date** | 2026-11-06 |
 | **Companions** | `docs/FR-deviations.md` (v3), `docs/data-model-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
 | **Change** | Introduced the workflow abstraction; earlier drafts were deviations-only |
 | **Implemented so far** | Phases 1–7 including the full 6: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,urls,adapters}`, `app/jobs/{dispatcher,worker,auth,logger}`, `app/pipeline/{watcher,reconciler,closure}`,
@@ -753,6 +753,9 @@ Record hrefs are resolved against the list page URL (`urljoin`) before they are 
 `open()` and `refresh()` wait for both the rows and the "N items" header before the
 sample is read; Lightning paints rows first, and a header wait is what keeps the first
 cycle after a process start from being recorded as an invalid refresh.
+`ListPage` never decides when it exists: `WorkflowListSource` owns creation and replacement
+of the one page per workflow (§8.1), so a page can be discarded and re-created without the
+reader knowing.
 
 ### 7.5 `ObjectAdapter`
 
@@ -815,16 +818,79 @@ can be tested without a browser.
 ### 8.1 `ListWatcher` — one per workflow
 
 ```python
+class SampleSource(Protocol):
+    async def ensure_open(self) -> None: ...   # idempotent: no-op when already open
+    async def sample(self) -> ListSample: ...  # the page must already be open
+    async def close(self) -> None: ...         # drops the page; safe when already closed
+
+class WorkflowListSource:
+    """One listed page per workflow, created on demand and replaced after auth loss."""
+    async def ensure_open(self) -> None: ...
+    async def sample(self) -> ListSample: ...
+    async def close(self) -> None: ...
+
 class ListWatcher:
-    def __init__(self, workflow: Workflow, browser: BrowserRuntime,
-                 reconciler: Reconciler, settings: Settings) -> None: ...
+    def __init__(self, workflow: Workflow, source: SampleSource,
+                 reconciler: Reconciler, events: EventRepository,
+                 auth: AuthGate, interval_s: float) -> None: ...
     async def run_forever(self) -> None: ...
     async def refresh_once(self) -> SyncRun: ...
+    async def _discard_page(self) -> None: ...   # close under the same lock
 ```
 
-Each workflow gets one dedicated, always-open page on its own list view (FR-2.1, FR-7.5).
-It never runs jobs. It never writes terminal status — it hands the sample to the
-`Reconciler`.
+Each workflow gets one dedicated page on its own list view (FR-2.1, FR-7.5), but the
+page lifecycle belongs to the cycle rather than to process start. `refresh_once()` is the
+only entry point and holds the watcher's `asyncio.Lock` across **ensure-open plus
+sample**, so the background cycle and a manual request can never open two pages or drive
+two reads through the same page:
+
+```python
+async def refresh_once(self) -> SyncRun:
+    async with self._lock:
+        await self._source.ensure_open()
+        return self._reconciler.apply(await self._source.sample())
+```
+
+`run_forever()` has no `open()` before its loop. Every cycle is `await auth.wait()` →
+`refresh_once()` → `sleep(interval)`, and failures are classified by one rule: an auth
+failure parks the system, anything else costs one interval.
+
+```python
+async def run_forever(self) -> None:
+    try:
+        while True:
+            await self._auth.wait()          # blocks while paused
+            try:
+                run = await self.refresh_once()
+                logger.info(...)
+            except SessionExpired as exc:
+                await self._discard_page()    # close under the same lock
+                self._auth.pause(f"watcher: {exc}")
+                continue                      # → auth.wait(), not a retry
+            except Exception:
+                logger.exception(...)
+                self._events.emit("sync_failed", workflow=..., detail="see logs")
+            await asyncio.sleep(self._interval_s)
+    finally:
+        await self._discard_page()
+```
+
+The anti-spin property is structural, not a counter: `SessionExpired` closes the page,
+pauses the gate and `continue`s straight back into `auth.wait()`, which is cleared by that
+same pause. The only way to attempt an open again is an `AuthGate.resume()` (a manual
+login), and even then it is one attempt. Non-auth failures fall through to the interval
+sleep, so the worst retry rate is one attempt per configured refresh interval. The page's
+lifecycle never depends on the watcher task staying alive: if the page is gone, the next
+cycle opens one, so a manual refresh works after a restart of the session without
+restarting the process.
+
+`refresh_once()` deliberately does **not** call `auth.wait()`: a manual request must not
+hang behind a paused gate, and an unexpected expiry has to surface as `SessionExpired` so
+the API can pause the gate instead of blocking a thread. It never retries internally.
+
+It never runs jobs and never writes terminal status — it hands the sample to the
+`Reconciler`. Exceptions from opening are therefore never swallowed: they are the cycle's
+outcome, handled by the two branches above.
 
 ### 8.2 `Reconciler` — generic
 
@@ -1100,13 +1166,22 @@ class WorkItemService:
 class AdminService:
     def login(self) -> LoginHandle: ...
     def logout(self) -> None: ...
-    def force_sync(self, workflow: str) -> SyncRun: ...
+    def request_sync(self, workflow: str) -> None: ...
     def set_workers(self, count: int) -> QueueState: ...
     def queue(self) -> QueueState: ...
 ```
 
 `WorkItemService` is synchronous: submit only enqueues. Operations that need the browser
 live in `AdminService`, which owns the `BrowserRuntime` bridge.
+
+`request_sync()` is the only admin action that refuses on session state: it raises
+`ApiError(409, "manual login required", "login_required")` when there is no session
+snapshot, `SessionProvider.expired` is set, or `AuthGate.paused` — the three states in
+which the refresh is already known to be impossible. Otherwise it spawns exactly one
+`refresh_once()` on the browser loop and returns immediately (`202`). The spawned task
+catches `SessionExpired` so a snapshot that only *looked* valid still pauses the gate and
+emits the auth event, and logs any other failure instead of letting it die in the
+runtime's fire-and-forget reporter. It never retries.
 
 ### 11.2 Routes
 
@@ -1190,6 +1265,10 @@ Each should have a test.
 15. **I15** After every successful `SyncRunRepository.record()`, each workflow has at most
     20 `sync_runs` rows and the newest row is still present, so `latest()` always has a
     reading.
+16. **I16** A watcher cycle is the only place a list page is opened or closed, opening is
+    idempotent while the page is already open, and at most one open/sample runs per
+    workflow at a time (`ListWatcher` lock). An authentication failure closes the page and
+    pauses the gate; it never ends the watcher task (FR-2.10–2.13).
 
 ## 13. Test seams
 

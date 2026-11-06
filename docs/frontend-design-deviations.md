@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.9 |
-| **Date** | 2026-11-05 |
+| **Version** | v4.10 |
+| **Date** | 2026-11-06 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
 | **Implemented by** | refactor Phase 8 (`frontend/src`); Slice A and the review deck (D) are live |
@@ -188,7 +188,12 @@ missing refs render "not found" instead of being hidden) → **history** (edits 
 | connecting | brand + version, "connecting…" | — |
 | healthy | brand + `v<version>`, "Session active · synced 12s ago · 7 rows" | **Sync now** |
 | untrusted sync | "Session active · last refresh untrusted" (banner carries the detail) | **Sync now** |
-| session invalid | "Session expired" / "Session not set" (banner carries the login) | **Sync now** |
+| session invalid | "Session expired" / "Session not set" (banner carries the login) | **Sync now** (disabled) |
+
+The **Sync now** button is disabled whenever the session is not `valid`, because the
+server refuses that refresh with `409 login_required` (FR-9.25). A refusal that still
+arrives (a session that looked valid) invalidates the session query immediately, so the
+banner and the footer flip to the expired state instead of waiting for the next poll.
 
 The footer is the only always-present status surface; the top banner appears only when
 something is wrong. Keeping the version here means no release can be confused with a
@@ -240,7 +245,11 @@ Sortable headers toggle asc/desc and expose `aria-sort`.
   compose with AND;
 - the trigger shows “All” or “N selected”;
 - options are fixed enums where the column has them; otherwise they are the distinct
-  non-empty values in the loaded page/preview, sorted and capped at 100.
+  non-empty values in the loaded page/preview, sorted and capped at 100;
+- an option's label is the same human wording the cell shows, not the raw value. The
+  history status list therefore reads **Implemented** for `completed` (from the
+  workflow's `terminalLabels`) and **Needs Review** for `needs_review`; the option's
+  value stays the raw status so the server filter is unchanged.
 
 `TableRangeFilter` is the shared variant for continuous columns: two text/date/number
 inputs for the lower and upper bound, with no checkbox list. It is used for Jobs started

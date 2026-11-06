@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v2.9 |
-| **Date** | 2026-11-05 |
+| **Version** | v2.10 |
+| **Date** | 2026-11-06 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/data-model-deviations.md` |
 | **Implemented by** | `app/api/*` (refactor Phase 7) — live |
@@ -113,9 +113,38 @@ Clears every snapshot and forces the next job to require a login.
 
 If no run exists yet, `200` with `null` fields.
 
-### `POST /api/syncs` → `202`
+### `POST /api/syncs?workflow=deviations_z02`
 
-Requests an immediate refresh instead of waiting for the 30 s cycle.
+Requests one immediate refresh instead of waiting for the 30 s cycle. The request runs the
+same cycle as the background watcher — open the page if it is not open, sample, reconcile —
+and is serialised with it, so it never opens a second page or reads a page another cycle is
+using.
+
+`202 Accepted`:
+
+```json
+{ "status": "requested", "workflow": "deviations_z02" }
+```
+
+`409 Conflict` with `code: "login_required"` when the refresh is already known to be
+impossible — no saved snapshot, a snapshot the last SF interaction marked expired, or a
+paused `AuthGate`:
+
+```json
+{ "detail": { "code": "login_required", "message": "manual login required" } }
+```
+
+This is the same envelope as the submit endpoint's auth refusal, so the UI pairs it with the
+session banner. `404` is returned for an unknown workflow.
+
+The server never retries the request. If a snapshot that *looked* valid turns out to be
+expired, the accepted cycle pauses the gate, and `GET /api/sessions` then reports
+`paused: true` / `state: "expired"` — the caller learns from session state rather than from
+an invented error on a response that was already sent.
+
+TypeScript: the `202` body stays `{ status: string; workflow: string }` in
+`frontend/src/api.ts`; the generated operation is unchanged, and the refusal arrives as
+`ApiError` with `code === 'login_required'`.
 
 ## 5. Items (the unified view)
 

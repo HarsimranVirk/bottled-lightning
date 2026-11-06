@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import unittest
-from collections.abc import Sequence
+from collections.abc import Callable, Coroutine, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import NamedTuple
 
 from fastapi.testclient import TestClient
 
@@ -21,9 +23,9 @@ from app.api.schemas import (
     SyncView,
     UpdateStatusView,
 )
-from app.api.services import WorkItemService, workflow_view
+from app.api.services import AdminService, WorkItemService, workflow_view
 from app.config import Settings
-from app.core.list_view import ListRow
+from app.core.list_view import ListRow, ListSample
 from app.core.models import PageRef, utcnow
 from app.core.registry import WorkflowRegistry
 from app.core.repo.approved_history import ApprovedHistoryRepository
@@ -31,10 +33,20 @@ from app.core.repo.decisions import DecisionRepository
 from app.core.repo.edits import EditRepository
 from app.core.repo.jobs import JobRepository
 from app.core.repo.refs import PageRefRepository
+from app.core.repo.sessions import SessionRepository
+from app.core.repo.sync_runs import SyncRunRepository
 from app.core.status import WorkItemStatus
 from app.core.workflow import Workflow
 from app.devtools.db import DevDbService
+from app.jobs.auth import AuthGate
+from app.jobs.dispatcher import Dispatcher
+from app.jobs.worker import Worker
 from app.maintenance import PurgeService
+from app.pipeline.closure import ClosureResolver
+from app.pipeline.reconciler import Reconciler
+from app.pipeline.watcher import ListWatcher
+from app.salesforce.runtime import BrowserRuntime
+from app.salesforce.session import SessionProvider
 from app.workflows.deviations_z02 import build_workflow
 from tests.support import DbTestCase
 
@@ -694,6 +706,138 @@ class DevApiTests(ApiTestCase):
         )
         self.assertEqual(workbook.status_code, 200)
         self.assertIn("spreadsheetml", workbook.headers["content-type"])
+
+
+class _SyncSource:
+    """``SampleSource`` stub: one empty valid sample, counting opens and reads."""
+
+    def __init__(self) -> None:
+        """Start closed with zero counters."""
+        self.opens = 0
+        self.calls = 0
+
+    async def ensure_open(self) -> None:
+        """Count the open; the stub is always ready."""
+        self.opens += 1
+
+    async def sample(self) -> ListSample:
+        """Return an empty but valid sample (header 0, no rows)."""
+        self.calls += 1
+        return ListSample(captured_at=utcnow(), header_total=0, rows=())
+
+    async def close(self) -> None:
+        """Nothing to release."""
+        return
+
+
+class _RecordingRuntime(BrowserRuntime):
+    """``BrowserRuntime`` stub: records spawned factories instead of running them."""
+
+    def __init__(self, settings: Settings, session: SessionProvider) -> None:
+        """Build an unstarted runtime and an empty factory list."""
+        super().__init__(settings, session)
+        self.factories: list[Callable[[], Coroutine[None, None, None]]] = []
+
+    def spawn(self, factory: Callable[[], Coroutine[None, None, None]]) -> None:
+        """Record the coroutine factory; the test runs it explicitly."""
+        self.factories.append(factory)
+
+
+class _AdminStack(NamedTuple):
+    """Everything ``AdminService`` was built from, so tests can poke at each piece."""
+
+    admin: AdminService
+    runtime: _RecordingRuntime
+    sessions: SessionRepository
+    provider: SessionProvider
+    auth: AuthGate
+    source: _SyncSource
+
+
+class AdminSyncTests(ApiTestCase):
+    """Manual refresh refusal and the one spawned cycle (D-06, FR-2.13)."""
+
+    def build_admin(self) -> _AdminStack:
+        """Wire a real ``AdminService`` over stub browser pieces on this test's DB."""
+        settings = settings_for(self.tmp_path)
+        deps = self.deps()
+        workflow = build_workflow(settings, deps)
+        registry = WorkflowRegistry()
+        registry.register(workflow)
+        sessions = SessionRepository(self.db)
+        provider = SessionProvider(sessions, settings)
+        jobs = JobRepository(self.db)
+        auth = AuthGate(jobs, deps.events)
+        runtime = _RecordingRuntime(settings, provider)
+        runs = SyncRunRepository(self.db)
+        closure = ClosureResolver(deps.items, jobs, deps.events)
+        reconciler = Reconciler(
+            workflow, deps.items, jobs, deps.attributes, runs, closure
+        )
+        source = _SyncSource()
+        watcher = ListWatcher(workflow, source, reconciler, deps.events, auth, 30.0)
+        worker = Worker(
+            "w0", registry, deps.items, jobs, deps.events, auth, runtime, closure
+        )
+        dispatcher = Dispatcher(jobs, worker, auth, settings)
+        admin = AdminService(
+            settings,
+            runtime,
+            provider,
+            sessions,
+            runs,
+            jobs,
+            auth,
+            dispatcher,
+            {workflow.name: watcher},
+            registry,
+        )
+        return _AdminStack(admin, runtime, sessions, provider, auth, source)
+
+    def save_snapshot(self, stack: _AdminStack) -> None:
+        """Store a cookie-less snapshot: enough to look logged in to the pre-check."""
+        stack.sessions.save('{"cookies": []}', 0, "https://example")
+
+    def test_unknown_workflow_is_404(self) -> None:
+        stack = self.build_admin()
+        with self.assertRaises(ApiError) as caught:
+            stack.admin.request_sync("nope")
+        self.assertEqual(caught.exception.status_code, 404)
+
+    def test_refuses_without_a_snapshot(self) -> None:
+        stack = self.build_admin()
+        with self.assertRaises(ApiError) as caught:
+            stack.admin.request_sync(WORKFLOW)
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertEqual(caught.exception.code, "login_required")
+        self.assertEqual(stack.runtime.factories, [])
+
+    def test_refuses_when_the_snapshot_is_expired(self) -> None:
+        stack = self.build_admin()
+        self.save_snapshot(stack)
+        stack.provider.mark_expired()
+        with self.assertRaises(ApiError) as caught:
+            stack.admin.request_sync(WORKFLOW)
+        self.assertEqual(caught.exception.code, "login_required")
+        self.assertEqual(stack.runtime.factories, [])
+
+    def test_refuses_while_paused(self) -> None:
+        stack = self.build_admin()
+        self.save_snapshot(stack)
+        stack.auth.pause("test")
+        with self.assertRaises(ApiError) as caught:
+            stack.admin.request_sync(WORKFLOW)
+        self.assertEqual(caught.exception.code, "login_required")
+        self.assertEqual(stack.runtime.factories, [])
+
+    def test_spawns_one_cycle_that_opens_the_page(self) -> None:
+        stack = self.build_admin()
+        self.save_snapshot(stack)
+        stack.admin.request_sync(WORKFLOW)
+        self.assertEqual(len(stack.runtime.factories), 1)
+        asyncio.run(stack.runtime.factories[0]())
+        self.assertEqual(stack.source.opens, 1)
+        self.assertEqual(stack.source.calls, 1)
 
 
 if __name__ == "__main__":

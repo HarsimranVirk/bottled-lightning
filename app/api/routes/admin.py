@@ -49,7 +49,7 @@ def make_router(admin: AdminPort) -> APIRouter:
 
     @router.post("/syncs", status_code=202)
     def request_sync(workflow: str) -> dict[str, str]:
-        """Ask the watcher to refresh immediately instead of waiting for the cycle."""
+        """Refresh now instead of waiting for the cycle; ``409`` when login is required."""
         admin.request_sync(workflow)
         return {"status": "requested", "workflow": workflow}
 

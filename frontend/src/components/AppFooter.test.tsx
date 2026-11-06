@@ -53,6 +53,11 @@ describe('AppFooter', () => {
     expect(screen.getByText('bottled-lightning v1.2.3')).toBeInTheDocument()
   })
 
+  it('disables the manual refresh when the session is not valid', () => {
+    render(<AppFooter {...props} session={{ ...SESSION, state: 'expired', paused: true }} />)
+    expect(screen.getByRole('button', { name: 'Sync now' })).toBeDisabled()
+  })
+
   it('refreshes on demand', async () => {
     const user = userEvent.setup()
     const onRefresh = vi.fn()
