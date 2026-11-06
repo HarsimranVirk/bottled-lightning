@@ -23,11 +23,13 @@ class ValueType(StrEnum):
 
     * ``AMOUNT`` — money with Indian digit grouping and an optional currency symbol
     * ``TENURE_MONTHS`` — whole months; stored in months (project convention)
+    * ``NUMBER`` — a 0–100 rate; trimmed, optional trailing ``%`` removed, range-checked
     * ``TEXT`` — free text, whitespace collapsed
     """
 
     AMOUNT = "amount"
     TENURE_MONTHS = "months"
+    NUMBER = "number"
     TEXT = "text"
 
 
@@ -116,6 +118,8 @@ def normalise(value: str, value_type: ValueType) -> str:
             return _normalise_months(value)
         case ValueType.TEXT:
             return _normalise_text(value)
+        case ValueType.NUMBER:
+            return _normalize_number(value)
 
 
 def _normalise_amount(value: str) -> str:
@@ -144,6 +148,38 @@ def _normalise_months(value: str) -> str:
 def _normalise_text(value: str) -> str:
     """Trim and collapse internal whitespace."""
     return " ".join(value.split())
+
+
+def _normalize_number(value: str) -> str:
+    """
+    Trim an operator-entered rate and verify its numeric value is 0–100.
+
+    The numeric text is preserved apart from surrounding whitespace and an optional
+    trailing ``%`` unit, which is removed so ``11.95`` and ``11.95%`` canonicalise the
+    same way. The function does not round, rescale or reformat it, so ``0.1195`` stays
+    ``0.1195``. Raises ``ValueError`` for an empty or non-numeric value, a non-finite
+    number, or anything outside the inclusive 0–100 range.
+
+    Example:
+        >>> _normalize_number(" 11.95% ")
+        '11.95'
+        >>> _normalize_number("100.01")
+        Traceback (most recent call last):
+        ValueError: rate outside 0–100: '100.01'
+    """
+    text = value.strip()
+    numeric = text.removesuffix("%").strip()
+    if not numeric:
+        raise ValueError("empty rate")
+    try:
+        number = Decimal(numeric)
+    except InvalidOperation as exc:
+        raise ValueError(f"not a rate: {value!r}") from exc
+    if not number.is_finite():
+        raise ValueError(f"not a rate: {value!r}")
+    if number < 0 or number > 100:
+        raise ValueError(f"rate outside 0–100: {value!r}")
+    return numeric
 
 
 def fields_for(

@@ -85,6 +85,19 @@ FIELD_CATALOG: tuple[EditableField, ...] = (
         source="tenure",
     ),
     EditableField(
+        key="roi",
+        label="ROI",
+        value_type=ValueType.NUMBER,
+        targets=(
+            FieldTarget(
+                DeviationObject.OPPORTUNITY,
+                "ROI",
+                section="LOAN PARAMETERS",
+            ),
+        ),
+        source="roi",
+    ),
+    EditableField(
         key="emi_incl_hffc",
         label="EMI & other fixed payments incl. HFFC Loan",
         value_type=ValueType.AMOUNT,

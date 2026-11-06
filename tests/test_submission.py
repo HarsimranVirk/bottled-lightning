@@ -34,6 +34,7 @@ EXTRACTED = {
     "loan_amount": "13,00,000",
     "property_value": "22,50,000",
     "tenure": "180",
+    "roi": "11.95",
     "emi_incl_hffc": "16,256",
 }
 
