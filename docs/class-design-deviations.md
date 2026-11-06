@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.9 |
+| **Version** | v4.12 |
 | **Date** | 2026-11-06 |
 | **Companions** | `docs/FR-deviations.md` (v3), `docs/data-model-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
 | **Change** | Introduced the workflow abstraction; earlier drafts were deviations-only |
@@ -811,6 +811,38 @@ LMS 2.0 contract form without workflow-specific branching in the pipeline. Adapt
 depend on `TabProvider` (two async methods), not on the concrete `TabGroup`, so pipelines
 can be tested without a browser.
 
+#### 7.5.1 LMS 2.0 CL contract approval gate (v4.12)
+
+`Lms2ClContractAdapter.write()` is the only adapter with a pre-write readiness gate. It
+calls `_ensure_approved(page)` before `_open_modification()`, because the LMS 2.0 contract
+detail page refuses Contract Modification saves while the contract is still pending
+approval (FR-6.17). The page is a `c-cl-contract-detail` LWC in a shadow root; its state
+is exposed as `span.pill-status` (text such as **Pending Approval** / **Approved** /
+**Rejected**) and `div.approval-bar` (the **Approve** / **Reject** controls), both reached
+through Playwright's shadow-piercing locators.
+
+A pure helper, `approval_action(status_text, can_approve) -> ApprovalAction`, maps the
+page state to one of four actions (`can_approve` is whether the scoped component shows a
+visible `button.approval-btn-approve`):
+
+| Page state | Action |
+|---|---|
+| text says approved | `PROCEED` — no click, open the modification form |
+| text says pending approval, or the Approve control is present without a readable status | `APPROVE` — click `button.approval-btn-approve`, then the modal's `button.btn-approval-approve` (**✓ Confirm Approval**), and poll until the approved state is visible |
+| text says rejected | `REFUSE` — do not open the modification form |
+| no readable state and no Approve control | `REFUSE` — never write blind |
+
+`APPROVE` only returns success after the page confirms the new state; the adapter then
+continues with the normal fill → verify → Save Changes flow. The first click only opens
+`div.modal-box`; the adapter confirms with `button.btn-approval-approve`
+(**✓ Confirm Approval**), then polls the status pill. Any `REFUSE` or an unconfirmed
+approval returns `WriteOutcome.UNKNOWN`/`REJECTED` for every target and writes nothing, so
+the submission pipeline parks the deviation in `needs_review` (FR-6.6/6.9).
+Approval is an external side effect and is not rolled back if the subsequent write fails;
+a later retry sees the approved state and does not click Approve again. The gate is
+internal to this adapter: `ObjectAdapter`, `AdapterRegistry`, the submission pipeline and
+the other five adapters are unchanged.
+
 ---
 
 ## 8. Pipelines (shared)
@@ -912,6 +944,8 @@ for row in sample.rows:
     unknown      → create_present + enqueue EXTRACT                   (FR-2.3)
     known        → touch(last_seen), update last_synced via workflow.map_row
                    (never proposed, FR-2.5); if absent before → begin_epoch (FR-6.13)
+                   if skipped only for a missing record URL and href now exists
+                   → PRESENT + enqueue EXTRACT                        (FR-3.9)
 for known item not in rows:     closure.close_if_absent(...)           (FR-2.6)
 ```
 
@@ -1200,7 +1234,19 @@ Pydantic models at the boundary only: `WorkflowView` (name, labels, catalogue),
 ### 11.4 Shared table filter (frontend)
 
 ```ts
-interface TableFilterOption { value: string; label: string }
+interface SearchSelectOption { value: string; label: string }
+
+interface SearchSelectProps {
+  label: string
+  placeholder?: string
+  query: string
+  onQuery: (query: string) => void
+  selected: string[]
+  onSelected: (values: string[]) => void
+  options: SearchSelectOption[]
+  disabled?: boolean
+  style?: CSSProperties
+}
 
 interface TableFilterProps {
   label: string
@@ -1208,9 +1254,9 @@ interface TableFilterProps {
   onText: (text: string) => void
   selected: string[]
   onSelected: (values: string[]) => void
-  options: TableFilterOption[]
+  options: SearchSelectOption[]
   placeholder?: string
-  inputType?: 'text' | 'date' | 'number'
+  textMode?: 'filter' | 'search'   // default 'filter'
 }
 
 interface TableRangeFilterProps {
@@ -1221,14 +1267,28 @@ interface TableRangeFilterProps {
   onFrom: (value: string) => void
   onTo: (value: string) => void
   type?: 'text' | 'date' | 'number'
+  fromPlaceholder?: string
+  toPlaceholder?: string
 }
 ```
 
-`TableFilter` is the only per-column filter cell for new tables: text/date/number input
-plus a Salt multiselect `Dropdown` whose options render as checkboxes. The parent owns
-the filter state and decides whether filtering is client-side (Dev DB preview) or
-server-side (Jobs/History). `TableRangeFilter` is the range variant and deliberately has
-no checkbox list.
+`SearchSelect` owns the one shared ComboBox: controlled query, client-side option
+filtering by value and label, checked pills and `onSelectionChange`. Pills render the
+option's label (via `valueToString`), so `Implemented` never appears as `completed`. It
+never fetches.
+`DeckPicker` wraps it with the deck's Clear action and stale-key pruning; `TableFilter`
+wraps it and decides whether typing also drives the column text filter:
+
+- `textMode="filter"` (default) — typing calls `onText`, so the contains filter and the
+  option search use the same text;
+- `textMode="search"` — typing keeps a local query and only narrows the options; a check
+  calls `onSelected` and clears the query. Fixed-option enum columns with human labels
+  use this mode.
+
+`TableRangeFilter` renders one bordered From/To group but keeps two labelled inputs, so
+date and number types and keyboard behaviour are unchanged. The parent owns all filter
+state and decides whether filtering is client-side (Dev DB preview) or server-side
+(Jobs/History). No filter control fetches or writes.
 
 ---
 

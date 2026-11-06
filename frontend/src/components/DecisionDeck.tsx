@@ -28,6 +28,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { DecisionKind, ItemDetail, ItemRow, WorkflowFieldView } from '../api'
 import { changesFor, draftFor } from '../format'
 import { DecisionCard } from './DecisionCard'
+import { DeckPicker } from './DeckPicker'
 
 export interface DeckTally {
   accept: number
@@ -36,7 +37,14 @@ export interface DeckTally {
 }
 
 interface Props {
+  /** The card order: pinned rows first, then the natural deck order. */
   rows: ItemRow[]
+  /** Natural deck order for the picker's options, so its list stays stable. */
+  pickerRows: ItemRow[]
+  /** Keys pinned by the operator, in check order. */
+  selection: string[]
+  /** Report a new checked-key list to the page that owns the pins. */
+  onSelection: (keys: string[]) => void
   fields: WorkflowFieldView[]
   terminalLabels: Record<string, string>
   detail: ItemDetail | null
@@ -58,6 +66,9 @@ interface Props {
 
 export function DecisionDeck({
   rows,
+  pickerRows,
+  selection,
+  onSelection,
   fields,
   terminalLabels,
   detail,
@@ -163,6 +174,14 @@ export function DecisionDeck({
           <StatusIndicator status="error" />
           <Text color="error">{error}</Text>
         </FlexLayout>
+      ) : null}
+
+      {pickerRows.length > 0 ? (
+        <DeckPicker
+          rows={pickerRows}
+          selected={selection}
+          onSelected={onSelection}
+        />
       ) : null}
 
       {top === undefined ? (

@@ -169,6 +169,7 @@ export function JobsPanel({
             value,
             label: value.replace(/_/g, ' '),
           }))}
+          textMode="search"
         />
       ),
       cell: (job) => <StatusChip status={job.status} />,

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.25 |
+| **Version** | v5.29 |
 | **Date** | 2026-11-06 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -29,7 +29,8 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - Per-deviation extraction across the deviation record, Opportunity, CL contract,
   collateral, LMS 2.0 CL contract and LMS 2.0 collateral.
 - A unified per-deviation view with editable values.
-- Submission: write values → verify → implement the deviation.
+- Submission: ensure the LMS 2.0 CL contract is approved when pending, write
+  values → verify → implement the deviation.
 - A persistent job queue and always-alive SF browser workers.
 - Audit of extraction, edits, applies, validations and closures.
 
@@ -185,6 +186,10 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-3.8** Linked-object pages are cached and are not re-scraped on every sync.
   Re-extraction happens only for newly seen deviations, or on an explicit operator
   refresh.
+- **FR-3.9** A deviation first seen from the Printable View before its live list record
+  link renders is not stranded: when a later valid refresh supplies the record URL, an
+  item skipped solely with `no record URL on the list row` returns to `PRESENT`, clears
+  that reason and queues one new extraction. Other skip reasons stay terminal.
 
 ### FR-4 Unified view
 
@@ -284,6 +289,17 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   not implemented again and is not attributed to us: the run returns `already_closed`, and
   the first valid refresh that no longer shows the deviation records `closed` with
   `source=external` and reason `already_implemented`. No execute timestamps are written.
+- **FR-6.17** The LMS 2.0 CL contract's approval state is checked immediately before any
+  attempt to modify that contract. An already-approved contract is modified as today. A
+  contract showing **Pending Approval** is approved by the system through the page's
+  Approve control, and the modification starts only after the page confirms the approved
+  state. A contract in any other unapproved state (for example **Rejected**), or a state
+  that cannot be read or confirmed within the request timeout, is not modified: the run
+  fails and the deviation moves to `needs_review`. Approval is a one-way external side
+  effect: if the later field write fails, the contract stays approved and no rollback is
+  attempted (consistent with FR-6.15). A retry against an already-approved contract does
+  not click Approve again. Only the LMS 2.0 CL contract is gated this way; the regular CL
+  contract, collateral, LMS 2.0 collateral and Opportunity are unchanged.
 
 ### FR-7 Jobs & workers
 
@@ -427,23 +443,25 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-9.17** The History view is a separate route from the deck (`?view=history`), and
   opening a history row uses the history detail endpoint. The history detail is read-only
   and never offers an Undo decision action.
-- **FR-9.18** Every data table uses one shared table-filter pattern: a text input and a
-  multiselect dropdown with checkboxes for exact values. An empty selection means all
-  values; selected values are OR within one column, columns compose with AND, and the
-  text plus the selected values in the same column also compose with AND. The trigger
-  shows “All” or “N selected”. Date and duration ranges use the shared range variant
-  (two inputs) instead of a checkbox list.
+- **FR-9.18** Every data table uses one shared table-filter control: a single searchable
+  multiselect (Salt `ComboBox` with checkboxes) that is both the text field and the
+  exact-value dropdown. On free-text columns, typing is the contains filter and also
+  narrows the options. On fixed-option enum columns whose displayed label differs from
+  the raw value, typing only narrows the options until a value is checked. An empty
+  selection means all values; selected values are OR within one column, columns compose
+  with AND, and the text plus the selected values in the same column also compose with
+  AND. Checked values appear as removable pills. Date and duration ranges use the shared
+  fused From/To range variant instead of a checkbox list. Future tables must reuse these
+  components rather than adding bespoke filter cells.
 - **FR-9.19** The Dev DB results table applies the standard filter to every column,
   using the distinct non-empty values in the current preview as checkbox options. This
   filtering remains client-side over the bounded preview; exports still run the full SQL.
-  Future tables must reuse the shared filter components rather than adding bespoke
-  filter cells.
 - **FR-9.20** Every real table (History, Jobs, Dev DB results) is paginated. History and
   Jobs page on the server with a filtered total; the Dev DB preview pages on the client
   over its capped result, because arbitrary read-only SQL has no stable cursor.
 - **FR-9.21** Every column of every real table is filterable using FR-9.18. Object-link
-  columns filter on the linked object's name with the same text + multiselect pair; the
-  server receives every selected value so totals and later pages stay correct.
+  columns filter on the linked object's name with the same combined control; the server
+  receives every selected value so totals and later pages stay correct.
 - **FR-9.22** Every column of every real table is resizable. Widths persist per table
   across reloads, a Reset action restores the defaults, and resizing is keyboard-operable
   from the header. Resizing is unavailable below 900 px, where columns are hidden by
@@ -512,8 +530,15 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   descriptions within the limit are always shown in full.
 - **FR-10.11** Decisions never gate sync or extraction. An accepted or rejected item is
   still reconciled with the list view like any other.
-
-### FR-11 Retention & maintenance
+- **FR-10.12** The deck has a search-and-pin picker above the active card. It is one
+  combined text field and multiselect dropdown: typing filters deviation keys, the
+  dropdown lists the deck's current cards with a checkbox per option, checked keys show
+  as removable pills, and **Clear** unpins everything. A checked deviation moves to the
+  front of the deck immediately, without a server round trip; multiple checked
+  deviations keep the order in which they were checked. Unchecking returns a card to its
+  natural newest-seen position. The picker only covers the current deck's decidable rows
+  (decided and absent items stay in History); pinning never filters the deck, changes the
+  tallies, or alters a decision. Pins are ephemeral frontend state and reset on reload.
 
 - **FR-11.1** **Purge current data** deletes work items whose latest activity
   (`closed_at`, `last_seen` or `first_seen`) is older than 24 hours. It deletes that
@@ -619,6 +644,23 @@ opens the Lightning ref URL directly, resolves that iframe, and uses Classic inl
 (double-click, clear the input, fill, verify, Save).
 
 ## Appendix C — Change log
+
+- **v5.29** — the LMS 2.0 CL contract is approved through its page's approval bar before
+  Contract Modification is attempted; an already-approved contract is left alone, and a
+  rejected or unreadable state sends the deviation to `needs_review` (FR-6.17).
+
+- **v5.28** — a row skipped only because its list-row record URL had not rendered yet is
+  revived on the next valid refresh that supplies the URL; ambiguity skips stay terminal
+  (FR-3.9).
+
+- **v5.27** — every table filter is one searchable multiselect instead of a text input
+  plus a separate dropdown; free-text columns keep the contains filter, enum columns
+  search their options until a value is checked, and range filters become one fused
+  From/To group (FR-9.18/9.19/9.21).
+
+- **v5.26** — the deck gains a search-and-pin ComboBox: typing filters deviation keys,
+  checked cards move to the front immediately in check order, and pins stay frontend-only
+  (FR-10.12).
 
 - **v5.25** — the watch cycle owns the list page lifecycle instead of assuming a
   process-start `open()`: a cycle opens the page when it is closed, an authentication

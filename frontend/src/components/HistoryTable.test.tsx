@@ -74,22 +74,40 @@ function props(overrides: Partial<Parameters<typeof HistoryTable>[0]> = {}) {
 describe('HistoryTable', () => {
   it('renders the standard filter row for every column', () => {
     render(<HistoryTable {...props()} />)
-    expect(screen.getByLabelText('Filter by deviation')).toBeInTheDocument()
+    expect(
+      screen.getByRole('combobox', { name: 'Filter by deviation' }),
+    ).toBeInTheDocument()
     expect(screen.getByLabelText('Decided from')).toBeInTheDocument()
-    expect(screen.getByLabelText('Filter by status')).toBeInTheDocument()
-    expect(screen.getByLabelText('Filter by SF approval')).toBeInTheDocument()
-    expect(screen.getByLabelText('Filter by Opportunity')).toBeInTheDocument()
-    expect(screen.getByLabelText('Filter by CL contract')).toBeInTheDocument()
-    expect(screen.getByLabelText('Filter by Collateral')).toBeInTheDocument()
-    expect(screen.getByLabelText('Filter by LMS2 CL contract')).toBeInTheDocument()
-    expect(screen.getByLabelText('Filter by LMS2 collateral')).toBeInTheDocument()
-    expect(screen.getByLabelText('Filter by Loan Amount')).toBeInTheDocument()
+    expect(
+      screen.getByRole('combobox', { name: 'Filter by status' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('combobox', { name: 'Filter by SF approval' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('combobox', { name: 'Filter by Opportunity' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('combobox', { name: 'Filter by CL contract' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('combobox', { name: 'Filter by Collateral' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('combobox', { name: 'Filter by LMS2 CL contract' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('combobox', { name: 'Filter by LMS2 collateral' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('combobox', { name: 'Filter by Loan Amount' }),
+    ).toBeInTheDocument()
   })
 
   it('labels status options with the workflow terminal wording', async () => {
     const user = userEvent.setup()
     render(<HistoryTable {...props()} />)
-    await user.click(screen.getByLabelText('Filter by status values'))
+    await user.click(screen.getByRole('combobox', { name: 'Filter by status' }))
     expect(screen.getByRole('option', { name: 'Implemented' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Ready' })).toBeInTheDocument()
   })
@@ -111,7 +129,7 @@ describe('HistoryTable', () => {
     const onFilters = vi.fn()
     render(<HistoryTable {...props({ onFilters })} />)
 
-    await user.type(screen.getByLabelText('Filter by Opportunity'), 'O')
+    await user.type(screen.getByRole('combobox', { name: 'Filter by Opportunity' }), 'O')
     expect(onFilters).toHaveBeenLastCalledWith({
       ...EMPTY_HISTORY_FILTERS,
       refText: { opportunity: 'O' },
@@ -123,13 +141,13 @@ describe('HistoryTable', () => {
     const onFilters = vi.fn()
     render(<HistoryTable {...props({ onFilters })} />)
 
-    await user.type(screen.getByLabelText('Filter by deviation'), 'A')
+    await user.type(screen.getByRole('combobox', { name: 'Filter by deviation' }), 'A')
     expect(onFilters).toHaveBeenLastCalledWith({
       ...EMPTY_HISTORY_FILTERS,
       key: 'A',
     })
 
-    await user.click(screen.getByLabelText('Filter by status values'))
+    await user.click(screen.getByRole('combobox', { name: 'Filter by status' }))
     await user.click(screen.getByRole('option', { name: 'Ready' }))
     expect(onFilters).toHaveBeenLastCalledWith({
       ...EMPTY_HISTORY_FILTERS,

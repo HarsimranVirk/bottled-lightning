@@ -222,6 +222,7 @@ export function HistoryTable({
             value,
             label: statusLabel(value, terminalLabels),
           }))}
+          textMode="search"
         />
       ),
       cell: (row) => <StatusChip status={row.status} labels={terminalLabels} />,

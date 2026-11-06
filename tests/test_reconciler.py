@@ -12,6 +12,7 @@ from app.core.models import WorkItem, utcnow
 from app.core.repo.jobs import JobQuery, JobRepository
 from app.core.repo.sync_runs import SyncRunRepository
 from app.core.status import (
+    MISSING_RECORD_URL_REASON,
     ClosureSource,
     ExtractOutcome,
     JobKind,
@@ -119,6 +120,63 @@ class ReconcilerTests(ReconcilerTestCase):
         self.assertEqual(item.approved_at, "4/11/2026 6:46 pm")
         jobs = self.job_repo()
         self.assertEqual(len([j for j in jobs.query(JobQuery(workflow=WORKFLOW)).jobs if j.kind is JobKind.EXTRACT]), 2)
+
+    def test_missing_url_skip_is_retried_when_the_link_arrives(self) -> None:
+        """A printable-first row gets a second extraction once its link renders (FR-3.9)."""
+        deps = self.deps()
+        deps.items.create_present(
+            WORKFLOW,
+            ListRow(key=KEY, href="", columns={}, approved_at=None),
+            utcnow(),
+        )
+        deps.items.transition(WORKFLOW, KEY, WorkItemStatus.EXTRACTING)
+        deps.items.transition(
+            WORKFLOW,
+            KEY,
+            WorkItemStatus.SKIPPED,
+            reason=MISSING_RECORD_URL_REASON,
+        )
+
+        reconciler, _closure, _workflow = self.build()
+        reconciler.apply(sample(row()))
+
+        item = deps.items.require(WORKFLOW, KEY)
+        self.assertIs(item.status, WorkItemStatus.PRESENT)
+        self.assertIsNone(item.reason)
+        self.assertEqual(item.record_url, f"/lightning/r/a2f/{KEY}/view")
+        jobs = self.job_repo()
+        queued = [
+            job
+            for job in jobs.query(JobQuery(workflow=WORKFLOW)).jobs
+            if job.kind is JobKind.EXTRACT
+        ]
+        self.assertEqual(len(queued), 1)
+
+    def test_other_skips_are_not_retried_when_a_link_arrives(self) -> None:
+        """Only the missing-URL skip self-heals; ambiguity stays terminal."""
+        deps = self.deps()
+        deps.items.create_present(WORKFLOW, row(), utcnow())
+        deps.items.transition(WORKFLOW, KEY, WorkItemStatus.EXTRACTING)
+        deps.items.transition(
+            WORKFLOW,
+            KEY,
+            WorkItemStatus.SKIPPED,
+            reason="multiple LMS2 CL contracts",
+        )
+
+        reconciler, _closure, _workflow = self.build()
+        reconciler.apply(sample(row()))
+
+        item = deps.items.require(WORKFLOW, KEY)
+        self.assertIs(item.status, WorkItemStatus.SKIPPED)
+        self.assertEqual(item.reason, "multiple LMS2 CL contracts")
+        jobs = self.job_repo()
+        queued = [
+            job
+            for job in jobs.query(JobQuery(workflow=WORKFLOW)).jobs
+            if job.kind is JobKind.EXTRACT
+        ]
+        self.assertEqual(queued, [])
 
     def test_known_row_is_touched_and_attributes_are_mapped(self) -> None:
         reconciler, _closure, _workflow = self.build({"product_type": "Home Loan"})

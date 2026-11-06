@@ -5,6 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from enum import StrEnum
 
+# A row can be seen in the Printable View before the live list has rendered its record
+# link. Extraction cannot open the record without the URL, so it skips with this exact
+# reason; the reconciler later revives the item when a valid refresh supplies the URL.
+MISSING_RECORD_URL_REASON = "no record URL on the list row"
+
 
 class WorkItemStatus(StrEnum):
     """

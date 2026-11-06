@@ -177,6 +177,22 @@
   contain: paint;
 }
 
+.range-filter {
+  border: var(--salt-size-border) solid var(--salt-container-primary-borderColor);
+  border-radius: var(--salt-palette-corner-weak);
+  padding: 0 var(--salt-spacing-100);
+  background: var(--salt-container-primary-background);
+}
+
+.range-filter:focus-within {
+  border-color: var(--salt-accent-borderColor);
+}
+
+.range-filter .saltInput {
+  border: none;
+  background: transparent;
+}
+
 .data-table {
   min-width: 100%;
 }

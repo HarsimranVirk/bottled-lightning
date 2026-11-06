@@ -3,11 +3,11 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.10 |
+| **Version** | v4.12 |
 | **Date** | 2026-11-06 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
-| **Implemented by** | refactor Phase 8 (`frontend/src`); Slice A and the review deck (D) are live |
+| **Implemented by** | refactor Phase 8 (`frontend/src`); Slice A, the review deck (D) and the deck picker (H) are live |
 
 The backend is a state machine; the frontend is a **view of that machine**. The goal of
 this document is that no screen can ever show a state the database cannot produce, and no
@@ -118,6 +118,7 @@ accepted/skipped/to-review tallies, then Skip and Accept & update. The header ke
 | leaving | card slides out right (accept) or left (skip) for 420 ms | — |
 | complete | `Deck complete 🎉`, accepted/skipped counts, **Replay skipped**, **Reload deck** | undo all skips |
 | paused session | Skip stays local; Accept & update is blocked by the auth banner and the card stays actionable | Skip |
+| pinned | checked deviations sit at the top in check order; the rest keep newest-seen order | uncheck, **Clear** |
 | absent from Salesforce | no card: the deck requires `present=true`, so a row that left the list disappears immediately while the backend closure retry finishes it | — |
 
 Below the description the card splits into **read-only data on the left** (Pages to
@@ -130,6 +131,31 @@ the card behind the top one. **Accept & update** PATCHes the card's cleaned valu
 `SUBMIT` job when at least one value is non-empty; a card with no values records the
 decision only. **Skip** records only the decision and never writes to Salesforce
 (FR-10.2/10.6).
+
+### 3.2a Deck picker — search and pin (FR-10.12)
+
+A `DeckPicker` sits above the active card, inside the deck's 960 px column. It is one
+Salt `ComboBox` with `multiselect`: the text field filters the options as the operator
+types, the overlay lists every deviation currently in the deck, and Salt's multiselect
+`Option` supplies the checkbox glyph. Checked keys render as removable pills; a
+**Clear** button unpins all of them. The control uses Salt only, so FR-9.14's
+"no bespoke control look" rule still holds.
+
+Ownership is deliberately split:
+
+| Piece | Responsibility |
+|---|---|
+| `DeviationsPage` | Owns the pin list (`useState`, ephemeral; each pin stores the row's presence epoch), derives the live keys so a departed row drops out, and fetches the top card's detail from the ordered rows. |
+| `deck.ts` (`orderDeckRows`) | Pure ordering: pinned rows first in check order, then the remaining rows in their existing server order; unknown/duplicate keys are ignored. |
+| `DecisionDeck` | Receives already-ordered `rows` for the card and the natural `pickerRows` for stable option order; renders `DeckPicker` above the card and keeps its existing decision/animation logic. |
+| `DeckPicker` | Presentational wrapper around the shared `SearchSelect` ComboBox: `rows` (options), `selected` keys, `onSelected`; no fetching, no decisions. |
+
+Pinning is immediate because it only re-renders the fetched page; it never calls the
+server, changes a decision, filters the deck, or alters the tallies. Checking several
+deviations keeps the order in which they were checked, so the operator can build a short
+review queue. Unchecking returns a card to its natural newest-seen position. Accepting or
+skipping a pinned card removes its pin; a row that disappears from Salesforce also drops
+its pin. The selection resets on reload by design.
 
 ### 3.2b Deviations Z02 — accepted history (toggle)
 
@@ -236,14 +262,21 @@ Sortable headers toggle asc/desc and expose `aria-sort`.
 
 ### 3.5b Standard table filter (every table)
 
-`TableFilter` is the default filter cell for every data table, including future ones:
+`TableFilter` is the default filter cell for every data table, including future ones. It
+is one `SearchSelect` — a Salt `ComboBox` with `multiselect` — not a text input stacked
+above a separate dropdown:
 
-- a text `Input` for a contains match;
-- a Salt `Dropdown` with `multiselect` for exact values, rendered as checkboxes;
+- typing filters the dropdown options by value and label;
+- on free-text columns (`textMode="filter"`, the default) the same text is the column's
+  contains filter, so typing narrows the rows and the options together;
+- on fixed-option enum columns whose label differs from the raw value
+  (`textMode="search"`) typing only narrows the options until a value is checked, so
+  typing `Implemented` never sends a raw `status_text=impl` that matches nothing;
+- checked values appear as removable pills and remain exact filters; a pill shows the same
+  human label as its option, never the raw value;
 - an empty selection means “all”; selected values are OR within the column, columns
   compose with AND, and the text plus the selected values in the same column also
   compose with AND;
-- the trigger shows “All” or “N selected”;
 - options are fixed enums where the column has them; otherwise they are the distinct
   non-empty values in the loaded page/preview, sorted and capped at 100;
 - an option's label is the same human wording the cell shows, not the raw value. The
@@ -251,10 +284,15 @@ Sortable headers toggle asc/desc and expose `aria-sort`.
   workflow's `terminalLabels`) and **Needs Review** for `needs_review`; the option's
   value stays the raw status so the server filter is unchanged.
 
-`TableRangeFilter` is the shared variant for continuous columns: two text/date/number
-inputs for the lower and upper bound, with no checkbox list. It is used for Jobs started
-and duration and the History decided date. Future tables must use these components
-rather than bespoke filter cells.
+`TableRangeFilter` is the shared variant for continuous columns: one bordered From/To
+group for the lower and upper bound, with no checkbox list. The two bounds keep their
+native text/date/number input types and their separate accessible labels. It is used for
+Jobs started and duration and the History decided date. Future tables must use these
+components rather than bespoke filter cells.
+
+The shared `SearchSelect` also powers the deck picker (`DeckPicker`). That keeps the
+query, option filtering, pill rendering and selection handling identical between the deck
+and the tables; the deck's pin state and Clear action still live in its own wrapper.
 
 ### 3.5c Shared DataTable (every table)
 
@@ -359,6 +397,7 @@ App
     ├── DeviationsPage          route "/deviations-z02" (the Z02 tab)
     │   ├── ViewToggle          Salt ToggleButtonGroup: Deck (default) / History
     │   ├── DecisionDeck         one card, tallies, replay, exit animation
+    │   │   ├── DeckPicker       Salt multiselect ComboBox: search + pin deviations
     │   │   └── DecisionCard     Salt card: refs, description, ROI grid, FormField values
     │   ├── HistoryTable         DataTable of accepted deviations + standard filters + pagination
     │   └── ItemDrawer           route "/deviations-z02/:key" (Salt Panel)
@@ -395,6 +434,9 @@ Server state is the only state that matters; everything else is UI.
 
 Rules:
 
+- **Deck pins are local UI state**, not server state: `pinnedKeys` lives in
+  `DeviationsPage`, has no query key, and is never persisted. `orderDeckRows` derives the
+  card order from it on render (FR-10.12).
 - **Polling stops** when `document.hidden` and resumes on visibility. A failed request
   does **not** stop polling: the next interval retries, so a restarted backend recovers
   within one tick instead of freezing the last snapshot on screen.
@@ -512,6 +554,7 @@ Rules:
 |---|---|---|
 | Pure helpers | Vitest | `StatusChip` mapping, `formatAmount` (identity), error unwrapping, dirty diff |
 | Components | RTL + MSW | disabled rules per status, field error rendering, accept-and-submit flow, job-enqueue rollback, paused banner |
+| Deck picker | Vitest + RTL | key filtering, checkbox selection, first-checked-first ordering, uncheck/clear, stale keys ignored |
 | Tables | RTL + MSW | header filters, sorting, pagination, empty/error states |
 | States | `/dev/states` route + Playwright screenshots | every row of the matrix, at 390/768/1280 |
 | Responsive | `tools/audit_layout.py` | fails when the **page** needs horizontal scrolling at 390/768/1280; a table container may scroll on its own |
@@ -561,6 +604,14 @@ explorer gains the two confirmed purge actions. Acceptance: an accepted item rem
 readable after its current work item is purged; the current purge skips active jobs and
 leaves jobs/sessions/history intact; the history purge removes only snapshots older than
 90 days.
+
+**Slice H — deck picker** (done). A Salt multiselect ComboBox above the card searches
+the deck's deviation keys and pins checked rows to the front immediately, first checked
+first; unchecking restores the natural order and **Clear** unpins all. Pins are ephemeral
+and never filter the deck or change a decision. Acceptance: typing narrows the options; a
+checked card becomes the active card without a server call; a second check queues behind
+it; unchecking and clearing restore the newest-seen order; accepting a pinned card drops
+its pin; the tallies and existing keyboard shortcuts are unchanged.
 
 **Slice D — review deck** (done). Default deck view in the legacy card shape, accept/reject
 decisions, editable prefilled values stored on accept and submitted when at least one is

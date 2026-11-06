@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { DecisionView, ItemRow } from './api'
-import { isDeckRow } from './deck'
+import { isDeckRow, orderDeckRows } from './deck'
 
 function row(overrides: Partial<ItemRow> = {}): ItemRow {
   return {
@@ -47,5 +47,50 @@ describe('isDeckRow', () => {
     for (const status of ['submitting', 'applying', 'completed', 'closed']) {
       expect(isDeckRow(row({ status }))).toBe(false)
     }
+  })
+})
+
+describe('orderDeckRows', () => {
+  const first = row({ key: 'Deviation-1-1' })
+  const second = row({ key: 'Deviation-2-2' })
+  const third = row({ key: 'Deviation-3-3' })
+
+  it('keeps the incoming order when nothing is pinned', () => {
+    expect(orderDeckRows([first, second, third], []).map((item) => item.key)).toEqual([
+      'Deviation-1-1',
+      'Deviation-2-2',
+      'Deviation-3-3',
+    ])
+  })
+
+  it('moves one pinned row to the front', () => {
+    expect(orderDeckRows([first, second, third], ['Deviation-2-2']).map((item) => item.key)).toEqual([
+      'Deviation-2-2',
+      'Deviation-1-1',
+      'Deviation-3-3',
+    ])
+  })
+
+  it('keeps several pins in check order', () => {
+    expect(
+      orderDeckRows([first, second, third], ['Deviation-3-3', 'Deviation-1-1']).map(
+        (item) => item.key,
+      ),
+    ).toEqual(['Deviation-3-3', 'Deviation-1-1', 'Deviation-2-2'])
+  })
+
+  it('ignores keys that are not in the current deck', () => {
+    expect(orderDeckRows([first, second], ['Deviation-9-9']).map((item) => item.key)).toEqual([
+      'Deviation-1-1',
+      'Deviation-2-2',
+    ])
+  })
+
+  it('ignores duplicate pins and never duplicates a card', () => {
+    expect(
+      orderDeckRows([first, second], ['Deviation-2-2', 'Deviation-2-2']).map(
+        (item) => item.key,
+      ),
+    ).toEqual(['Deviation-2-2', 'Deviation-1-1'])
   })
 })

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v2.10 |
+| **Version** | v2.13 |
 | **Date** | 2026-11-06 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/data-model-deviations.md` |
@@ -360,6 +360,12 @@ shape is unchanged. A rejected write, a read-back mismatch, or an unconfirmed cl
 the job and moves the item to `needs_review`; there is no automatic rollback, so the item
 reason and job logs identify which targets were already written (FR-6.15). The API never
 exposes the Salesforce page or the button; it only enqueues the job.
+
+The LMS 2.0 CL contract is approved inside the same job when its page reports **Pending
+Approval** (FR-6.17). That is internal browser work: no endpoint, payload, status code,
+error code or TypeScript type changes. A refusal or an unconfirmed approval is reported
+exactly like any other failed write — the item moves to `needs_review` and the existing
+job log/reason names the object and target.
 
 ## 6. Jobs
 
@@ -740,6 +746,22 @@ on the item collection and written as an item sub-resource. History is the excep
 is a separate read model served by `/api/deviations/history`, so a current-data purge
 cannot blank it.
 
+### Deck picker (client-only)
+
+The search-and-pin picker (FR-10.12) adds no endpoint and no query parameter. It filters
+and reorders the `ItemRowView` rows already returned by `GET /api/deviations`; the server
+keeps the `last_seen` order, and the selected keys are ephemeral frontend state. No
+request/response shape or generated TypeScript type changes.
+
+### Table filter control (client-only)
+
+The combined table filter (FR-9.18/9.19/9.21) also adds no endpoint and no query
+parameter. Jobs and History keep sending their existing text (`status_text`, `key`, …)
+and exact repeated (`status`, `id_in`, `key_in`, …) parameters; only the frontend control
+that edits them changes. The Dev DB preview still filters client-side over its bounded
+result. Range filters keep their existing `from`/`to` parameters. No request/response
+shape or generated TypeScript type changes.
+
 ## 11. Removed from v1
 
 Deleted rather than deprecated: `/api/views*`, `/api/views/{id}/run`,
@@ -757,3 +779,5 @@ Deleted rather than deprecated: `/api/views*`, `/api/views/{id}/run`,
   pass.
 - `POST …/jobs` cannot create a second active job (409 from the index, not a race).
 - The TypeScript in §9 compiles with `strict` and is the only copy of these payloads.
+- The deck picker adds no endpoint or query parameter; ordering is client-side over the
+  fetched page (FR-10.12).

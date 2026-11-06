@@ -67,8 +67,9 @@ No schema change, no environment variable, no API payload change.
    in `adapters/deviation_record.py`.
 
 3. **Job failed: “item has no deviation record URL”.**
-   The list row had no record link. Force a list refresh; the next extraction stores the
-   URL.
+   The list row had no record link when it was first sampled. It is skipped; if a later
+   valid refresh finds the link, the reconciler returns it to the queue and extracts it
+   automatically (FR-3.9). If the link never appears, the item stays skipped.
 
 4. **The card vanished but History still shows `Executing`.**
    Expected — the job cannot write the terminal status while it holds the lease. The
