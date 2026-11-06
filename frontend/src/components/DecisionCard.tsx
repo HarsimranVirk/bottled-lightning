@@ -1,6 +1,7 @@
 /**
  * One deviation card, matching the legacy deck: record link, approval date, the pages
- * that will be updated, the raw description, ROI details and the four editable values.
+ * that will be updated, the raw description, deviation type, ROI details and the five
+ * editable values.
  *
  * Presentational only: the deck owns the draft, decisions and the exit animation.
  */
@@ -45,6 +46,11 @@ const ROI_FIELDS: { key: string; label: string }[] = [
   { key: 'ideal_roi', label: 'Ideal ROI' },
   { key: 'updated_roi', label: 'Updated ROI (in LMS)' },
   { key: 'requested_variance', label: 'Requested Variance' },
+]
+
+const DEVIATION_TYPE_FIELDS: { key: string; label: string }[] = [
+  { key: 'loan_deviation_type', label: 'Loan Deviation Type' },
+  { key: 'loan_deviation_sub_type', label: 'Loan Deviation Sub Type' },
 ]
 
 function splitParameters(text: string): { old: string; new: string } | null {
@@ -203,6 +209,22 @@ export function DecisionCard({
 
               <StackLayout gap={1}>
                 <Text color="secondary" styleAs="label">
+                  Deviation Type
+                </Text>
+                <GridLayout columns={{ xs: 1, sm: 2 }} gap={1}>
+                  {DEVIATION_TYPE_FIELDS.map((field) => (
+                    <StackLayout gap={0} key={field.key}>
+                      <Text color="secondary" styleAs="label">
+                        {field.label}
+                      </Text>
+                      <Text>{detail?.attributes[field.key] ?? '—'}</Text>
+                    </StackLayout>
+                  ))}
+                </GridLayout>
+              </StackLayout>
+
+              <StackLayout gap={1}>
+                <Text color="secondary" styleAs="label">
                   Housing Loan Deviation Details
                 </Text>
                 <GridLayout columns={{ xs: 1, sm: 2 }} gap={1}>
@@ -230,14 +252,22 @@ export function DecisionCard({
                     <Input
                       value={draftDisplay(field, values[field.key] ?? '')}
                       inputProps={{
-                        inputMode: field.valueType === 'text' ? undefined : 'numeric',
+                        inputMode:
+                          field.valueType === 'text'
+                            ? undefined
+                            : field.valueType === 'number'
+                              ? 'decimal'
+                              : 'numeric',
                         'aria-label': field.label,
                         onChange: (event) => {
                           const raw = event.target.value
-                          onField(
-                            field.key,
-                            field.valueType === 'text' ? raw : raw.replace(/[^\d]/g, ''),
-                          )
+                          const cleaned =
+                            field.valueType === 'text'
+                              ? raw
+                              : field.valueType === 'number'
+                                ? raw.replace(/[^\d.]/g, '')
+                                : raw.replace(/[^\d]/g, '')
+                          onField(field.key, cleaned)
                         },
                       }}
                     />

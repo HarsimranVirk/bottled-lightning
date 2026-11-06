@@ -1,4 +1,4 @@
-"""Opportunity page: product type (extraction) and the four editable values.
+"""Opportunity page: product type (extraction) and the editable values.
 
 The editable values live in custom ``field-section2`` accordions. The sections load
 lazily, so every read/write scrolls the section into view and waits for the field to
@@ -41,9 +41,11 @@ _FIELD_IDS: Mapping[str, str] = {
     "EMIs & other fixed pmts inc HFFC Loan": (
         "RecordEMIs_and_other_fixed_payments_including_cField"
     ),
+    "ROI": "RecordROI_cField",
 }
 
 _TENURE_LABEL = "Tenure (Yrs)"
+_ROI_LABEL = "ROI"
 
 
 def product_type_from(body: str) -> str | None:
@@ -82,8 +84,12 @@ async def _has_count(locator: Locator, minimum: int) -> bool:
 
 
 def _value_type(target: FieldTarget) -> ValueType:
-    """The storage type of a target on this page (only tenure is not an amount)."""
-    return ValueType.TENURE_MONTHS if target.label == _TENURE_LABEL else ValueType.AMOUNT
+    """The storage type of a target on this page."""
+    if target.label == _TENURE_LABEL:
+        return ValueType.TENURE_MONTHS
+    if target.label == _ROI_LABEL:
+        return ValueType.NUMBER
+    return ValueType.AMOUNT
 
 
 def _same(target: FieldTarget, raw: str | None, intended: str) -> bool:
@@ -129,9 +135,9 @@ class OpportunityAdapter(AdapterBase):
     """
     Opportunity page: product type and the editable loan parameters.
 
-    Extraction reads the product type from the body. Submission edits the four
-    catalogue targets in their sections: property value, loan amount, tenure (shown in
-    years) and the HFFC-inclusive EMI.
+    Extraction reads the product type from the body. Submission edits the catalogue
+    targets in their sections: property value, loan amount, ROI, tenure (shown in years)
+    and the HFFC-inclusive EMI.
     """
 
     kind = DeviationObject.OPPORTUNITY.value

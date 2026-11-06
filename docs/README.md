@@ -32,7 +32,7 @@ been reviewed with the user (recorded as a date, not a file).
 
 | Feature | Status | Decision register | FR | Walkthrough (live) | Guide | Last updated |
 |---|---|---|---|---|---|---|
-| Loan deviations (`deviations_z02`) | `review` — change C-1 built, walkthrough pending | `decisions-deviations.md` (v2, LOCKED 2026-11-06) | `FR-deviations.md` (v5.29) | pending | `guide-sync-recovery.md` | 2026-11-06 |
+| Loan deviations (`deviations_z02`) | `review` — change C-1 built, walkthrough pending | `decisions-deviations.md` (v2, LOCKED 2026-11-06) | `FR-deviations.md` (v5.30) | pending | `guide-sync-recovery.md` | 2026-11-07 |
 | LMS 2.0 contract approval gate | `review` — built, live submit/walkthrough pending | `decisions-lms2-approval.md` (v2, LOCKED 2026-11-06) | `FR-deviations.md` FR-6.17 (v5.29) | pending | `guide-lms2-approval.md` | 2026-11-06 |
 | Deck search & pin picker | `review` — built, walkthrough pending | `decisions-deck-picker.md` (v1, LOCKED 2026-11-06) | `FR-deviations.md` FR-10.12 (v5.28) | pending | `guide-deck-picker.md` | 2026-11-06 |
 | Approved history | `building` | missing — gap | — | not reviewed — gap | missing — gap | 2026-11-06 |

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.12 |
+| **Version** | v4.13 |
 | **Date** | 2026-11-06 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
@@ -108,7 +108,7 @@ accepted/skipped/to-review tallies, then Skip and Accept & update. The header ke
 | State | Card content | Actions |
 |---|---|---|
 | loading | one card skeleton; tallies show the last snapshot | — |
-| ready | record link + status, approval date, *Pages to update* (Opportunity, CL, collateral, LMS2), raw description panel, ROI grid, four editable values; only values that changed between the description's Old and New blocks are prefilled | Skip, Accept & update |
+| ready | record link + status, approval date, *Pages to update* (Opportunity, CL, collateral, LMS2), raw description panel, deviation type/sub-type, ROI grid, five editable values; only values that changed between the description's Old and New blocks are prefilled | Skip, Accept & update |
 | needs_review | same card + the failure reason above the description; a failed accepted item returns here | Skip, Accept & update |
 | partial values | unchanged, missing or equal Old/New values start blank; the current SF value (`lastSynced`) is never shown as a prefill or hint; no warning | Accept & update records the decision; the job is queued only if a value is present (FR-10.10) |
 | description | bordered Salt card: full text in Old/New columns on desktop; compact preview + **Read full description** dialog on mobile or above 1200 chars / 40 lines | decide |
@@ -122,7 +122,7 @@ accepted/skipped/to-review tallies, then Skip and Accept & update. The header ke
 | absent from Salesforce | no card: the deck requires `present=true`, so a row that left the list disappears immediately while the backend closure retry finishes it | — |
 
 Below the description the card splits into **read-only data on the left** (Pages to
-update, ROI) and the **four editable values on the right**; Skip/Accept & update span the
+update, deviation type, ROI) and the **five editable values on the right**; Skip/Accept & update span the
 card. On narrow screens the card stacks in that order: description, read-only, editable.
 
 Card order: newest `last_seen` first, the same order as the list. "next up: <key>" names

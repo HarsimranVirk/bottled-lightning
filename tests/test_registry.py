@@ -130,7 +130,7 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(workflow.list_view.pattern, r"Deviation-\d+-\d+")
         self.assertEqual(
             [f.key for f in workflow.catalog],
-            ["loan_amount", "property_value", "tenure", "emi_incl_hffc"],
+            ["loan_amount", "property_value", "tenure", "roi", "emi_incl_hffc"],
         )
         self.assertEqual(
             workflow.terminal_labels[WorkItemStatus.COMPLETED], "Implemented"

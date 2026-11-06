@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.1 |
+| **Version** | v4.2 |
 | **Date** | 2026-11-06 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/api-deviations.md` |
@@ -154,7 +154,7 @@ Semantics:
 | Column | Type | Null | Meaning |
 |---|---|---|---|
 | `workflow`, `item_key`, `name` | TEXT | no | Composite key |
-| `value` | TEXT | yes | Description, `requested_roi`, `ideal_roi`, `updated_roi`, `requested_variance`, `product_type`, `record_id`, `record_url` |
+| `value` | TEXT | yes | Description, `requested_roi`, `ideal_roi`, `updated_roi`, `requested_variance`, `loan_deviation_type`, `loan_deviation_sub_type`, `product_type`, `record_id`, `record_url` |
 
 Generic by design: adding a read-only value needs no schema change and cannot
 accidentally become writable.

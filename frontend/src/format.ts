@@ -173,7 +173,7 @@ export function changesFor(
 
 /** The legacy card's field order; unknown catalogue fields come after it. */
 export function orderedFields(fields: WorkflowFieldView[]): WorkflowFieldView[] {
-  const order = ['property_value', 'loan_amount', 'tenure', 'emi_incl_hffc']
+  const order = ['property_value', 'loan_amount', 'roi', 'tenure', 'emi_incl_hffc']
   const rank = (key: string): number => {
     const index = order.indexOf(key)
     return index === -1 ? order.length : index

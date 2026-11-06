@@ -141,7 +141,10 @@ class ServiceTests(ApiTestCase):
         page = service.list_items(WORKFLOW)
         self.assertEqual(page.total, 1)
         row = page.rows[0]
-        self.assertEqual(set(row.fields), {"loan_amount", "property_value", "tenure", "emi_incl_hffc"})
+        self.assertEqual(
+            set(row.fields),
+            {"loan_amount", "property_value", "tenure", "roi", "emi_incl_hffc"},
+        )
         self.assertEqual(row.fields["loan_amount"].extracted, "1300000")
         self.assertIsNone(row.fields["property_value"].extracted)
 

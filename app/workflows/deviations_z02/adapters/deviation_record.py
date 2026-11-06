@@ -39,6 +39,12 @@ _HOUSING_ROI_SELECTORS: dict[str, str] = {
     "requested_variance": "sfdc:RecordField.Consumer_Loan_Deviation__c.Requested_Variance__c",
 }
 
+#: Record-header highlight labels → the read-only attribute keys they populate.
+_HIGHLIGHT_ATTRIBUTES: dict[str, str] = {
+    "Loan Deviation Type": "loan_deviation_type",
+    "Loan Deviation Sub Type": "loan_deviation_sub_type",
+}
+
 _DESCRIPTION_LABEL = "Loan Deviation Description"
 
 logger = logging.getLogger(__name__)
@@ -50,7 +56,8 @@ class DeviationRecordAdapter(AdapterBase):
 
     The description is read from the tightest ancestor of its label that still
     contains the whole body; the four ROI fields come from the Housing section,
-    which is expanded first. Only values that changed between the description's Old
+    which is expanded first. The loan-deviation type and sub-type come from the
+    record-header highlights. Only values that changed between the description's Old
     and New blocks are prefilled; unchanged values are stored as ``None`` so the
     operator sees an empty field. Missing values are normal — only a page that never
     renders the description is a skip.
@@ -79,12 +86,14 @@ class DeviationRecordAdapter(AdapterBase):
 
             description = await _description(page, label)
             values = await _housing_values(page)
+            highlights = await _highlight_values(page, self._timeout_ms)
             opportunity = await _opportunity_ref(page, self._org_base)
             attributes: dict[str, str | None] = {
                 "description": description,
                 "record_id": _record_id(url),
                 "record_url": url,
                 **values,
+                **highlights,
             }
             return Discovery(
                 refs=(opportunity,) if opportunity is not None else (),
@@ -243,6 +252,36 @@ async def _housing_values(page: Page) -> dict[str, str | None]:
         key: await _housing_value(page, selector)
         for key, selector in _HOUSING_ROI_SELECTORS.items()
     }
+
+
+async def _highlight_values(
+    page: Page, timeout_ms: int
+) -> dict[str, str | None]:
+    """
+    Read the loan-deviation type and sub-type from the record header highlights.
+
+    The header renders one ``records-highlights-details-item`` per field; each has a
+    ``p.slds-text-title`` label and a ``p.fieldComponent`` value. The values are
+    read-only attributes, not editable fields. A missing header yields ``None`` values
+    rather than failing the extraction.
+    """
+    values: dict[str, str | None] = {
+        key: None for key in _HIGHLIGHT_ATTRIBUTES.values()
+    }
+    items = page.locator("records-highlights-details-item")
+    if not await poll(lambda: _has(items, 1), min(timeout_ms, 5000)):
+        return values
+    count = await items.count()
+    for index in range(count):
+        item = items.nth(index)
+        title = await safe_inner_text(item.locator("p.slds-text-title").first, 1000)
+        key = _HIGHLIGHT_ATTRIBUTES.get(title or "")
+        if key is None:
+            continue
+        value = item.locator("p.fieldComponent").first
+        if await value.count() > 0:
+            values[key] = await safe_inner_text(value, 2000)
+    return values
 
 
 async def _housing_value(page: Page, selection_name: str) -> str | None:

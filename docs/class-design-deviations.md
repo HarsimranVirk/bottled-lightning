@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.12 |
+| **Version** | v4.13 |
 | **Date** | 2026-11-06 |
 | **Companions** | `docs/FR-deviations.md` (v3), `docs/data-model-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
 | **Change** | Introduced the workflow abstraction; earlier drafts were deviations-only |
@@ -1032,6 +1032,9 @@ FIELD_CATALOG: tuple[EditableField, ...] = (
         FieldTarget(DeviationObject.CL_CONTRACT, "Term", "Contract"),
         FieldTarget(DeviationObject.LMS2_CL_CONTRACT, "New value", "Tenure"),
     ), source="tenure"),
+    EditableField("roi", "ROI", ValueType.NUMBER, (
+        FieldTarget(DeviationObject.OPPORTUNITY, "ROI", "LOAN PARAMETERS"),
+    ), source="roi"),
     EditableField("emi_incl_hffc", "EMI & other fixed payments incl. HFFC Loan",
                   ValueType.AMOUNT, (
         FieldTarget(DeviationObject.OPPORTUNITY,
@@ -1059,8 +1062,8 @@ class DeviationsZ02Extraction:
 
 Order (dependencies only):
 
-1. `deviation_record` adapter → description, ROI fields, record id/url, opportunity ref.
-   A skip here ends the item immediately.
+1. `deviation_record` adapter → description, ROI fields, loan deviation type/sub-type,
+   record id/url, opportunity ref. A skip here ends the item immediately.
 2. `opportunity` adapter → product type (the CL-contract match needs it).
 3. In parallel on the same `TabGroup`: `cl_contract`, `collateral`, `lms2_cl_contract`,
    `lms2_collateral` related lists / panels.

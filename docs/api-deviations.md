@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v2.13 |
+| **Version** | v2.14 |
 | **Date** | 2026-11-06 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/data-model-deviations.md` |
@@ -279,6 +279,8 @@ Adds attributes and refs, grouped for the detail panel:
     "ideal_roi": "13.25%",
     "updated_roi": null,
     "requested_variance": null,
+    "loan_deviation_type": "Pricing Deviation",
+    "loan_deviation_sub_type": "Pricing Offered lower than eligibility",
     "product_type": "Home Loan (Resale)",
     "record_id": "a2fS2000000fR5tIAE"
   },

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.29 |
+| **Version** | v5.30 |
 | **Date** | 2026-11-06 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
@@ -198,11 +198,12 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   2.0 collateral, plus the deviation's status.
 - **FR-4.2** For each editable value the view distinguishes: extracted value,
   last-synced value, operator's proposed value, applied value, and per-field status.
-- **FR-4.3** The editable values in v1 are `loan_amount`, `property_value`, `tenure` and
-  `emi_incl_hffc`. The set must be extensible by adding catalogue entries, without
-  changes to adapters or the API shape.
-- **FR-4.4** All other extracted fields (the ROI family, requested variance, product
-  type, page refs) are read-only.
+- **FR-4.3** The editable values are `loan_amount`, `property_value`, `tenure`,
+  `emi_incl_hffc` and `roi` (the rate of interest, trimmed, optional `%` removed and
+  validated to 0–100, and written only on the Opportunity). The set must be extensible by adding catalogue
+  entries, without changes to adapters or the API shape.
+- **FR-4.4** All other extracted fields (the ROI family, requested variance, loan
+  deviation type and sub-type, product type, page refs) are read-only.
 - **FR-4.5** Rows carry a status that shows exactly where the deviation is in the
   pipeline. Failed rows state which step and which object failed, with the reason.
 - **FR-4.6** The view is filterable by status and searchable. Closed deviations leave
@@ -633,6 +634,7 @@ used to disambiguate repeated labels.
 | `loan_amount` | CL contract | `Contract` | `Loan Amount` |
 | `loan_amount` | CL contract | `Funding` | `Financed Amount` |
 | `loan_amount` | LMS 2.0 CL contract | `Loan amount` | `New value` |
+| `roi` | Opportunity | `LOAN PARAMETERS` | `ROI` |
 | `tenure` | Opportunity | `LOAN PARAMETERS` | `Tenure (Yrs)` (months → years) |
 | `tenure` | CL contract | `Contract` | `Term` (months) |
 | `tenure` | LMS 2.0 CL contract | `Tenure` | `New value` (months) |
@@ -644,6 +646,10 @@ opens the Lightning ref URL directly, resolves that iframe, and uses Classic inl
 (double-click, clear the input, fill, verify, Save).
 
 ## Appendix C — Change log
+
+- **v5.30** — ROI is an editable 0–100 rate written only on the Opportunity; the
+  deviation record header's loan deviation type and sub-type are read as attributes and
+  shown with the ROI values (FR-4.3, FR-4.4).
 
 - **v5.29** — the LMS 2.0 CL contract is approved through its page's approval bar before
   Contract Modification is attempted; an already-approved contract is left alone, and a
