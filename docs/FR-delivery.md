@@ -2,10 +2,10 @@
 
 | | |
 |---|---|
-| **Status** | Draft for review |
-| **Version** | v1.1 |
-| **Date** | 2026-11-05 |
-| **Scope** | Double-click launchers, self-update, the home-page LAN address, release artefacts |
+| **Status** | Implemented — amended 2026-11-07 (update-check resilience) |
+| **Version** | v1.2 |
+| **Date** | 2026-11-07 |
+| **Scope** | Double-click launchers, self-update, the home-page LAN address, release artefacts, failure recovery of the update check |
 
 ---
 
@@ -38,8 +38,15 @@ re-downloading it, and reach from another device on the same network.
 
 - **FR-2.1** The updater asks GitHub for the latest release and compares its tag with the
   running `app/__init__.py` version.
-- **FR-2.2** A result is cached in `update_state.json` with `checked_at`; it is reused for
-  **6 hours** (`SF_UPDATE_CHECK_HOURS`), or bypassed by a forced/manual check.
+- **FR-2.2** A **successful** result (`update-available`, `up-to-date`, `disabled`) is
+  cached in `update_state.json` with `checked_at`; it is reused for **6 hours**
+  (`SF_UPDATE_CHECK_HOURS`), or bypassed by a forced/manual check. A `failed` result is
+  never written to the cache: it is published for the UI only, so the next check really
+  hits the network.
+- **FR-2.5** A cached `failed` row written by an older version is ignored (treated as
+  "no cache") and is overwritten by the next successful check; it is never replayed.
+- **FR-2.6** A failed check carries an operator-readable sentence in `error` and the raw
+  exception text in `detail`; both stay within the existing payload shape.
 - **FR-2.3** A check never raises. Missing repo/release, offline and malformed payloads
   are reported as `up-to-date` (404) or `failed` with a message.
 - **FR-2.4** The release asset's `digest` (`sha256:…`) is carried into the result when
@@ -70,6 +77,10 @@ re-downloading it, and reach from another device on the same network.
 - **FR-4.3** `SF_UPDATE_POLICY=off`: no checks and no installs.
 - **FR-4.4** The home page shows the update status and an **Install update** action when a
   version is available. The action is disabled while a job runs or an install is running.
+- **FR-4.5** When the last check failed, the update card shows a **Check again** action
+  that forces a check (`POST /api/updates/checks`), reports it while it runs, and replaces
+  the displayed status with the response. The action is not shown in any other state and
+  does not depend on the job queue (a check never installs anything).
 
 ## 6. LAN access on the home page
 
@@ -97,3 +108,31 @@ re-downloading it, and reach from another device on the same network.
 - Code signing, notarisation and MSI installers.
 - Background updates while a job is running.
 - TLS or reverse-proxy configuration.
+
+## 9. Edge cases and acceptance criteria — update-check resilience
+
+**Edge cases**
+
+| Case | Expected behaviour |
+|---|---|
+| Boot check fails because Wi-Fi/VPN/captive portal is not ready | The card shows the failure immediately; the auto loop retries after 10 minutes and the operator can force a retry at once. Nothing is cached, so a recovered network is visible on the next attempt. |
+| The first check after upgrade runs against a `failed` row in `update_state.json` | The row is ignored (no cache hit); the check goes to GitHub. |
+| A failed check never reached GitHub | `error` says the network/certificate failed in plain language; `detail` keeps `URLError`/OpenSSL text for support. |
+| Certificate genuinely untrusted (stale root store, inspecting proxy) | Still `failed`; the message points at network/VPN/proxy and the operator can retry. Verification is **not** skipped. |
+| Check again pressed repeatedly | Each press forces one check; the button is disabled while the request is in flight. |
+| Check again pressed while jobs run | Allowed; a check performs no install. |
+| Check again pressed while an install runs | The card is in the `installing` state, so the button is not rendered. |
+| `POST /api/updates/checks` fails at the network level | `200` with `status: "failed"` (never a 5xx); the card renders the new `error`. |
+
+**Acceptance criteria**
+
+- **AC-1** A check failure leaves `update_state.json` unchanged (or absent); a following
+  non-forced check invokes `_fetch_json` again.
+- **AC-2** A `failed` row already in `update_state.json` does not short-circuit a check.
+- **AC-3** A certificate error yields an `error` string containing "certificate", while
+  `detail` contains the original OpenSSL/`URLError` text.
+- **AC-4** With `status: "failed"`, `UpdateCard` renders **Check again**; clicking it calls
+  the check mutation once and the button is disabled while pending.
+- **AC-5** No other card state renders **Check again**.
+- **AC-6** `GET /api/updates` still returns the same six fields; TypeScript types are
+  unchanged.

@@ -2,11 +2,13 @@
 
 import email.message
 import json
+import ssl
 import tempfile
 import unittest
 import urllib.error
 import zipfile
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest import mock
 
@@ -185,6 +187,70 @@ class CheckTests(unittest.TestCase):
             result = updater.check_for_update(force=True)
         self.assertEqual(result["status"], "disabled")
         fetch.assert_not_called()
+
+    def test_failure_is_not_cached(self) -> None:
+        """A failed check is published but never written to the cache.
+
+        Otherwise the auto loop (force=False) would replay the failure for the whole TTL
+        instead of retrying the network, which is how one bad boot handshake became a
+        six-hour error on screen.
+        """
+        fetch = mock.Mock(side_effect=OSError("offline"))
+        with mock.patch.object(updater, "_fetch_json", fetch):
+            first = updater.check_for_update(force=False)
+        self.assertEqual(first["status"], "failed")
+        self.assertFalse(self.state_file.exists())
+
+        with mock.patch.object(
+            updater, "_fetch_json", return_value=self._payload("v0.4.0", ["0.4.0"])
+        ) as retry:
+            second = updater.check_for_update(force=False)
+
+        self.assertEqual(second["status"], "update-available")
+        self.assertEqual(retry.call_count, 1)
+        self.assertTrue(self.state_file.exists())
+
+    def test_legacy_cached_failure_is_ignored(self) -> None:
+        """A failed row written by an older version does not short-circuit the check."""
+        now = datetime.now(UTC).isoformat()
+        self.state_file.write_text(
+            json.dumps({"status": "failed", "error": "old", "detail": "old", "checked_at": now})
+        )
+
+        fetch = mock.Mock(return_value=self._payload("v0.4.0", ["0.4.0"]))
+        with mock.patch.object(updater, "_fetch_json", fetch):
+            result = updater.check_for_update(force=False)
+
+        self.assertEqual(fetch.call_count, 1)
+        self.assertEqual(result["status"], "update-available")
+
+    def test_certificate_failure_is_readable(self) -> None:
+        """A certificate error becomes a sentence; the raw text stays in detail."""
+        cause = ssl.SSLCertVerificationError(
+            "certificate verify failed: unable to get local issuer certificate"
+        )
+        error = urllib.error.URLError(cause)
+        with mock.patch.object(updater, "_fetch_json", side_effect=error):
+            result = updater.check_for_update(force=True)
+
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("certificate", str(result["error"]))
+        self.assertIn("unable to get local issuer", str(result["detail"]))
+        self.assertIsNone(result["latest"])
+        self.assertIsNone(result["download_url"])
+
+    def test_http_failure_names_the_status(self) -> None:
+        """A non-404 HTTP error reports the status code, not a bare exception repr."""
+        error = urllib.error.HTTPError(
+            "https://api.github.com/x", 503, "Service Unavailable", email.message.Message(), None
+        )
+        self.addCleanup(error.close)
+        with mock.patch.object(updater, "_fetch_json", side_effect=error):
+            result = updater.check_for_update(force=True)
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["error"], "GitHub returned HTTP 503")
+        self.assertIn("503", str(result["detail"]))
 
 
 class WheelTests(unittest.TestCase):

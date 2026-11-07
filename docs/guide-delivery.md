@@ -86,6 +86,9 @@ planned for public distribution.
   installs and restarts; the open tab reconnects.
 - Manual: Home → **Install update**. The button is disabled while jobs are queued or
   running. While installing, the card shows “Installing … the app will restart”.
+- Retry: when a check fails, the card shows the reason and a **Check again** action. A
+  failed attempt is never cached, so the 10-minute auto loop also retries on its own; see
+  `docs/guide-updates.md`.
 - Check now: `POST /api/updates/checks`.
 - Current status: `GET /api/updates`.
 

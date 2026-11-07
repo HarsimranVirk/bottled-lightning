@@ -43,6 +43,7 @@ been reviewed with the user (recorded as a date, not a file).
 | Extraction recovery (late record URL) | `review` — built, walkthrough pending | `decisions-extraction-recovery.md` (v1, LOCKED 2026-11-06) | `FR-deviations.md` FR-3.9 (v5.28) | pending | `guide-final-action.md` | 2026-11-06 |
 | Shared table filters | `review` — built, walkthrough pending | `decisions-table-filter-picker.md` (v1, LOCKED 2026-11-06) | `FR-deviations.md` FR-9.18, FR-9.19, FR-9.21 (v5.28) | pending | `guide-table-filter-picker.md` | 2026-11-06 |
 | Workflow builders | `building` | missing — gap | — | not reviewed — gap | missing — gap | 2026-11-05 |
+| Update-check resilience — failed checks retry, Check again | `review` — built, walkthrough pending | `decisions-updates.md` (v1, LOCKED 2026-11-07) | `FR-delivery.md` FR-2.2, FR-2.5, FR-2.6, FR-4.5 (v1.2) | pending | `guide-updates.md` | 2026-11-07 |
 
 Supporting docs that are not per-feature: `dev-tools.md`.
 
