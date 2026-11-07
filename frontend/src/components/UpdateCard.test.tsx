@@ -1,4 +1,4 @@
-/** Home update card: availability, install action and restart states. */
+/** Home update card: availability, install action, restart and retry states. */
 
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -16,6 +16,15 @@ const AVAILABLE: UpdateStatus = {
   downloadUrl: 'https://github.com/o/r/x.whl',
 }
 
+const FAILED: UpdateStatus = {
+  status: 'failed',
+  updateAvailable: false,
+  detail: 'URLError: offline',
+  error: 'offline',
+  latest: null,
+  downloadUrl: null,
+}
+
 describe('UpdateCard', () => {
   it('installs when the app is idle', async () => {
     const user = userEvent.setup()
@@ -26,7 +35,9 @@ describe('UpdateCard', () => {
         update={AVAILABLE}
         installing={false}
         busy={false}
+        checking={false}
         onInstall={onInstall}
+        onCheck={vi.fn()}
       />,
     )
 
@@ -42,7 +53,9 @@ describe('UpdateCard', () => {
         update={AVAILABLE}
         installing={false}
         busy
+        checking={false}
         onInstall={vi.fn()}
+        onCheck={vi.fn()}
       />,
     )
     expect(screen.getByRole('button', { name: 'Install update' })).toBeDisabled()
@@ -56,7 +69,9 @@ describe('UpdateCard', () => {
         update={{ ...AVAILABLE, status: 'installing' }}
         installing
         busy={false}
+        checking={false}
         onInstall={vi.fn()}
+        onCheck={vi.fn()}
       />,
     )
     expect(screen.getByText(/the app will restart/i)).toBeInTheDocument()
@@ -67,19 +82,64 @@ describe('UpdateCard', () => {
     render(
       <UpdateCard
         version="0.3.0"
-        update={{
-          status: 'failed',
-          updateAvailable: false,
-          detail: 'offline',
-          error: 'offline',
-          latest: null,
-          downloadUrl: null,
-        }}
+        update={FAILED}
         installing={false}
         busy={false}
+        checking={false}
         onInstall={vi.fn()}
+        onCheck={vi.fn()}
       />,
     )
     expect(screen.getByText(/Update check failed: offline/)).toBeInTheDocument()
+  })
+
+  it('forces a retry after a failed check', async () => {
+    const user = userEvent.setup()
+    const onCheck = vi.fn()
+    render(
+      <UpdateCard
+        version="0.3.0"
+        update={FAILED}
+        installing={false}
+        busy={false}
+        checking={false}
+        onInstall={vi.fn()}
+        onCheck={onCheck}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Check again' }))
+    expect(onCheck).toHaveBeenCalledTimes(1)
+  })
+
+  it('disables the retry while the check runs', () => {
+    render(
+      <UpdateCard
+        version="0.3.0"
+        update={FAILED}
+        installing={false}
+        busy={false}
+        checking
+        onInstall={vi.fn()}
+        onCheck={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('button', { name: /checking/i })).toBeDisabled()
+  })
+
+  it('offers no retry when the check succeeded', () => {
+    render(
+      <UpdateCard
+        version="0.3.0"
+        update={{ ...AVAILABLE, status: 'up-to-date', updateAvailable: false }}
+        installing={false}
+        busy={false}
+        checking={false}
+        onInstall={vi.fn()}
+        onCheck={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Up to date.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Check again' })).toBeNull()
   })
 })

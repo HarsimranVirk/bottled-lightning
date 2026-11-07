@@ -9,6 +9,7 @@ import { NetworkCard } from '../components/NetworkCard'
 import { UpdateCard } from '../components/UpdateCard'
 import { relativeTime } from '../format'
 import {
+  useCheckUpdate,
   useInstallUpdate,
   useLogin,
   useNetwork,
@@ -31,6 +32,7 @@ export function HomePage(): JSX.Element {
   const network = useNetwork()
   const updates = useUpdates()
   const install = useInstallUpdate()
+  const check = useCheckUpdate()
 
   if (session.isLoading || workflows.isLoading) return <Spinner />
   if (!session.data) return <Text>Session unavailable.</Text>
@@ -66,8 +68,10 @@ export function HomePage(): JSX.Element {
         update={updates.data}
         installing={install.isPending}
         busy={busy}
+        checking={check.isPending}
         error={install.error instanceof Error ? install.error.message : null}
         onInstall={() => install.mutate()}
+        onCheck={() => check.mutate()}
       />
     </FlexLayout>
   )

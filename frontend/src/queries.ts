@@ -322,6 +322,20 @@ export function useInstallUpdate(): ReturnType<typeof useMutation<UpdateStatus>>
   })
 }
 
+/**
+ * Force an update check after a failure.
+ *
+ * A failed check is never cached server-side, but the card has no other way to retry
+ * before the 10-minute auto loop tick; the response replaces the shown status.
+ */
+export function useCheckUpdate(): ReturnType<typeof useMutation<UpdateStatus>> {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.checkUpdate(),
+    onSuccess: (status) => client.setQueryData(['updates'], status),
+  })
+}
+
 export function useLogin(): ReturnType<typeof useMutation<SessionView>> {
   const client = useQueryClient()
   return useMutation({

@@ -10,8 +10,10 @@ interface Props {
   update: UpdateStatus | undefined
   installing: boolean
   busy: boolean
+  checking: boolean
   error?: string | null
   onInstall: () => void
+  onCheck: () => void
 }
 
 export function UpdateCard({
@@ -19,8 +21,10 @@ export function UpdateCard({
   update,
   installing,
   busy,
+  checking,
   error = null,
   onInstall,
+  onCheck,
 }: Props): JSX.Element {
   const installingNow = installing || update?.status === 'installing'
   const available = update?.updateAvailable === true
@@ -47,12 +51,17 @@ export function UpdateCard({
               <Text color="secondary">Wait for the running jobs to finish.</Text>
             ) : null}
           </FlexLayout>
+        ) : failed ? (
+          <FlexLayout gap={1} align="center" wrap>
+            <Text color="secondary">
+              Update check failed: {update?.error ?? 'unknown error'}
+            </Text>
+            <Button appearance="bordered" onClick={onCheck} disabled={checking}>
+              {checking ? 'Checking…' : 'Check again'}
+            </Button>
+          </FlexLayout>
         ) : (
-          <Text color="secondary">
-            {failed
-              ? `Update check failed: ${update?.error ?? 'unknown error'}`
-              : 'Up to date.'}
-          </Text>
+          <Text color="secondary">Up to date.</Text>
         )}
         {error ? <Text color="secondary">{error}</Text> : null}
       </FlexLayout>

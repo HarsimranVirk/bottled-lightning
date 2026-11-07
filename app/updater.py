@@ -7,6 +7,8 @@ import json
 import logging
 import os
 import re
+import socket
+import ssl
 import subprocess
 import sys
 import threading
@@ -202,18 +204,51 @@ def _set_status(status: str, detail: str = "", **fields: JsonValue) -> None:
                 _state[k] = v
 
 
-def _finish(result: dict[str, JsonValue]) -> dict[str, JsonValue]:
-    """Stamp, persist and publish a check result, then return it."""
+def _publish(result: dict[str, JsonValue]) -> None:
+    """Copy the operator-visible fields of a result into the in-memory status.
+
+    Runs under ``_state_lock`` on the calling thread (FastAPI threadpool for a manual
+    check, the ``sf-auto-update`` thread for the loop). Only scalars move, so a loose
+    payload can never smuggle a container into ``_state``.
+    """
+    with _state_lock:
+        for k, v in result.items():
+            if isinstance(v, (str, bool)) or v is None:
+                _state[k] = v
+
+
+def _finish(
+    result: dict[str, JsonValue], *, persist: bool = True
+) -> dict[str, JsonValue]:
+    """Stamp, optionally persist, publish a check result, then return it.
+
+    ``persist=False`` is the failure path: the result is visible to ``GET /api/updates``
+    immediately but never becomes a cache entry, so the next non-forced check really goes
+    to the network instead of replaying the failure for the whole TTL.
+    """
     stamped: dict[str, JsonValue] = {
         **result,
         "checked_at": datetime.now(UTC).isoformat(),
     }
-    _save_cache(stamped)
-    with _state_lock:
-        for k, v in stamped.items():
-            if isinstance(v, (str, bool)) or v is None:
-                _state[k] = v
+    if persist:
+        _save_cache(stamped)
+    _publish(stamped)
     return stamped
+
+
+def _cached_check() -> dict[str, JsonValue] | None:
+    """A fresh cached *successful* check, or ``None``.
+
+    A ``failed`` row written by an older version is treated as a cache miss rather than
+    migrated: the file is presentation state, and ignoring the row is enough to stop the
+    six-hour replay. Successful rows keep their normal TTL behaviour.
+    """
+    cached = _load_cache()
+    if cached is None or cached.get("status") == "failed":
+        return None
+    if not _fresh(cached):
+        return None
+    return cached
 
 
 def _github_repo() -> str:
@@ -241,13 +276,50 @@ def _asset_records(value: JsonValue) -> list[dict[str, str]]:
     return records
 
 
-def _failed(error: str) -> dict[str, JsonValue]:
-    """Build the canonical failed-check payload."""
+def _reason(error: BaseException) -> str:
+    """One operator-readable line for a failed check or download.
+
+    ``urlopen`` wraps the real cause in ``urllib.error.URLError.reason``, so a certificate
+    failure arrives as ``URLError(SSLCertVerificationError(…))``. The three cases that
+    actually happen at boot (untrusted chain, timeout, name resolution) become a sentence
+    the card can print; anything else falls back to ``str(error)`` so nothing is lost.
+    """
+    if isinstance(error, urllib.error.URLError):
+        cause = error.reason
+        if isinstance(cause, BaseException):
+            return _reason(cause)
+    if isinstance(error, ssl.SSLCertVerificationError):
+        return (
+            "couldn't verify GitHub's certificate — check the network, VPN or proxy, "
+            "then try again"
+        )
+    if isinstance(error, ssl.SSLError):
+        return (
+            "the TLS connection to GitHub failed — check the network, VPN or proxy, "
+            "then try again"
+        )
+    if isinstance(error, TimeoutError):
+        return "timed out contacting GitHub — check the network and try again"
+    if isinstance(error, socket.gaierror):
+        return "couldn't reach api.github.com — check the network and try again"
+    return str(error) or type(error).__name__
+
+
+def _failed(reason: str, detail: str | None = None) -> dict[str, JsonValue]:
+    """Build the canonical failed-check payload.
+
+    ``reason`` is the operator-facing sentence, ``detail`` the raw cause for support. The
+    release fields are explicitly ``None`` so a failure never renders a stale tag or URL
+    next to the error.
+    """
     return {
         "status": "failed",
         "update_available": False,
-        "error": error,
-        "detail": error,
+        "latest": None,
+        "download_url": None,
+        "sha256": None,
+        "error": reason,
+        "detail": detail if detail is not None else reason,
     }
 
 
@@ -268,8 +340,8 @@ def check_for_update(force: bool = False) -> dict[str, JsonValue]:
         _finish(result)
         return result
     if not force:
-        cached = _load_cache()
-        if cached is not None and _fresh(cached):
+        cached = _cached_check()
+        if cached is not None:
             return cached
     try:
         url = f"https://api.github.com/repos/{_github_repo()}/releases/latest"
@@ -284,12 +356,12 @@ def check_for_update(force: bool = False) -> dict[str, JsonValue]:
             }
             _finish(result)
             return result
-        result = _failed(str(e))
-        _finish(result)
+        result = _failed(f"GitHub returned HTTP {e.code}", str(e))
+        _finish(result, persist=False)
         return result
     except (OSError, ValueError) as e:
-        result = _failed(str(e))
-        _finish(result)
+        result = _failed(_reason(e), str(e))
+        _finish(result, persist=False)
         return result
 
     tag = str(payload.get("tag_name", ""))
@@ -415,8 +487,8 @@ def apply_pending(
         verify_wheel(path, expected_version=latest)
         _install(path)
     except Exception as exc:  # noqa: BLE001 - an update must never crash the app
-        message = f"{type(exc).__name__}: {exc}"
-        _set_status("failed", message, error=message)
+        raw = f"{type(exc).__name__}: {exc}"
+        _set_status("failed", raw, error=_reason(exc))
         return status()
     finally:
         path.unlink(missing_ok=True)
