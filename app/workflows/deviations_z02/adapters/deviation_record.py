@@ -6,11 +6,13 @@ import logging
 
 from playwright.async_api import Locator, Page
 
+from app.core.job_logger import JobLogger
 from app.salesforce.adapters import (
     AdapterBase,
     DiscoveredRef,
     Discovery,
     DiscoveryContext,
+    unresolved,
 )
 from app.salesforce.tabs import TabProvider
 from app.utils.dom import (
@@ -70,9 +72,12 @@ class DeviationRecordAdapter(AdapterBase):
         self._org_base = org_base
         self._timeout_ms = timeout_ms
 
-    async def discover(self, tabs: TabProvider, context: DiscoveryContext) -> Discovery:
+    async def discover(
+        self, tabs: TabProvider, context: DiscoveryContext, log: JobLogger
+    ) -> Discovery:
         """Read the record page and everything only it can provide."""
         url = absolute_url(context.record_url, self._org_base)
+        log(f"discover: deviation: opening {url}")
         page = await tabs.new_page(url)
         try:
             await dismiss_banner(page)
@@ -80,14 +85,28 @@ class DeviationRecordAdapter(AdapterBase):
             try:
                 await label.wait_for(timeout=self._timeout_ms)
             except Exception:  # noqa: BLE001 - record page did not render
+                log("discover: deviation: record page did not render")
                 return Discovery(
-                    skip_reason=f"no detail page for {context.item_key}"
+                    refs=(
+                        unresolved(
+                            DeviationObject.OPPORTUNITY.value,
+                            "Couldn't open the deviation page",
+                        ),
+                    )
                 )
 
+            log("discover: deviation: reading description")
             description = await _description(page, label)
+            log(f"discover: deviation: description {len(description)} char(s)")
             values = await _housing_values(page)
+            log(f"discover: deviation: housing values {values}")
             highlights = await _highlight_values(page, self._timeout_ms)
+            log(f"discover: deviation: highlights {highlights}")
             opportunity = await _opportunity_ref(page, self._org_base)
+            log(
+                "discover: deviation: opportunity link "
+                f"{opportunity.name if opportunity is not None else 'not found'}"
+            )
             attributes: dict[str, str | None] = {
                 "description": description,
                 "record_id": _record_id(url),
@@ -96,7 +115,14 @@ class DeviationRecordAdapter(AdapterBase):
                 **highlights,
             }
             return Discovery(
-                refs=(opportunity,) if opportunity is not None else (),
+                refs=(
+                    opportunity
+                    if opportunity is not None
+                    else unresolved(
+                        DeviationObject.OPPORTUNITY.value,
+                        "Couldn't find the opportunity link on the deviation page",
+                    ),
+                ),
                 attributes=attributes,
                 fields=parse_description_changes(description, FIELD_CATALOG),
             )
@@ -113,7 +139,7 @@ class DeviationRecordAdapter(AdapterBase):
         """
         return await tabs.new_page(absolute_url(record_url, self._org_base))
 
-    async def is_implemented(self, page: Page) -> bool | None:
+    async def is_implemented(self, page: Page, log: JobLogger) -> bool | None:
         """
         Whether the deviation already shows the Implemented tick.
 
@@ -122,12 +148,16 @@ class DeviationRecordAdapter(AdapterBase):
         idempotency check after a crash. The record page renders the field twice
         (highlights and detail); any ticked copy means implemented.
         """
+        log("execute: deviation: looking for the Implemented checkbox")
         fields = await self._implemented_fields(page)
         if fields is None:
+            log("execute: deviation: Implemented checkbox did not render")
             return None
-        return await _any_checked(fields)
+        implemented = await _any_checked(fields)
+        log(f"execute: deviation: Implemented tick {'present' if implemented else 'absent'}")
+        return implemented
 
-    async def implement(self, page: Page) -> bool:
+    async def implement(self, page: Page, log: JobLogger) -> bool:
         """
         Click **Implemented** and confirm the checkbox turns ticked.
 
@@ -138,15 +168,25 @@ class DeviationRecordAdapter(AdapterBase):
         """
         fields = await self._implemented_fields(page)
         if fields is None:
+            log("execute: deviation: Implemented checkbox did not render")
             return False
         if await _any_checked(fields):
+            log("execute: deviation: already ticked; no click needed")
             return True
         button = page.locator(_IMPLEMENTED_BUTTON)
         if await button.count() == 0:
             button = page.get_by_role("button", name="Implemented", exact=True)
+        log("execute: deviation: clicking Implemented")
         if not await click_first_visible(button, self._timeout_ms):
+            log("execute: deviation: Implemented button did not become clickable")
             return False
-        return await poll(lambda: _any_checked(fields), self._timeout_ms)
+        confirmed = await poll(lambda: _any_checked(fields), self._timeout_ms)
+        log(
+            "execute: deviation: tick confirmed"
+            if confirmed
+            else "execute: deviation: tick did not appear after the click"
+        )
+        return confirmed
 
     async def _implemented_fields(self, page: Page) -> Locator | None:
         """Every rendered copy of the Implemented checkbox, once it appears."""

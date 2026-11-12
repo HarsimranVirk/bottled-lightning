@@ -6,7 +6,7 @@ import type { JSX } from 'react'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { ItemRow, WorkflowFieldView } from '../api'
+import type { ItemDetail, ItemRow, JobView, WorkflowFieldView } from '../api'
 import { orderDeckRows } from '../deck'
 import { DecisionDeck } from './DecisionDeck'
 
@@ -65,9 +65,34 @@ function deckProps(overrides: Partial<Parameters<typeof DecisionDeck>[0]> = {}) 
     onDecide: vi.fn(async () => true),
     onReplay: vi.fn(),
     replaying: false,
+    onRetryExtraction: vi.fn(),
+    retrying: false,
     onHistory: vi.fn(),
     onRefresh: vi.fn(),
     refreshing: false,
+    ...overrides,
+  }
+}
+
+const EXTRACTION_JOB: JobView = {
+  id: 7,
+  workflow: 'deviations_z02',
+  item: 'Deviation-1-1',
+  kind: 'extract',
+  status: 'queued',
+  attempts: 0,
+  createdAt: '2026-11-04T18:00:00Z',
+}
+
+function detail(overrides: Partial<ItemDetail> = {}): ItemDetail {
+  return {
+    ...row('Deviation-1-1'),
+    attributes: {},
+    refs: [],
+    edits: [],
+    decisions: [],
+    extractionRetryable: false,
+    extractionJob: null,
     ...overrides,
   }
 }
@@ -119,6 +144,81 @@ describe('DecisionDeck', () => {
     expect(screen.getByText('Deviation-1-1')).toBeInTheDocument()
     expect(screen.getAllByDisplayValue('13,00,000').length).toBeGreaterThan(0)
     expect(screen.getByText('next up: Deviation-2-2')).toBeInTheDocument()
+  })
+
+  it('offers a retry only when allowed and disables it while one runs', async () => {
+    const user = userEvent.setup()
+    const onRetryExtraction = vi.fn()
+    const { rerender } = render(
+      <DecisionDeck {...deckProps({ detail: detail(), onRetryExtraction })} />,
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Retry extraction' }),
+    ).not.toBeInTheDocument()
+
+    rerender(
+      <DecisionDeck
+        {...deckProps({
+          detail: detail({ extractionRetryable: true }),
+          onRetryExtraction,
+        })}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Retry extraction' }))
+    expect(onRetryExtraction).toHaveBeenCalledWith('Deviation-1-1')
+
+    rerender(
+      <DecisionDeck
+        {...deckProps({
+          detail: detail({ extractionRetryable: true, extractionJob: EXTRACTION_JOB }),
+          onRetryExtraction,
+        })}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Retry extraction' })).toBeDisabled()
+    expect(
+      screen.getByText('Retrying extraction — this can take a minute.'),
+    ).toBeInTheDocument()
+  })
+
+  it('explains a missing page instead of rendering an empty link', () => {
+    render(
+      <DecisionDeck
+        {...deckProps({
+          detail: detail({
+            refs: [
+              { kind: 'opportunity', name: 'Opp 1', url: 'https://e/opp', state: 'found' },
+              {
+                kind: 'collateral',
+                name: '',
+                url: '',
+                state: 'unresolved',
+                reason: "Couldn't open the collateral list",
+              },
+            ],
+          }),
+        })}
+      />,
+    )
+    expect(screen.getByRole('link', { name: /Opp 1/ })).toBeInTheDocument()
+    expect(screen.getByText("Couldn't open the collateral list")).toBeInTheDocument()
+  })
+
+  it('keeps the current card when another arrives at the front', () => {
+    const { rerender } = render(<DecisionDeck {...deckProps()} />)
+    expect(screen.getByText('Deviation-1-1')).toBeInTheDocument()
+
+    rerender(
+      <DecisionDeck
+        {...deckProps({
+          rows: [row('Deviation-0-0'), row('Deviation-1-1'), row('Deviation-2-2')],
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Deviation-1-1')).toBeInTheDocument()
+    expect(screen.queryByText('Deviation-0-0')).not.toBeInTheDocument()
+    expect(screen.getByText('next up: Deviation-0-0')).toBeInTheDocument()
   })
 
   it('labels the deck refresh by context', () => {

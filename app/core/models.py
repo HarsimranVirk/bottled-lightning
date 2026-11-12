@@ -12,6 +12,7 @@ from .status import (
     JobKind,
     JobStatus,
     Phase,
+    RefState,
     WorkItemStatus,
 )
 
@@ -168,13 +169,22 @@ class Attribute:
 
 @dataclass(frozen=True, slots=True)
 class PageRef:
-    """Link to one SF object involved in an item."""
+    """
+    Link to one SF object involved in an item, plus how sure extraction is of it.
+
+    ``state`` is ``FOUND`` for a usable link; ``ABSENT``/``UNRESOLVED`` rows carry an
+    empty ``name``/``url`` because there is nothing to open, and a user-facing
+    ``reason``. Extraction persists one row per expected object kind so a retry never
+    has to guess whether a kind was fetched, found empty, or never resolved.
+    """
 
     workflow: str
     item: str
     kind: str
     name: str
     url: str
+    state: RefState = RefState.FOUND
+    reason: str | None = None
 
 
 def job_duration_ms(job: Job, at: datetime) -> int | None:

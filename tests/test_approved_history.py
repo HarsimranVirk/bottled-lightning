@@ -14,7 +14,7 @@ from app.core.repo.edits import EditRepository
 from app.core.repo.fields import FieldValueRepository
 from app.core.repo.refs import PageRefRepository
 from app.core.repo.work_items import WorkItemRepository
-from app.core.status import DecisionKind, WorkItemStatus
+from app.core.status import DecisionKind, RefState, WorkItemStatus
 from app.db.schema import SCHEMA_VERSION
 from tests.support import DbTestCase
 
@@ -262,6 +262,43 @@ class ApprovedHistoryTests(DbTestCase):
         self.assertEqual(grouped[KEY]["opportunity"].name, "Opportunity 1")
         self.assertEqual(grouped["Deviation-1-2"]["opportunity"].name, "Opportunity 2")
         self.assertEqual(history.refs_for(WORKFLOW, []), {})
+
+    def test_snapshot_keeps_ref_states_and_reasons(self) -> None:
+        """A snapshot stores the missing-link state, not just the found links."""
+        self.make_item()
+        PageRefRepository(self.db).replace(
+            WORKFLOW,
+            KEY,
+            [
+                PageRef(
+                    WORKFLOW,
+                    KEY,
+                    "opportunity",
+                    "Opp",
+                    "https://example/o",
+                ),
+                PageRef(
+                    WORKFLOW,
+                    KEY,
+                    "collateral",
+                    "",
+                    "",
+                    state=RefState.ABSENT,
+                    reason="No collateral attached in Salesforce",
+                ),
+            ],
+        )
+        history = ApprovedHistoryRepository(self.db)
+        history.record_accept(WORKFLOW, KEY, None, utcnow())
+
+        snapshots = history.refs(WORKFLOW, KEY)
+        self.assertIs(snapshots["opportunity"].state, RefState.FOUND)
+        self.assertIs(snapshots["collateral"].state, RefState.ABSENT)
+        self.assertEqual(
+            snapshots["collateral"].reason, "No collateral attached in Salesforce"
+        )
+        grouped = history.refs_for(WORKFLOW, [KEY])
+        self.assertIs(grouped[KEY]["collateral"].state, RefState.ABSENT)
 
     def test_ref_filters_match_kind_and_name(self) -> None:
         """Exact and contains ref filters are scoped to their object kind."""

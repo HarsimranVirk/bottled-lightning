@@ -125,6 +125,7 @@ class Stack:
                 self.items,
                 self.jobs,
                 self.attributes,
+                self.refs,
                 self.sync_runs,
                 self.closure,
             )

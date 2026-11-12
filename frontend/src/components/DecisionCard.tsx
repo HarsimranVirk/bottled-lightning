@@ -70,6 +70,10 @@ interface Props {
   /** Used to turn a legacy relative record href into an absolute Salesforce URL. */
   listUrl: string
   onField: (key: string, value: string) => void
+  /** Ask the backend for one more extraction of this deviation. */
+  onRetryExtraction: () => void
+  /** A retry request is in flight (the job may not be visible yet). */
+  retrying: boolean
 }
 
 export function DecisionCard({
@@ -80,6 +84,8 @@ export function DecisionCard({
   values,
   listUrl,
   onField,
+  onRetryExtraction,
+  retrying,
 }: Props): JSX.Element {
   const ordered = orderedFields(fields)
   const description = detail?.attributes.description ?? null
@@ -113,6 +119,9 @@ export function DecisionCard({
   const refs = [...(detail?.refs ?? [])].sort(
     (left, right) => refRank(left.kind) - refRank(right.kind),
   )
+  // The server keeps the retry rule (state, links, marker); the card only asks.
+  const retryRunning = retrying || (detail?.extractionJob ?? null) !== null
+  const canRetry = (detail?.extractionRetryable ?? false) || retryRunning
 
   return (
     <>
@@ -138,6 +147,23 @@ export function DecisionCard({
             <Text color="error" styleAs="label">
               {row.reason}
             </Text>
+          ) : null}
+
+          {retryRunning ? (
+            <Text color="secondary" styleAs="label">
+              Retrying extraction — this can take a minute.
+            </Text>
+          ) : null}
+          {canRetry ? (
+            <FlexLayout gap={2} align="center">
+              <Button
+                appearance="bordered"
+                disabled={retryRunning}
+                onClick={onRetryExtraction}
+              >
+                Retry extraction
+              </Button>
+            </FlexLayout>
           ) : null}
 
           <Text color="secondary" styleAs="label">
@@ -198,9 +224,15 @@ export function DecisionCard({
                         <Text styleAs="label" color="secondary">
                           {REF_LABELS[ref.kind] ?? ref.kind}
                         </Text>
-                        <Link href={ref.url} target="_blank">
-                          {ref.name}
-                        </Link>
+                        {ref.state === 'found' ? (
+                          <Link href={ref.url} target="_blank">
+                            {ref.name}
+                          </Link>
+                        ) : (
+                          <Text styleAs="label" color="error">
+                            {ref.reason ?? 'not found'}
+                          </Text>
+                        )}
                       </FlexLayout>
                     ))}
                   </GridLayout>

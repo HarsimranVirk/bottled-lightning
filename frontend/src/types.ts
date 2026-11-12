@@ -194,6 +194,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/deviations/{key}/extractions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Extraction
+         * @description Queue one more extraction for an item that needs review.
+         */
+        post: operations["retry_extraction_api_deviations__key__extractions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/deviations/{key}/field-values": {
         parameters: {
             query?: never;
@@ -365,7 +385,7 @@ export interface paths {
         put?: never;
         /**
          * Request Sync
-         * @description Ask the watcher to refresh immediately instead of waiting for the cycle.
+         * @description Refresh now instead of waiting for the cycle; ``409`` when login is required.
          */
         post: operations["request_sync_api_syncs_post"];
         delete?: never;
@@ -708,6 +728,12 @@ export interface components {
             edits: components["schemas"]["EditView"][];
             /** Epoch */
             epoch: number;
+            extractionJob?: components["schemas"]["JobView"] | null;
+            /**
+             * Extractionretryable
+             * @default false
+             */
+            extractionRetryable: boolean;
             /** Fields */
             fields: {
                 [key: string]: components["schemas"]["FieldView"];
@@ -827,12 +853,22 @@ export interface components {
             /** Port */
             port: number;
         };
-        /** PageRefView */
+        /**
+         * PageRefView
+         * @description One link to an SF object, with how sure extraction is of it.
+         */
         PageRefView: {
             /** Kind */
             kind: string;
             /** Name */
             name: string;
+            /** Reason */
+            reason?: string | null;
+            /**
+             * State
+             * @default found
+             */
+            state: string;
             /** Url */
             url: string;
         };
@@ -1333,6 +1369,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ItemDetailView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_extraction_api_deviations__key__extractions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobView"];
                 };
             };
             /** @description Validation Error */

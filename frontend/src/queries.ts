@@ -384,6 +384,22 @@ export function usePatchFields(
   })
 }
 
+/** Ask for one more extraction of a needs_review item; refresh deck, detail and jobs. */
+export function useRetryExtraction(
+  route: string | null,
+): ReturnType<typeof useMutation<JobView, Error, { key: string }>> {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ key }) => api.retryExtraction(route ?? '', key),
+    onSuccess: (_job, { key }) => {
+      if (route === null) return
+      void client.invalidateQueries({ queryKey: ['items', route] })
+      void client.invalidateQueries({ queryKey: keys.item(route, key) })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
+    },
+  })
+}
+
 /** Enqueue the single SUBMIT job after an accept; refresh deck, detail and jobs. */
 export function useSubmitJob(
   route: string | null,

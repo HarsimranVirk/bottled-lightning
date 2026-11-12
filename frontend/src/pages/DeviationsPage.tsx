@@ -35,6 +35,7 @@ import {
   useItem,
   useItems,
   usePatchFields,
+  useRetryExtraction,
   useSubmitJob,
   useSync,
   useUndoDecision,
@@ -128,6 +129,7 @@ export function DeviationsPage(): JSX.Element {
   const patch = usePatchFields(route)
   const undo = useUndoDecision(route)
   const submit = useSubmitJob(route)
+  const retryExtraction = useRetryExtraction(route)
 
   /**
    * Replace the pin list with the picker's checked keys, in check order. Each pin stores
@@ -181,6 +183,18 @@ export function DeviationsPage(): JSX.Element {
       setActionError(error instanceof Error ? error.message : 'decision failed')
       return false
     }
+  }
+
+  /** The card asks for another extraction; the backend owns whether it is allowed. */
+  function handleRetryExtraction(itemKey: string): void {
+    setActionError(null)
+    retryExtraction.mutate(
+      { key: itemKey },
+      {
+        onSuccess: () => setAnnouncement(`Retrying extraction for ${itemKey}`),
+        onError: (error) => setActionError(error.message),
+      },
+    )
   }
 
   function handleUndo(itemKey: string): void {
@@ -257,6 +271,8 @@ export function DeviationsPage(): JSX.Element {
           onDecide={handleDecide}
           onReplay={() => void replaySkipped()}
           replaying={replaying}
+          onRetryExtraction={handleRetryExtraction}
+          retrying={retryExtraction.isPending}
           onHistory={() => showView('history')}
           onRefresh={() => void deck.refetch()}
           refreshing={deck.isFetching}

@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 
 from app.config import Settings
@@ -19,11 +20,13 @@ from app.core.repo.fields import FieldValueRepository
 from app.core.repo.refs import PageRefRepository
 from app.core.repo.work_items import WorkItemRepository
 from app.core.status import ExtractOutcome, SubmitOutcome, WorkItemStatus
-from app.core.workflow import JobLogger, Workflow, WorkflowDeps
+from app.core.workflow import JobLogger, RefKind, Workflow, WorkflowDeps
 from app.db.connection import Database
 from app.salesforce.adapters import AdapterRegistry
 from app.salesforce.tabs import TabProvider
-from app.workflows.deviations_z02 import WORKFLOW_NAME, build_workflow
+from app.workflows.deviations_z02 import REF_KINDS, WORKFLOW_NAME, build_workflow
+from app.workflows.deviations_z02.adapters import build_adapters
+from app.workflows.deviations_z02.catalog import DeviationObject
 
 
 class FakeExtraction:
@@ -139,6 +142,53 @@ class RegistryTests(unittest.TestCase):
         registry = WorkflowRegistry()
         registry.register(workflow)
         self.assertEqual(registry.names(), (WORKFLOW_NAME,))
+
+
+class Z02ContractTests(unittest.TestCase):
+    """The declared link kinds, the adapters and the kind vocabulary must agree.
+
+    This is the guard for a class of silent bug: an adapter that names a kind the
+    workflow never declared stores a link nobody reads, and an extraction that expects a
+    kind with no adapter fails only when a real item is processed.
+    """
+
+    def setUp(self) -> None:
+        """Build the Z02 adapter registry (no browser, no database)."""
+        settings = settings_for(Path("unused"))
+        self.adapters = build_adapters(settings.org_base, settings.request_timeout_ms)
+        self.declared = tuple(ref.kind for ref in REF_KINDS)
+
+    def test_every_declared_kind_has_an_adapter(self) -> None:
+        """Extraction must be able to resolve each kind it stores."""
+        self.assertLessEqual(set(self.declared), set(self.adapters.kinds))
+
+    def test_declared_kinds_belong_to_the_z02_vocabulary(self) -> None:
+        """A kind is one of the typed ``DeviationObject`` members, not a loose string."""
+        vocabulary = {obj.value for obj in DeviationObject}
+        self.assertLessEqual(set(self.declared), vocabulary)
+
+    def test_adapter_kinds_belong_to_the_z02_vocabulary(self) -> None:
+        """Every adapter declares a vocabulary member, so a typo is caught here."""
+        vocabulary = {obj.value for obj in DeviationObject}
+        self.assertLessEqual(set(self.adapters.kinds), vocabulary)
+
+    def test_declared_kinds_are_unique(self) -> None:
+        """Duplicate kinds would collide on the refs primary key."""
+        self.assertEqual(len(self.declared), len(set(self.declared)))
+
+    def test_every_z02_kind_is_required(self) -> None:
+        """A deviation is incomplete without any of its five objects."""
+        self.assertEqual(
+            tuple(ref.kind for ref in REF_KINDS if ref.required), self.declared
+        )
+
+    def test_optional_kinds_are_excluded_from_required_ref_kinds(self) -> None:
+        """``Workflow.required_ref_kinds`` honours the per-kind flag."""
+        workflow = replace(
+            fake_workflow(),
+            ref_kinds=(RefKind("a"), RefKind("b", required=False)),
+        )
+        self.assertEqual(workflow.required_ref_kinds(), ("a",))
 
 
 if __name__ == "__main__":

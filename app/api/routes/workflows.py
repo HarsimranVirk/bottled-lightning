@@ -139,4 +139,9 @@ def make_router(workflow: Workflow, service: WorkItemService) -> APIRouter:
         """Enqueue the single ``SUBMIT`` job for this item."""
         return service.submit(workflow.name, key)
 
+    @router.post("/{key}/extractions", status_code=202, response_model=JobView)
+    def retry_extraction(key: str) -> JobView:
+        """Queue one more extraction for an item that needs review."""
+        return service.retry_extraction(workflow.name, key)
+
     return router

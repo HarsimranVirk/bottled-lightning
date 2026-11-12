@@ -121,6 +121,25 @@ describe('JobsPanel', () => {
     expect(screen.getByText(/failed: LeaseHeld/)).toBeInTheDocument()
   })
 
+  it('copies the selected job logs, then reverts the tick icon', async () => {
+    const user = userEvent.setup()
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText')
+    render(
+      <JobsPanel
+        {...props({ selected: 11 })}
+        logs={{ job: job(11), logs: ['extract start: …', 'failed: LeaseHeld'] }}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Copy logs' }))
+    expect(writeText).toHaveBeenCalledWith('extract start: …\nfailed: LeaseHeld')
+    expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument()
+
+    expect(
+      await screen.findByRole('button', { name: 'Copy logs' }, { timeout: 3000 }),
+    ).toBeInTheDocument()
+  })
+
   it('explains a filtered-empty table and clears the filters', async () => {
     const user = userEvent.setup()
     const onFilters = vi.fn()

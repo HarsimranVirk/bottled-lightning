@@ -534,6 +534,21 @@
             "title": "Epoch",
             "type": "integer"
           },
+          "extractionJob": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "extractionRetryable": {
+            "default": false,
+            "title": "Extractionretryable",
+            "type": "boolean"
+          },
           "fields": {
             "additionalProperties": {
               "$ref": "#/components/schemas/FieldView"
@@ -928,6 +943,7 @@
         "type": "object"
       },
       "PageRefView": {
+        "description": "One link to an SF object, with how sure extraction is of it.",
         "properties": {
           "kind": {
             "title": "Kind",
@@ -935,6 +951,22 @@
           },
           "name": {
             "title": "Name",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "state": {
+            "default": "found",
+            "title": "State",
             "type": "string"
           },
           "url": {
@@ -1402,7 +1434,7 @@
   },
   "info": {
     "title": "bottled-lightning",
-    "version": "0.3.0"
+    "version": "0.5.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -2150,6 +2182,50 @@
           }
         },
         "summary": "Decide",
+        "tags": [
+          "admin",
+          "deviations"
+        ]
+      }
+    },
+    "/api/deviations/{key}/extractions": {
+      "post": {
+        "description": "Queue one more extraction for an item that needs review.",
+        "operationId": "retry_extraction_api_deviations__key__extractions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retry Extraction",
         "tags": [
           "admin",
           "deviations"
@@ -2913,7 +2989,7 @@
         ]
       },
       "post": {
-        "description": "Ask the watcher to refresh immediately instead of waiting for the cycle.",
+        "description": "Refresh now instead of waiting for the cycle; ``409`` when login is required.",
         "operationId": "request_sync_api_syncs_post",
         "parameters": [
           {

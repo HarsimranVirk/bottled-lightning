@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.2 |
-| **Date** | 2026-11-06 |
+| **Version** | v4.3 |
+| **Date** | 2026-11-12 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/api-deviations.md` |
 | **Implemented by** | `app/db/schema.py`, `app/core/repo/*` |
@@ -80,7 +80,7 @@ in SF; that external state is not rolled back or recorded as a separate row.
 
 ## 3. Schema version and migration
 
-- `PRAGMA user_version = 5` after `Database.migrate()`.
+- `PRAGMA user_version = 6` after `Database.migrate()`.
 - v3 is additive: `item_decisions` (4.12) is created with `CREATE TABLE IF NOT EXISTS`
   on the next boot. No backfill — every existing item is simply undecided.
 - v4 is additive: indexes for the jobs table (`item_key`, `started_at`) support the
@@ -89,6 +89,12 @@ in SF; that external state is not rolled back or recorded as a separate row.
   boot from an older schema, `Database.migrate()` backfills a snapshot for every current
   item whose latest `item_decisions` row is `accept`. The backfill is one transaction and
   is skipped once `user_version` is 5.
+- v6 adds link state: `state` and `reason` on `work_item_refs` (4.4) and
+  `approved_deviation_refs` (4.16). An existing table gains them through a guarded
+  `ALTER TABLE` (checked against `PRAGMA table_info`, so a crash-retry is harmless), and
+  every existing ref defaults to `state = 'found'`. The same boot migrates the legacy
+  `skipped` status once: the missing-record-URL skip becomes `present` with no reason,
+  every other `skipped` row becomes `needs_review` so it turns into a retryable card.
 - **Fresh database only.** `migrate()` detects a legacy database (its `jobs` table has
   no `kind` column) and raises instead of half-applying the schema.
 - Cutover has happened: `data/app.db` now holds the workflow schema. The legacy
@@ -165,10 +171,17 @@ accidentally become writable.
 |---|---|---|---|
 | `workflow`, `item_key`, `kind` | TEXT | no | Composite key; `kind` is a workflow-defined object kind |
 | `name` | TEXT | no | Display id (`LAI-00533155`, `CJID-0000280688`) |
-| `url` | TEXT | no | Absolute Lightning URL |
+| `url` | TEXT | no | Absolute Lightning URL (empty when `state` is not `found`) |
+| `state` | TEXT | no | `found`, `absent` or `unresolved`; default `found` |
+| `reason` | TEXT | yes | Plain-language reason for the operator when not `found` |
 
-`PageRefRepository.replace` writes the whole set in one transaction, so an item never
-holds a half-discovered set of links.
+Extraction writes exactly one row per declared object kind, so an item always explains
+every link: `found` carries a usable URL, `absent` means the related list rendered and
+Salesforce says the object does not exist, and `unresolved` means the lookup did not
+finish (page never opened, list never rendered, ambiguous match). `PageRefRepository.replace`
+writes the whole set in one transaction, so an item never holds a half-discovered set of
+links. `for_items_in_status` reads the refs of every item in one status with a single
+`LEFT JOIN` (used by the reconciler audit), including items that have no ref rows at all.
 
 ### 4.5 `work_item_edits` — audit (append-only)
 
@@ -345,8 +358,9 @@ key to the parent.
 
 ### 4.16 `approved_deviation_refs` — object links (snapshot)
 
-Same shape as 4.4 (`workflow`, `item_key`, `kind`, `name`, `url`), with a cascading
-foreign key to the parent.
+Same shape as 4.4 (`workflow`, `item_key`, `kind`, `name`, `url`, `state`, `reason`), with
+a cascading foreign key to the parent. The snapshot copies the link state, so the History
+detail reports the same `found`/`absent`/`unresolved` verdict the item had when accepted.
 
 **History list reads** use one batch query per page —
 `WHERE workflow = ? AND item_key IN (…)` — served by the `(workflow, item_key, kind)`

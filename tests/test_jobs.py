@@ -26,6 +26,7 @@ from app.core.workflow import (
     JobLogger,
     Workflow,
 )
+from app.db.connection import Database
 from app.jobs.auth import AuthGate
 from app.jobs.dispatcher import Dispatcher
 from app.jobs.worker import Worker
@@ -73,11 +74,15 @@ class FakeTabFactory:
 class FakeExtraction:
     """Extraction pipeline returning a fixed outcome or raising."""
     def __init__(
-        self, outcome: ExtractOutcome, error: Exception | None = None
+        self,
+        outcome: ExtractOutcome,
+        error: Exception | None = None,
+        delay_s: float = 0,
     ) -> None:
-        """Store the outcome and optional error."""
+        """Store the outcome, optional error and optional run delay."""
         self.outcome = outcome
         self.error = error
+        self.delay_s = delay_s
         self.calls = 0
 
     async def run(
@@ -86,6 +91,8 @@ class FakeExtraction:
         """Log, optionally raise, and return the configured outcome."""
         self.calls += 1
         log("fake extraction")
+        if self.delay_s:
+            await asyncio.sleep(self.delay_s)
         if self.error is not None:
             raise self.error
         return self.outcome
@@ -127,6 +134,22 @@ def make_workflow(
     )
 
 
+class FlakyHeartbeatRepository(JobRepository):
+    """Job repository whose first heartbeat fails, to prove the task survives."""
+
+    def __init__(self, db: Database) -> None:
+        """Bind the database and start with no injected failures."""
+        super().__init__(db)
+        self.failures = 0
+
+    def heartbeat(self, job_id: int, ttl_s: float) -> None:
+        """Fail the first heartbeat, then behave normally."""
+        if self.failures == 0:
+            self.failures += 1
+            raise RuntimeError("database is locked")
+        super().heartbeat(job_id, ttl_s)
+
+
 class JobTestCase(DbTestCase):
     """Shared fixtures for worker and dispatcher tests."""
     def settings(self) -> Settings:
@@ -162,6 +185,7 @@ class JobTestCase(DbTestCase):
         submission: FakeSubmission,
         *,
         name: str = "w0",
+        lease_ttl_s: float = 60,
     ) -> tuple[Worker, JobRepository, AuthGate, FakeTabFactory]:
         """Wire a worker with fake pipelines and tab groups."""
         deps = self.deps()
@@ -181,7 +205,7 @@ class JobTestCase(DbTestCase):
             auth,
             tabs,
             closure,
-            lease_ttl_s=60,
+            lease_ttl_s=lease_ttl_s,
         )
         return worker, jobs, auth, tabs
 
@@ -213,17 +237,22 @@ class WorkerTests(JobTestCase):
         self.assertEqual(logs[-1], "done: extracted")
         self.assertEqual(tabs.groups[0].closed, 1)
 
-    def test_skipped_job_succeeds(self) -> None:
-        """A skip is a clean terminal outcome, not a failure."""
+    def test_incomplete_extraction_fails_and_does_not_retry(self) -> None:
+        """An incomplete extraction is a failed job, never an automatic retry."""
         self.create_item()
         worker, jobs, _auth, _tabs = self.build(
-            FakeExtraction(ExtractOutcome.SKIPPED), FakeSubmission(SubmitOutcome.COMPLETED)
+            FakeExtraction(ExtractOutcome.INCOMPLETE), FakeSubmission(SubmitOutcome.COMPLETED)
         )
-        jobs.enqueue(WORKFLOW, JobKind.EXTRACT, "Deviation-1-1")
+        job = jobs.enqueue(WORKFLOW, JobKind.EXTRACT, "Deviation-1-1")
         claimed = jobs.claim("w0", ttl_s=60)
         assert claimed is not None
         self.run_job(claimed, worker, jobs)
-        self.assertIs(jobs.require(claimed.id).status, JobStatus.SUCCEEDED)
+
+        done = jobs.require(job.id)
+        self.assertIs(done.status, JobStatus.FAILED)
+        self.assertIn("extraction incomplete", done.error or "")
+        self.assertIsNone(jobs.claim("w0", ttl_s=60))
+        self.assertEqual(jobs.logs(job.id)[-1], "extraction incomplete — needs review")
 
     def test_failed_extraction_retries_once(self) -> None:
         """A failed extraction is requeued once, then marked failed."""
@@ -290,6 +319,43 @@ class WorkerTests(JobTestCase):
         failed = jobs.require(claimed.id)
         self.assertIs(failed.status, JobStatus.FAILED)
         self.assertIn("RuntimeError", failed.error or "")
+
+    def test_heartbeat_failure_is_logged_and_does_not_kill_the_job(self) -> None:
+        """One failed lease write is logged; the job still completes normally."""
+        self.create_item()
+        deps = self.deps()
+        jobs = FlakyHeartbeatRepository(self.db)
+        events = EventRepository(self.db)
+        auth = AuthGate(jobs, events)
+        registry = WorkflowRegistry()
+        registry.register(
+            make_workflow(
+                FakeExtraction(ExtractOutcome.EXTRACTED, delay_s=1.2),
+                FakeSubmission(SubmitOutcome.COMPLETED),
+            )
+        )
+        worker = Worker(
+            "w0",
+            registry,
+            deps.items,
+            jobs,
+            events,
+            auth,
+            FakeTabFactory(),
+            ClosureResolver(deps.items, jobs, events),
+            lease_ttl_s=3,
+        )
+        job = jobs.enqueue(WORKFLOW, JobKind.EXTRACT, "Deviation-1-1")
+        claimed = jobs.claim("w0", ttl_s=3)
+        assert claimed is not None
+
+        with self.assertLogs("app.jobs.worker", "ERROR"):
+            asyncio.run(worker.execute(claimed))
+
+        self.assertIs(jobs.require(job.id).status, JobStatus.SUCCEEDED)
+        self.assertTrue(
+            any("lease heartbeat failed" in line for line in jobs.logs(job.id))
+        )
 
     def test_submit_completed_and_already_closed_succeed(self) -> None:
         """Both successful submission endings complete the job."""

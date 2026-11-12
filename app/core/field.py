@@ -23,7 +23,8 @@ class ValueType(StrEnum):
 
     * ``AMOUNT`` — money with Indian digit grouping and an optional currency symbol
     * ``TENURE_MONTHS`` — whole months; stored in months (project convention)
-    * ``NUMBER`` — a 0–100 rate; trimmed, optional trailing ``%`` removed, range-checked
+    * ``NUMBER`` — a 0–100 rate; reduced to a canonical decimal, optional trailing ``%``
+      removed, range-checked
     * ``TEXT`` — free text, whitespace collapsed
     """
 
@@ -152,17 +153,23 @@ def _normalise_text(value: str) -> str:
 
 def _normalize_number(value: str) -> str:
     """
-    Trim an operator-entered rate and verify its numeric value is 0–100.
+    Trim an operator-entered rate, reduce it to a canonical decimal and verify 0–100.
 
-    The numeric text is preserved apart from surrounding whitespace and an optional
-    trailing ``%`` unit, which is removed so ``11.95`` and ``11.95%`` canonicalise the
-    same way. The function does not round, rescale or reformat it, so ``0.1195`` stays
-    ``0.1195``. Raises ``ValueError`` for an empty or non-numeric value, a non-finite
-    number, or anything outside the inclusive 0–100 range.
+    The decimal text is canonicalised the same way amounts are, so the value Salesforce
+    renders and the value the operator typed compare equal: ``13``, ``13.0``,
+    ``13.00%`` and ``013.00`` all become ``13``. Without this, a percent field that
+    displays two decimals (``13.00%``) never matches a proposal of ``13`` and the
+    read-back gate rejects a write Salesforce already accepted. Surrounding whitespace
+    and an optional trailing ``%`` unit are dropped; a non-zero trailing fraction is
+    kept as written (``0.1195`` stays ``0.1195``). Raises ``ValueError`` for an empty or
+    non-numeric value, a non-finite number, or anything outside the inclusive 0–100
+    range.
 
     Example:
         >>> _normalize_number(" 11.95% ")
         '11.95'
+        >>> _normalize_number("13.00")
+        '13'
         >>> _normalize_number("100.01")
         Traceback (most recent call last):
         ValueError: rate outside 0–100: '100.01'
@@ -179,7 +186,8 @@ def _normalize_number(value: str) -> str:
         raise ValueError(f"not a rate: {value!r}")
     if number < 0 or number > 100:
         raise ValueError(f"rate outside 0–100: {value!r}")
-    return numeric
+    canonical = format(number.normalize(), "f")
+    return "0" if canonical in {"-0", ""} else canonical
 
 
 def fields_for(

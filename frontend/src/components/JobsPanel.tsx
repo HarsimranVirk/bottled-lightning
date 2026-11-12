@@ -3,6 +3,7 @@
  * panel for the selected job. Pure presentation — the page owns filter/page state.
  */
 
+import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import {
   Banner,
@@ -14,6 +15,7 @@ import {
   StackLayout,
   Text,
 } from '@salt-ds/core'
+import { CheckmarkIcon, CopyIcon } from '@salt-ds/icons'
 
 import type { JobLogs, JobView } from '../api'
 import type { JobFilters } from '../queries'
@@ -111,6 +113,15 @@ export function JobsPanel({
   onSelect,
   loading,
 }: Props): JSX.Element {
+  const [copiedId, setCopiedId] = useState<number | null>(null)
+
+  // Revert the tick back to the copy icon a couple of seconds after a copy.
+  useEffect(() => {
+    if (copiedId === null) return
+    const timer = setTimeout(() => setCopiedId(null), 2000)
+    return () => clearTimeout(timer)
+  }, [copiedId])
+
   const filtered = hasFilters(filters)
   const idOptions = uniqueOptions(jobs.map((job) => String(job.id)), '#')
   const itemOptions = uniqueOptions(jobs.map((job) => job.item))
@@ -120,6 +131,21 @@ export function JobsPanel({
 
   function update<K extends keyof JobFilters>(key: K, value: JobFilters[K]): void {
     onFilters({ ...filters, [key]: value })
+  }
+
+  /**
+   * Copies the selected job's log lines to the clipboard. Runs from the log panel's
+   * "Copy logs" button; failures (e.g. a non-secure LAN origin without clipboard
+   * access) are swallowed so the label simply stays "Copy logs".
+   */
+  async function copyLogs(): Promise<void> {
+    if (selected === null) return
+    try {
+      await navigator.clipboard.writeText(logs?.logs.join('\n') ?? '')
+      setCopiedId(selected)
+    } catch {
+      setCopiedId(null)
+    }
   }
 
   const columns: DataColumn<JobView>[] = [
@@ -370,9 +396,20 @@ export function JobsPanel({
         <StackLayout gap={1} className="job-logs">
           <H3>Job #{selected}</H3>
           {loadingLogs ? <Spinner size="small" /> : null}
-          <Panel>
-            <pre className="job-logs-pre">{logs?.logs.join('\n') ?? ''}</pre>
-          </Panel>
+          <div className="job-logs-output">
+            <Button
+              appearance="transparent"
+              aria-label={copiedId === selected ? 'Copied' : 'Copy logs'}
+              title={copiedId === selected ? 'Copied' : 'Copy logs'}
+              className="job-logs-copy"
+              onClick={() => void copyLogs()}
+            >
+              {copiedId === selected ? <CheckmarkIcon /> : <CopyIcon />}
+            </Button>
+            <Panel>
+              <pre className="job-logs-pre">{logs?.logs.join('\n') ?? ''}</pre>
+            </Panel>
+          </div>
           {logs?.job.error ? (
             <Banner status="error">
               <BannerContent>{logs.job.error}</BannerContent>

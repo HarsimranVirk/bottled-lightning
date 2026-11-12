@@ -56,13 +56,15 @@ class NormaliseTests(unittest.TestCase):
 
 
 class NormalizeNumberTests(unittest.TestCase):
-    """Operator-entered rate: trim, preserve the text, and enforce 0–100."""
+    """Operator-entered rate: trim, canonicalise the decimal, and enforce 0–100."""
 
-    def test_trims_surrounding_whitespace_and_preserves_operator_text(self) -> None:
-        """Whitespace is removed; the value itself is never reformatted."""
+    def test_trims_whitespace_and_canonicalises_the_decimal(self) -> None:
+        """Whitespace and trailing zeros are dropped; the rate itself never changes."""
         self.assertEqual(_normalize_number(" 11.95 "), "11.95")
         self.assertEqual(_normalize_number(" 11.95% "), "11.95")
         self.assertEqual(_normalize_number(" 0.1195 "), "0.1195")
+        self.assertEqual(_normalize_number("13.00"), "13")
+        self.assertEqual(_normalize_number("013.0%"), "13")
 
     def test_percent_unit_is_ignored_for_comparison(self) -> None:
         """The Opportunity displays 11.95%; the canonical value is 11.95."""
@@ -70,11 +72,16 @@ class NormalizeNumberTests(unittest.TestCase):
             _normalize_number("11.95%"), _normalize_number("11.95")
         )
 
+    def test_salesforce_two_decimal_display_matches_the_proposal(self) -> None:
+        """A 13% proposal and the page's 13.00% read-back are the same rate."""
+        self.assertEqual(_normalize_number("13.00%"), _normalize_number("13"))
+
     def test_accepts_inclusive_bounds(self) -> None:
-        """Both 0 and 100 are valid rates."""
-        for raw in ("0", "0.00", "100", "100.00"):
+        """Both 0 and 100 are valid rates, however they are written."""
+        expected = {"0": "0", "0.00": "0", "100": "100", "100.00": "100"}
+        for raw, canonical in expected.items():
             with self.subTest(raw=raw):
-                self.assertEqual(_normalize_number(raw), raw)
+                self.assertEqual(_normalize_number(raw), canonical)
 
     def test_rejects_out_of_range(self) -> None:
         """A rate below 0 or above 100 is a validation error, not a clamp."""

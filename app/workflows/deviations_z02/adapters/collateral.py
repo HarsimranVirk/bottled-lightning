@@ -13,12 +13,16 @@ from collections.abc import Mapping, Sequence
 from playwright.async_api import Locator, Page
 
 from app.core.field import FieldTarget, ValueType, normalise
+from app.core.job_logger import JobLogger
 from app.core.status import WriteOutcome
 from app.salesforce.adapters import (
     AdapterBase,
     DiscoveredRef,
     Discovery,
     DiscoveryContext,
+    absent,
+    describe_target,
+    unresolved,
 )
 from app.salesforce.tabs import TabProvider
 from app.utils.dom import (
@@ -26,9 +30,10 @@ from app.utils.dom import (
     clear_and_fill,
     click_first_visible,
     poll,
+    related_list_empty,
     related_list_url,
     safe_inner_text,
-    wait_for_rows,
+    settled_row_count,
 )
 from app.workflows.deviations_z02.catalog import DeviationObject
 
@@ -73,58 +78,83 @@ class CollateralAdapter(AdapterBase):
         self._org_base = org_base
         self._timeout_ms = timeout_ms
 
-    async def discover(self, tabs: TabProvider, context: DiscoveryContext) -> Discovery:
+    async def discover(
+        self, tabs: TabProvider, context: DiscoveryContext, log: JobLogger
+    ) -> Discovery:
         """Find the single collateral attached to the opportunity."""
+        kind = DeviationObject.COLLATERAL.value
         if not context.opportunity_url:
-            return Discovery()
+            log("discover: collateral: no opportunity link to open")
+            return Discovery(refs=(unresolved(kind, "Couldn't open the opportunity page"),))
         url = related_list_url(
             absolute_url(context.opportunity_url, self._org_base), _RELATED_LIST
         )
+        log(f"discover: collateral: opening related list {url}")
         page = await tabs.new_page(url)
         try:
             rows = page.locator("tr.slds-hint-parent")
-            count = await wait_for_rows(rows, page, self._timeout_ms)
+            count = await settled_row_count(rows, related_list_empty(page), self._timeout_ms)
+            log(f"discover: collateral: {count!r} row(s)")
+            if count is None:
+                return Discovery(refs=(unresolved(kind, "Couldn't open the collateral list"),))
             if count > 1:
                 return Discovery(
-                    skip_reason=(
-                        "skipped due to SF ambiguity: "
-                        f"multiple collateral objects ({count})"
+                    refs=(
+                        unresolved(
+                            kind,
+                            f"There are {count} collateral records — "
+                            "can't tell which one",
+                        ),
                     )
                 )
             if count == 1:
                 ref = await _first_collateral(rows.nth(0), self._org_base)
                 if ref is not None:
+                    log(f"discover: collateral: matched {ref.name}")
                     return Discovery(refs=(ref,))
-            return Discovery()
+                return Discovery(
+                    refs=(unresolved(kind, "Couldn't open the collateral record"),)
+                )
+            log("discover: collateral: related list is empty")
+            return Discovery(
+                refs=(absent(kind, "No collateral attached to this opportunity"),)
+            )
         finally:
             await tabs.close_page(page)
 
     async def read(
-        self, page: Page, targets: Sequence[FieldTarget]
+        self, page: Page, targets: Sequence[FieldTarget], log: JobLogger
     ) -> dict[FieldTarget, str | None]:
         """Read the Property Value (the only editable collateral target)."""
         values: dict[FieldTarget, str | None] = {}
         for target in targets:
+            name = describe_target(target)
+            log(f"read: collateral: {name}: locating field")
             item = await self._item(page, target)
             if item is None:
+                log(f"read: collateral: {name}: field did not render")
                 values[target] = None
                 continue
             values[target] = await safe_inner_text(
                 item.locator(".test-id__field-value").first, self._timeout_ms
             )
+            log(f"read: collateral: {name}={values[target]!r}")
         return values
 
     async def write(
-        self, page: Page, values: Mapping[FieldTarget, str]
+        self, page: Page, values: Mapping[FieldTarget, str], log: JobLogger
     ) -> dict[FieldTarget, WriteOutcome]:
         """Inline-edit and save each target, returning per-target outcomes."""
         outcomes: dict[FieldTarget, WriteOutcome] = {}
         for target, value in values.items():
+            name = describe_target(target)
+            log(f"apply: collateral: {name}: locating field")
             item = await self._item(page, target)
             if item is None:
+                log(f"apply: collateral: {name}: field did not render")
                 outcomes[target] = WriteOutcome.UNKNOWN
                 continue
-            outcomes[target] = await self._edit(page, item, target, value)
+            outcomes[target] = await self._edit(page, item, target, value, log)
         return outcomes
 
     async def _item(self, page: Page, target: FieldTarget) -> Locator | None:
@@ -142,26 +172,49 @@ class CollateralAdapter(AdapterBase):
         return item if ready else None
 
     async def _edit(
-        self, page: Page, item: Locator, target: FieldTarget, value: str
+        self,
+        page: Page,
+        item: Locator,
+        target: FieldTarget,
+        value: str,
+        log: JobLogger,
     ) -> WriteOutcome:
         """Double-click the value, fill it, save and verify the read-back."""
+        name = describe_target(target)
         try:
+            log(f"apply: collateral: {name}: double-clicking value")
             await item.locator(".test-id__field-value").first.dblclick(
                 timeout=self._timeout_ms
             )
+            log(f"apply: collateral: {name}: edit opened")
             if not await poll(lambda: _has_input(item), self._timeout_ms):
+                log(f"apply: collateral: {name}: edit input did not appear")
                 return WriteOutcome.UNKNOWN
-            actual = await clear_and_fill(item.locator("input").first, value)
+            log(f"apply: collateral: {name}: filling {value!r}")
+            actual = await clear_and_fill(
+                item.locator("input").first, value, self._timeout_ms
+            )
             if not _same(actual, value):
+                log(
+                    f"apply: collateral: {name}: input reads {actual!r}; "
+                    f"expected {value!r}"
+                )
                 return WriteOutcome.UNKNOWN
+            log(f"apply: collateral: {name}: filled {value!r}")
             save = page.get_by_role("button", name="Save", exact=True)
+            log(f"apply: collateral: {name}: clicking Save")
             if not await click_first_visible(save, self._timeout_ms):
+                log(f"apply: collateral: {name}: Save did not become clickable")
                 return WriteOutcome.UNKNOWN
+            log(f"apply: collateral: {name}: save clicked")
             if not await poll(lambda: self._saved(item, value), self._timeout_ms):
+                log(f"apply: collateral: {name}: read-back did not match")
                 return WriteOutcome.REJECTED
+            log(f"apply: collateral: {name}: saved")
             return WriteOutcome.SAVED
         except Exception as exc:  # noqa: BLE001 - page may die mid-save
             logger.debug("collateral write failed for %s: %s", target, exc)
+            log(f"apply: collateral: {name}: error {type(exc).__name__}: {exc}")
             return WriteOutcome.UNKNOWN
 
     async def _saved(self, item: Locator, value: str) -> bool:

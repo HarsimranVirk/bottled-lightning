@@ -20,12 +20,14 @@ from app.core.repo.sessions import SessionRepository
 from app.core.repo.sync_runs import SyncRunRepository
 from app.core.repo.work_items import WorkItemRepository
 from app.core.status import (
+    MAX_JOB_ATTEMPTS,
     ClosureSource,
     DecisionFilter,
     DecisionKind,
     FieldStatus,
     JobKind,
     JobStatus,
+    RefState,
     WorkItemStatus,
 )
 from app.db.connection import Database
@@ -78,6 +80,43 @@ class WorkItemTests(DbTestCase):
         items.create_present(WORKFLOW, row(), utcnow())
         with self.assertRaises(InvalidTransition):
             items.transition(WORKFLOW, KEY, WorkItemStatus.COMPLETED)
+
+    def test_expect_guard_refuses_a_stale_move(self) -> None:
+        """A decision taken on an older snapshot cannot overwrite a fresher status."""
+        items = WorkItemRepository(self.db)
+        items.create_present(WORKFLOW, row(), utcnow())
+        items.transition(WORKFLOW, KEY, WorkItemStatus.EXTRACTING)
+        items.transition(WORKFLOW, KEY, WorkItemStatus.READY, extracted_at=utcnow())
+
+        with self.assertRaises(InvalidTransition):
+            items.transition(
+                WORKFLOW,
+                KEY,
+                WorkItemStatus.NEEDS_REVIEW,
+                expect=WorkItemStatus.EXTRACTING,
+                reason="gave up",
+            )
+
+        item = items.require(WORKFLOW, KEY)
+        self.assertIs(item.status, WorkItemStatus.READY)
+        self.assertIsNone(item.reason)
+
+    def test_expect_guard_allows_the_matching_move(self) -> None:
+        """With the expected status the conditional write goes through."""
+        items = WorkItemRepository(self.db)
+        items.create_present(WORKFLOW, row(), utcnow())
+        items.transition(WORKFLOW, KEY, WorkItemStatus.EXTRACTING)
+
+        moved = items.transition(
+            WORKFLOW,
+            KEY,
+            WorkItemStatus.NEEDS_REVIEW,
+            expect=WorkItemStatus.EXTRACTING,
+            reason="gave up",
+        )
+
+        self.assertIs(moved.status, WorkItemStatus.NEEDS_REVIEW)
+        self.assertEqual(moved.reason, "gave up")
 
     def test_terminal_status_is_blocked_by_active_lease(self) -> None:
         """Closing is deferred while a job runs, but absent-pending is allowed (FR-6.11)."""
@@ -261,8 +300,24 @@ class JobTests(DbTestCase):
         jobs = JobRepository(self.db)
         job = jobs.enqueue(WORKFLOW, JobKind.EXTRACT, KEY)
         jobs.claim("w0", ttl_s=-1)
-        self.assertEqual(jobs.requeue_stale(), 1)
+        self.assertEqual(jobs.requeue_stale(MAX_JOB_ATTEMPTS), 1)
         self.assertIs(jobs.require(job.id).status, JobStatus.QUEUED)
+
+    def test_stale_lease_at_the_attempt_cap_fails(self) -> None:
+        """A job that keeps losing its lease is failed, not resurrected forever."""
+        jobs = JobRepository(self.db)
+        job = jobs.enqueue(WORKFLOW, JobKind.EXTRACT, KEY)
+        first = jobs.claim("w0", ttl_s=-1)
+        assert first is not None
+        self.assertEqual(jobs.requeue_stale(MAX_JOB_ATTEMPTS), 1)
+        second = jobs.claim("w0", ttl_s=-1)
+        assert second is not None
+        self.assertEqual(jobs.requeue_stale(MAX_JOB_ATTEMPTS), 0)
+        dead = jobs.require(job.id)
+        self.assertIs(dead.status, JobStatus.FAILED)
+        self.assertEqual(dead.error, "lease expired; max attempts reached")
+        self.assertIsNotNone(dead.finished_at)
+        self.assertIsNone(dead.lease_owner)
 
     def test_cancel_queued_job(self) -> None:
         """Queued jobs can be cancelled once, not twice."""
@@ -411,6 +466,80 @@ class SupportingRepoTests(DbTestCase):
 
         refs.replace(WORKFLOW, KEY, [])
         self.assertEqual(refs.for_item(WORKFLOW, KEY), {})
+
+    def test_refs_for_items_in_status_reads_a_page_in_one_join(self) -> None:
+        """The audit gets every READY item's links, including items with none."""
+        items = WorkItemRepository(self.db)
+        for key in ("Deviation-1-1", "Deviation-2-2"):
+            items.create_present(WORKFLOW, row(key), utcnow())
+            items.transition(WORKFLOW, key, WorkItemStatus.EXTRACTING)
+            items.transition(
+                WORKFLOW, key, WorkItemStatus.READY, extracted_at=utcnow()
+            )
+        refs = PageRefRepository(self.db)
+        refs.replace(
+            WORKFLOW,
+            "Deviation-1-1",
+            [
+                PageRef(WORKFLOW, "Deviation-1-1", "opportunity", "Opp", "https://o"),
+                PageRef(
+                    WORKFLOW,
+                    "Deviation-1-1",
+                    "collateral",
+                    "",
+                    "",
+                    state=RefState.ABSENT,
+                    reason="No collateral attached to this opportunity",
+                ),
+            ],
+        )
+
+        grouped = refs.for_items_in_status(WORKFLOW, WorkItemStatus.READY)
+
+        self.assertEqual(set(grouped), {"Deviation-1-1", "Deviation-2-2"})
+        self.assertEqual(grouped["Deviation-1-1"]["opportunity"].url, "https://o")
+        self.assertIs(grouped["Deviation-1-1"]["collateral"].state, RefState.ABSENT)
+        self.assertEqual(grouped["Deviation-2-2"], {})
+        self.assertEqual(refs.for_items_in_status(WORKFLOW, WorkItemStatus.PRESENT), {})
+
+    def test_page_ref_states_round_trip(self) -> None:
+        """A missing link keeps its state and plain reason instead of vanishing."""
+        refs = PageRefRepository(self.db)
+        refs.replace(
+            WORKFLOW,
+            KEY,
+            [
+                PageRef(WORKFLOW, KEY, "opportunity", "Opp", "https://o/1"),
+                PageRef(
+                    WORKFLOW,
+                    KEY,
+                    "collateral",
+                    "",
+                    "",
+                    state=RefState.ABSENT,
+                    reason="No collateral attached in Salesforce",
+                ),
+                PageRef(
+                    WORKFLOW,
+                    KEY,
+                    "lms2_collateral",
+                    "",
+                    "",
+                    state=RefState.UNRESOLVED,
+                    reason="Couldn't open the LMS2 collateral page",
+                ),
+            ],
+        )
+        stored = refs.for_item(WORKFLOW, KEY)
+        self.assertEqual(len(stored), 3)
+        self.assertIs(stored["opportunity"].state, RefState.FOUND)
+        self.assertEqual(stored["opportunity"].url, "https://o/1")
+        self.assertIs(stored["collateral"].state, RefState.ABSENT)
+        self.assertEqual(
+            stored["collateral"].reason, "No collateral attached in Salesforce"
+        )
+        self.assertIs(stored["lms2_collateral"].state, RefState.UNRESOLVED)
+        self.assertIsNone(stored["opportunity"].reason)
 
     def test_edits_and_events(self) -> None:
         """Audit rows are appended and readable."""

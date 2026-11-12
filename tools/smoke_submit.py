@@ -43,6 +43,11 @@ from app.workflows.deviations_z02.catalog import FIELD_CATALOG, DeviationObject
 from app.workflows.deviations_z02.submission import DeviationsZ02Submission
 
 
+def _print_log(message: str) -> None:
+    """Print one adapter step for a smoke run."""
+    print(f"  {message}")
+
+
 def _print_fields(deps: WorkflowDeps, key: str) -> None:
     """Print the stored field values for one item."""
     for field_key, field in sorted(deps.fields.for_item(WORKFLOW_NAME, key).items()):
@@ -110,7 +115,7 @@ async def _run_noop(
         adapter = adapters.get(kind)
         page = await adapter.open(tabs, ref)
         try:
-            current = await adapter.read(page, targets)
+            current = await adapter.read(page, targets, _print_log)
             print(f"\n{kind}:")
             values: dict[FieldTarget, str] = {}
             for target in targets:
@@ -144,8 +149,8 @@ async def _run_noop(
                 )
                 continue
 
-            outcomes = await adapter.write(page, values)
-            after = await adapter.read(page, targets)
+            outcomes = await adapter.write(page, values, _print_log)
+            after = await adapter.read(page, targets, _print_log)
             for target in targets:
                 spec = target_spec[target]
                 before = _canonical(current.get(target), spec)

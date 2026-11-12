@@ -69,6 +69,21 @@ class TransitionTests(unittest.TestCase):
             can_transition(WorkItemStatus.NEEDS_REVIEW, WorkItemStatus.ABSENT_PENDING)
         )
 
+    def test_incomplete_extraction_lands_in_needs_review(self) -> None:
+        """Extraction parks an incomplete item for the operator, not in a terminal state."""
+        self.assertTrue(
+            can_transition(WorkItemStatus.EXTRACTING, WorkItemStatus.NEEDS_REVIEW)
+        )
+        self.assertFalse(
+            can_transition(WorkItemStatus.EXTRACTING, WorkItemStatus.COMPLETED)
+        )
+
+    def test_needs_review_can_be_retried(self) -> None:
+        """The card's Retry action re-enters extraction without a detour."""
+        self.assertTrue(
+            can_transition(WorkItemStatus.NEEDS_REVIEW, WorkItemStatus.EXTRACTING)
+        )
+
     def test_absent_pending_resolves_only_to_terminal(self) -> None:
         """A deferred closure resolves to a terminal state, never back to work."""
         self.assertTrue(

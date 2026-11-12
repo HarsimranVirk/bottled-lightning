@@ -181,6 +181,7 @@ class WorkItemRepository:
         key: str,
         to: WorkItemStatus,
         *,
+        expect: WorkItemStatus | None = None,
         reason: str | None = None,
         source: ClosureSource | None = None,
         closed_at: datetime | None = None,
@@ -202,10 +203,15 @@ class WorkItemRepository:
         ``clear_reason=True`` is for retries: a successful re-extraction must not keep
         the reason from the attempt that failed.
 
+        ``expect`` makes the write conditional: the row only moves when it is still in
+        that status, and ``InvalidTransition`` is raised otherwise. Callers that act on a
+        snapshot taken moments earlier (the reconciler's audit racing a worker) use it so
+        a stale decision cannot overwrite a fresh status.
+
         Example:
             items.transition(workflow, key, WorkItemStatus.READY, extracted_at=now)
-            items.transition(workflow, key, WorkItemStatus.CLOSED,
-                             source=ClosureSource.EXTERNAL, reason="already_implemented")
+            items.transition(workflow, key, WorkItemStatus.NEEDS_REVIEW,
+                             expect=WorkItemStatus.EXTRACTING, reason="give up")
         """
         current = self.require(workflow, key)
         if current.status is not to and not can_transition(current.status, to):
@@ -233,13 +239,40 @@ class WorkItemRepository:
             sets.append("extracted_at = ?")
             params.append(to_iso(extracted_at))
         params.extend([workflow, key])
+        where = "WHERE workflow = ? AND item_key = ?"
+        if expect is not None:
+            where += " AND status = ?"
+            params.append(expect.value)
         with self._db.transaction() as conn:
-            conn.execute(
-                f"UPDATE work_items SET {', '.join(sets)} "
-                "WHERE workflow = ? AND item_key = ?",
+            cursor = conn.execute(
+                f"UPDATE work_items SET {', '.join(sets)} {where}",
                 params,
             )
+        if expect is not None and cursor.rowcount == 0:
+            raise InvalidTransition(
+                f"{workflow}/{key}: no longer {expect}, refusing {to}"
+            )
         return self.require(workflow, key)
+
+    def reset_extraction(self, workflow: str, key: str) -> None:
+        """
+        Forget a finished extraction so the next job re-reads Salesforce.
+
+        Called by the retry endpoint. An item can sit in ``NEEDS_REVIEW`` with
+        ``extracted_at`` already stamped — a legacy row extracted before link states
+        existed, or one the audit sent back for review. Extraction's one-shot check
+        would otherwise return immediately and the retry would look like a no-op.
+
+        Only the marker is cleared: stored values, proposals and the current reason stay
+        until the new job produces its own outcome, so the card keeps explaining itself
+        while the retry runs.
+        """
+        with self._db.transaction() as conn:
+            conn.execute(
+                "UPDATE work_items SET extracted_at = NULL "
+                "WHERE workflow = ? AND item_key = ?",
+                [workflow, key],
+            )
 
     def set_absent(self, workflow: str, key: str, at: datetime) -> None:
         """
