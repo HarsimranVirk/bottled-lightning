@@ -52,16 +52,16 @@ export function UpdateCard({
             ) : null}
           </FlexLayout>
         ) : failed ? (
-          <FlexLayout gap={1} align="center" wrap>
-            <Text color="secondary">
-              Update check failed: {update?.error ?? 'unknown error'}
-            </Text>
-            <Button appearance="bordered" onClick={onCheck} disabled={checking}>
-              {checking ? 'Checking…' : 'Check again'}
-            </Button>
-          </FlexLayout>
+          <Text color="secondary">
+            Update check failed: {update?.error ?? 'unknown error'}
+          </Text>
         ) : (
           <Text color="secondary">Up to date.</Text>
+        )}
+        {installingNow ? null : (
+          <Button appearance="bordered" onClick={onCheck} disabled={checking}>
+            {checking ? 'Checking…' : 'Check for updates'}
+          </Button>
         )}
         {error ? <Text color="secondary">{error}</Text> : null}
       </FlexLayout>

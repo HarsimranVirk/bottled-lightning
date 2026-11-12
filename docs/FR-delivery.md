@@ -77,10 +77,11 @@ re-downloading it, and reach from another device on the same network.
 - **FR-4.3** `SF_UPDATE_POLICY=off`: no checks and no installs.
 - **FR-4.4** The home page shows the update status and an **Install update** action when a
   version is available. The action is disabled while a job runs or an install is running.
-- **FR-4.5** When the last check failed, the update card shows a **Check again** action
-  that forces a check (`POST /api/updates/checks`), reports it while it runs, and replaces
-  the displayed status with the response. The action is not shown in any other state and
-  does not depend on the job queue (a check never installs anything).
+- **FR-4.5** The update card always shows a **Check for updates** action (except while an
+  install is running) that forces a check (`POST /api/updates/checks`), reports it as
+  *Checking…* while it runs, and replaces the displayed status with the response. It is
+  shown after a failure and after a successful check (including *up to date*), and does
+  not depend on the job queue (a check never installs anything).
 
 ## 6. LAN access on the home page
 

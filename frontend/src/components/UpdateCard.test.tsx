@@ -108,11 +108,11 @@ describe('UpdateCard', () => {
       />,
     )
 
-    await user.click(screen.getByRole('button', { name: 'Check again' }))
+    await user.click(screen.getByRole('button', { name: 'Check for updates' }))
     expect(onCheck).toHaveBeenCalledTimes(1)
   })
 
-  it('disables the retry while the check runs', () => {
+  it('disables the check while it runs', () => {
     render(
       <UpdateCard
         version="0.3.0"
@@ -127,7 +127,9 @@ describe('UpdateCard', () => {
     expect(screen.getByRole('button', { name: /checking/i })).toBeDisabled()
   })
 
-  it('offers no retry when the check succeeded', () => {
+  it('offers a check when the last check succeeded', async () => {
+    const user = userEvent.setup()
+    const onCheck = vi.fn()
     render(
       <UpdateCard
         version="0.3.0"
@@ -136,10 +138,11 @@ describe('UpdateCard', () => {
         busy={false}
         checking={false}
         onInstall={vi.fn()}
-        onCheck={vi.fn()}
+        onCheck={onCheck}
       />,
     )
     expect(screen.getByText('Up to date.')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Check again' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Check for updates' }))
+    expect(onCheck).toHaveBeenCalledTimes(1)
   })
 })
