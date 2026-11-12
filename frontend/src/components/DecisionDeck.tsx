@@ -59,6 +59,10 @@ interface Props {
   ) => Promise<boolean>
   onReplay: () => void
   replaying: boolean
+  /** Queue one more extraction for the top card's item. */
+  onRetryExtraction: (key: string) => void
+  /** A retry request is in flight. */
+  retrying: boolean
   onHistory: () => void
   onRefresh: () => void
   refreshing: boolean
@@ -82,16 +86,35 @@ export function DecisionDeck({
   onHistory,
   onRefresh,
   refreshing,
+  onRetryExtraction,
+  retrying,
 }: Props): JSX.Element {
   const [pending, setPending] = useState<DecisionKind | null>(null)
   const [leaving, setLeaving] = useState<{ row: ItemRow; decision: DecisionKind } | null>(null)
   const [draft, setDraft] = useState<{ key: string; values: Record<string, string> } | null>(null)
 
-  const top = leaving?.row ?? rows[0]
+  // Sticky focus: the card on screen only changes when the operator decides it or pins
+  // another one. Without this, any membership change (a failed submission coming back, a
+  // new deviation, the startup audit) would rebind the position-based `rows[0]` and swap
+  // the card under the operator's hands.
+  const [focus, setFocus] = useState<string | null>(null)
+  const pinnedKey = selection[0] ?? null
+  const remembered = focus !== null && rows.some((row) => row.key === focus) ? focus : null
+  const topKey = leaving?.row.key ?? pinnedKey ?? remembered ?? rows[0]?.key ?? null
+  const top = leaving?.row ?? rows.find((row) => row.key === topKey) ?? rows[0]
+  // Adopt the card that ended up on top, so the next render remembers it. Adjusting state
+  // during render (rather than in an effect) is the documented React pattern for deriving
+  // state from props; the guard makes it settle after one extra render.
+  if (topKey !== focus) {
+    setFocus(topKey)
+  }
   const initial = top === undefined
     ? {}
     : Object.fromEntries(fields.map((field) => [field.key, draftFor(field, top)]))
   const values = top !== undefined && draft?.key === top.key ? draft.values : initial
+  // The card that will be shown once the current one is decided. With sticky focus the
+  // current card is not necessarily rows[0], so this is the first row that is not it.
+  const upcoming = rows.find((row) => row.key !== top?.key)
   const busy = pending !== null || leaving !== null
   const canAct = top !== undefined && !busy
 
@@ -224,6 +247,8 @@ export function DecisionDeck({
               onField={(key, value) => {
                 setDraft({ key: top.key, values: { ...values, [key]: value } })
               }}
+              onRetryExtraction={() => onRetryExtraction(top.key)}
+              retrying={retrying}
             />
           </div>
 
@@ -249,9 +274,9 @@ export function DecisionDeck({
             </Button>
           </GridLayout>
 
-          {rows[1] ? (
+          {upcoming ? (
             <Text color="secondary" styleAs="label">
-              next up: {rows[1].key}
+              next up: {upcoming.key}
             </Text>
           ) : null}
         </>

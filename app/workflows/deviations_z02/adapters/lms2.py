@@ -27,16 +27,22 @@ from functools import partial
 from playwright.async_api import Dialog, Locator, Page
 
 from app.core.field import FieldTarget, ValueType, normalise
+from app.core.job_logger import JobLogger
 from app.core.status import WriteOutcome
 from app.salesforce.adapters import (
     AdapterBase,
     DiscoveredRef,
     Discovery,
     DiscoveryContext,
+    absent,
+    describe_target,
+    unresolved,
 )
 from app.salesforce.tabs import TabProvider
 from app.utils.dom import (
+    Deadline,
     absolute_url,
+    bounded,
     clear_and_fill,
     click_first_visible,
     poll,
@@ -208,33 +214,58 @@ class _Lms2Adapter(AdapterBase):
         self._org_base = org_base
         self._timeout_ms = timeout_ms
 
-    async def discover(self, tabs: TabProvider, context: DiscoveryContext) -> Discovery:
+    async def discover(
+        self, tabs: TabProvider, context: DiscoveryContext, log: JobLogger
+    ) -> Discovery:
         """Open the LMS tab on the opportunity and pick the matching row."""
+        label = self.object_kind.replace("_", " ")
         if not context.opportunity_url:
-            return Discovery()
+            log(f"discover: {self.object_kind}: no opportunity link to open")
+            return Discovery(
+                refs=(unresolved(self.object_kind, "Couldn't open the opportunity page"),)
+            )
         page = await tabs.new_page(
             absolute_url(context.opportunity_url, self._org_base)
         )
         try:
+            log(f"discover: {self.object_kind}: opening LMS tab")
             await _open_lms_tab(page, self._timeout_ms)
             rows = await _await_lms_rows(page, self.host_tag, self._timeout_ms)
+            log(
+                "discover: "
+                f"{self.object_kind}: "
+                f"{'did not render' if rows is None else f'{len(rows)} row(s)'}"
+            )
         finally:
             await tabs.close_page(page)
+
+        if rows is None:
+            return Discovery(
+                refs=(
+                    unresolved(
+                        self.object_kind,
+                        f"Couldn't open the LMS 2.0 {label} list",
+                    ),
+                )
+            )
 
         target = None
         if self.matches_product and context.product_type:
             target = CL_CONTRACT_PRODUCT_MAP.get(context.product_type)
         candidates = match_rows(rows, target) if self.matches_product else list(rows)
 
-        label = self.object_kind.replace("_", " ")
         if len(candidates) > 1:
             detail = (
                 f" for {context.product_type} -> {target}" if target is not None else ""
             )
+            log(f"discover: {self.object_kind}: {len(candidates)} matching rows{detail}")
             return Discovery(
-                skip_reason=(
-                    f"skipped due to SF ambiguity: multiple {label} "
-                    f"({len(candidates)}){detail}"
+                refs=(
+                    unresolved(
+                        self.object_kind,
+                        f"There are {len(candidates)} LMS 2.0 {label} records — "
+                        "can't tell which one",
+                    ),
                 )
             )
         if len(candidates) == 1:
@@ -244,6 +275,7 @@ class _Lms2Adapter(AdapterBase):
                     f"{self._org_base}/lightning/n/{self.detail_path}"
                     f"?c__{self.uuid_param}={row.data_id}"
                 )
+                log(f"discover: {self.object_kind}: matched {row.name or row.data_id}")
                 return Discovery(
                     refs=(
                         DiscoveredRef(
@@ -253,7 +285,19 @@ class _Lms2Adapter(AdapterBase):
                         ),
                     )
                 )
-        return Discovery()
+            log(f"discover: {self.object_kind}: matched row has no id")
+            return Discovery(
+                refs=(
+                    unresolved(
+                        self.object_kind,
+                        f"Couldn't open the LMS 2.0 {label} record",
+                    ),
+                )
+            )
+        log(f"discover: {self.object_kind}: no matching row")
+        return Discovery(
+            refs=(absent(self.object_kind, f"No LMS 2.0 {label} for this item"),)
+        )
 
 
 class Lms2ClContractAdapter(_Lms2Adapter):
@@ -267,16 +311,21 @@ class Lms2ClContractAdapter(_Lms2Adapter):
     matches_product = True
 
     async def read(
-        self, page: Page, targets: Sequence[FieldTarget]
+        self, page: Page, targets: Sequence[FieldTarget], log: JobLogger
     ) -> dict[FieldTarget, str | None]:
         """Read the Contract Modification form's CURRENT values."""
         values: dict[FieldTarget, str | None] = {}
         try:
-            if not await self._open_modification(page):
+            log("read: lms2_cl_contract: opening Contract Modification")
+            if not await self._open_modification(page, log):
+                log("read: lms2_cl_contract: Contract Modification did not open")
                 return {target: None for target in targets}
             for target in targets:
+                name = describe_target(target)
+                log(f"read: lms2_cl_contract: {name}: locating card")
                 card = await self._card(page, target)
                 if card is None:
+                    log(f"read: lms2_cl_contract: {name}: card did not render")
                     values[target] = None
                     continue
                 raw = await safe_inner_text(
@@ -285,47 +334,68 @@ class Lms2ClContractAdapter(_Lms2Adapter):
                 values[target] = (
                     _tenure_months(raw) if target.section == "Tenure" else raw
                 )
+                log(f"read: lms2_cl_contract: {name}={values[target]!r}")
         finally:
             await self._cancel_modification(page)
         return values
 
     async def write(
-        self, page: Page, values: Mapping[FieldTarget, str]
+        self, page: Page, values: Mapping[FieldTarget, str], log: JobLogger
     ) -> dict[FieldTarget, WriteOutcome]:
         """Approve the contract when pending, then fill the cards and Save Changes."""
-        if not await self._ensure_approved(page):
+        log("apply: lms2_cl_contract: checking approval")
+        if not await self._ensure_approved(page, log):
             return {target: WriteOutcome.UNKNOWN for target in values}
         outcomes: dict[FieldTarget, WriteOutcome] = {}
-        if not await self._open_modification(page):
+        log("apply: lms2_cl_contract: opening Contract Modification")
+        if not await self._open_modification(page, log):
+            log("apply: lms2_cl_contract: Contract Modification did not open")
             return {target: WriteOutcome.UNKNOWN for target in values}
         try:
             for target, value in values.items():
+                name = describe_target(target)
+                log(f"apply: lms2_cl_contract: {name}: locating card")
                 card = await self._card(page, target)
                 if card is None:
+                    log(f"apply: lms2_cl_contract: {name}: card did not render")
                     outcomes[target] = WriteOutcome.UNKNOWN
                     continue
-                actual = await clear_and_fill(card.locator("input").first, value)
+                log(f"apply: lms2_cl_contract: {name}: filling {value!r}")
+                actual = await clear_and_fill(
+                    card.locator("input").first, value, self._timeout_ms
+                )
                 if not _same_value(target, actual, value):
+                    log(
+                        f"apply: lms2_cl_contract: {name}: input reads {actual!r}; "
+                        f"expected {value!r}"
+                    )
                     return {
                         pending: WriteOutcome.UNKNOWN for pending in values
                     }
+                log(f"apply: lms2_cl_contract: {name}: filled {value!r}")
                 outcomes[target] = WriteOutcome.SAVED
             save = page.get_by_role("button", name="Save Changes", exact=True)
+            log("apply: lms2_cl_contract: clicking Save Changes")
             if not await click_first_visible(save, self._timeout_ms):
+                log("apply: lms2_cl_contract: Save Changes did not become clickable")
                 return {target: WriteOutcome.UNKNOWN for target in values}
+            log("apply: lms2_cl_contract: Save Changes clicked")
             closed = await poll(
                 lambda: self._form_closed(page), self._timeout_ms
             )
             if not closed:
+                log("apply: lms2_cl_contract: form still open after save")
                 return {target: WriteOutcome.REJECTED for target in values}
+            log("apply: lms2_cl_contract: form closed")
             return outcomes
         except Exception as exc:  # noqa: BLE001 - page may re-render mid-save
             logger.debug("lms cl-contract write failed: %s", exc)
+            log(f"apply: lms2_cl_contract: error {type(exc).__name__}: {exc}")
             return {target: WriteOutcome.UNKNOWN for target in values}
         finally:
             await self._cancel_modification(page)
 
-    async def _ensure_approved(self, page: Page) -> bool:
+    async def _ensure_approved(self, page: Page, log: JobLogger) -> bool:
         """
         Make sure the LMS 2.0 contract accepts a Contract Modification.
 
@@ -337,6 +407,7 @@ class Lms2ClContractAdapter(_Lms2Adapter):
         """
         status, can_approve = await self._approval_state(page)
         action = approval_action(status, can_approve)
+        log(f"apply: lms2_cl_contract: approval status={status!r} action={action.value}")
         if action is ApprovalAction.PROCEED:
             return True
         if action is not ApprovalAction.APPROVE:
@@ -345,16 +416,22 @@ class Lms2ClContractAdapter(_Lms2Adapter):
                 status,
                 can_approve,
             )
+            log("apply: lms2_cl_contract: approval refused; writing nothing")
             return False
         logger.info("lms cl-contract is pending approval; approving before write")
-        if not await self._click_approve(page):
+        log("apply: lms2_cl_contract: approving pending contract")
+        if not await self._click_approve(page, log):
             logger.warning("lms cl-contract approve control could not be clicked")
+            log("apply: lms2_cl_contract: approve control could not be clicked")
             return False
         approved = await poll(lambda: self._is_approved(page), self._timeout_ms)
         if not approved:
             logger.warning(
                 "lms cl-contract approval was not confirmed (was %r)", status
             )
+            log("apply: lms2_cl_contract: approval was not confirmed")
+        else:
+            log("apply: lms2_cl_contract: approval confirmed")
         return approved
 
     async def _approval_state(self, page: Page) -> tuple[str | None, bool]:
@@ -380,7 +457,7 @@ class Lms2ClContractAdapter(_Lms2Adapter):
         can_approve = await _is_visible(scope.locator(_APPROVE_BUTTON))
         return approval_status(texts), can_approve
 
-    async def _click_approve(self, page: Page) -> bool:
+    async def _click_approve(self, page: Page, log: JobLogger) -> bool:
         """
         Click Approve and accept an optional confirmation.
 
@@ -395,6 +472,7 @@ class Lms2ClContractAdapter(_Lms2Adapter):
         try:
             if not await click_first_visible(approve, self._timeout_ms):
                 return False
+            log("apply: lms2_cl_contract: approve clicked")
             await self._confirm_dialog(page)
             return True
         finally:
@@ -453,11 +531,12 @@ class Lms2ClContractAdapter(_Lms2Adapter):
         ready = await poll(lambda: _has_count(card, 1), self._timeout_ms)
         return card if ready else None
 
-    async def _open_modification(self, page: Page) -> bool:
+    async def _open_modification(self, page: Page, log: JobLogger) -> bool:
         """Expand LOAN QUICK ACTIONS and open the Contract Modification form."""
         if await page.locator("div.mod-shell").count() > 0:
             return True
         trigger = page.locator('button.nav-section-trigger[data-group="loanactions"]')
+        log("apply: lms2_cl_contract: expanding LOAN QUICK ACTIONS")
         if not await poll(lambda: _has_count(trigger, 1), self._timeout_ms):
             return False
         if await trigger.count() > 0:
@@ -503,46 +582,67 @@ class Lms2CollateralAdapter(_Lms2Adapter):
     uuid_param = "collateralId"
 
     async def read(
-        self, page: Page, targets: Sequence[FieldTarget]
+        self, page: Page, targets: Sequence[FieldTarget], log: JobLogger
     ) -> dict[FieldTarget, str | None]:
         """Read Property Value from the Financials card (view or edit mode)."""
         values: dict[FieldTarget, str | None] = {}
         for target in targets:
+            name = describe_target(target)
+            log(f"read: lms2_collateral: {name}: locating field")
             raw = await self._read_view(page, target)
             if raw is None:
                 input_locator = page.locator(
                     f'lightning-input[data-field="{_COLLATERAL_PROPERTY_FIELD}"] input'
                 )
                 if await input_locator.count() > 0:
-                    raw = await input_locator.first.input_value()
+                    raw = await input_locator.first.input_value(
+                        timeout=self._timeout_ms
+                    )
             values[target] = raw
+            log(f"read: lms2_collateral: {name}={raw!r}")
         return values
 
     async def write(
-        self, page: Page, values: Mapping[FieldTarget, str]
+        self, page: Page, values: Mapping[FieldTarget, str], log: JobLogger
     ) -> dict[FieldTarget, WriteOutcome]:
         """Click Edit, fill Property Value, click Save and verify the read-back."""
         outcomes: dict[FieldTarget, WriteOutcome] = {}
         edit = page.get_by_role("button", name="Edit", exact=True)
+        log("apply: lms2_collateral: opening edit form")
         if not await click_first_visible(edit, self._timeout_ms):
+            log("apply: lms2_collateral: Edit did not become clickable")
             return {target: WriteOutcome.UNKNOWN for target in values}
         input_locator = page.locator(
             f'lightning-input[data-field="{_COLLATERAL_PROPERTY_FIELD}"] input'
         )
         if not await poll(lambda: _has_count(input_locator, 1), self._timeout_ms):
+            log("apply: lms2_collateral: edit input did not appear")
             return {target: WriteOutcome.UNKNOWN for target in values}
         try:
             for target, value in values.items():
-                actual = await clear_and_fill(input_locator.first, value)
+                name = describe_target(target)
+                log(f"apply: lms2_collateral: {name}: filling {value!r}")
+                actual = await clear_and_fill(
+                    input_locator.first, value, self._timeout_ms
+                )
                 if not _same_amount(actual, value):
+                    log(
+                        f"apply: lms2_collateral: {name}: input reads {actual!r}; "
+                        f"expected {value!r}"
+                    )
                     return {
                         pending: WriteOutcome.UNKNOWN for pending in values
                     }
+                log(f"apply: lms2_collateral: {name}: filled {value!r}")
                 outcomes[target] = WriteOutcome.SAVED
             save = page.get_by_role("button", name="Save", exact=True)
+            log("apply: lms2_collateral: clicking Save")
             if not await click_first_visible(save, self._timeout_ms):
+                log("apply: lms2_collateral: Save did not become clickable")
                 return {target: WriteOutcome.UNKNOWN for target in values}
+            log("apply: lms2_collateral: Save clicked")
             for target, value in values.items():
+                name = describe_target(target)
                 saved = await poll(
                     partial(self._saved, page, target, value),
                     self._timeout_ms,
@@ -550,9 +650,14 @@ class Lms2CollateralAdapter(_Lms2Adapter):
                 outcomes[target] = (
                     WriteOutcome.SAVED if saved else WriteOutcome.REJECTED
                 )
+                log(
+                    f"apply: lms2_collateral: {name}: "
+                    f"{'saved' if saved else 'read-back did not match'}"
+                )
             return outcomes
         except Exception as exc:  # noqa: BLE001 - page may re-render mid-save
             logger.debug("lms collateral write failed: %s", exc)
+            log(f"apply: lms2_collateral: error {type(exc).__name__}: {exc}")
             return {target: WriteOutcome.UNKNOWN for target in values}
 
     async def _read_view(self, page: Page, target: FieldTarget) -> str | None:
@@ -633,16 +738,22 @@ def _accept_dialog(dialog: Dialog) -> None:
 async def _open_lms_tab(page: Page, timeout_ms: int) -> None:
     """Wait for and click the LMS tab on the opportunity page."""
     tab = page.locator(_LMS_TAB)
-    waited = 0
-    while waited < timeout_ms:
-        if await tab.count() > 0:
-            break
-        await page.wait_for_timeout(500)
-        waited += 500
+    deadline = Deadline(timeout_ms)
+    while not deadline.expired:
+        try:
+            if await bounded(tab.count, deadline) > 0:
+                break
+        except TimeoutError:
+            return
+        await page.wait_for_timeout(max(0, min(500, deadline.remaining_ms())))
     try:
-        if await tab.count() > 0 and await tab.first.get_attribute("aria-selected") != "true":
-            await tab.first.click(timeout=5000)
+        if await bounded(tab.count, deadline) > 0 and await tab.first.get_attribute(
+            "aria-selected", timeout=deadline.action_ms()
+        ) != "true":
+            await tab.first.click(timeout=deadline.action_ms())
             await page.wait_for_timeout(1000)
+    except TimeoutError:
+        return
     except Exception as exc:  # noqa: BLE001 - tab may already be open
         logger.debug("LMS tab click failed: %s", exc)
 
@@ -679,17 +790,65 @@ _LMS_ROWS_JS = """
 """
 
 
-async def _await_lms_rows(page: Page, host_tag: str, timeout_ms: int) -> list[LmsRow]:
-    """The component renders after the tab click; poll until it produces rows."""
-    waited = 0
-    rows: list[LmsRow] = []
-    while waited < timeout_ms:
-        rows = await _scrape_lms_rows(page, host_tag)
+async def _await_lms_rows(
+    page: Page, host_tag: str, timeout_ms: int
+) -> list[LmsRow] | None:
+    """
+    The component renders after the tab click; poll until it settles.
+
+    Returns the rows it renders, ``[]`` when the component itself says it has no
+    records, and ``None`` when neither happened before the budget expired. ``None``
+    must be reported as unresolved: a component that never rendered is not empty.
+    """
+    deadline = Deadline(timeout_ms)
+    while not deadline.expired:
+        try:
+            rows = await bounded(lambda: _scrape_lms_rows(page, host_tag), deadline)
+        except TimeoutError:
+            return None
         if rows:
             return rows
-        await page.wait_for_timeout(1000)
-        waited += 1000
-    return rows
+        try:
+            empty = await bounded(lambda: _lms_shows_empty(page, host_tag), deadline)
+        except TimeoutError:
+            return None
+        if empty:
+            return []
+        await page.wait_for_timeout(max(0, min(1000, deadline.remaining_ms())))
+    return None
+
+
+#: Shadow-DOM text a rendered LMS 2.0 list uses when it has no records.
+_LMS_EMPTY_JS = """
+(hostTag) => {
+    function findHost(tag, root) {
+        const found = root.querySelector ? root.querySelector(tag) : null;
+        if (found) return found;
+        const els = root.querySelectorAll ? root.querySelectorAll('*') : [];
+        for (const el of els) {
+            if (el.shadowRoot) {
+                const r = findHost(tag, el.shadowRoot);
+                if (r) return r;
+            }
+        }
+        return null;
+    }
+    const host = findHost(hostTag, document);
+    if (!host || !host.shadowRoot) return false;
+    const text = (host.shadowRoot.textContent || '').trim();
+    return /no\\s+(records|data|items|contracts|loans)/i.test(text);
+}
+"""
+
+
+async def _lms_shows_empty(page: Page, host_tag: str) -> bool:
+    """Whether the rendered component says it has no records (positive empty)."""
+    try:
+        raw = await page.evaluate(_LMS_EMPTY_JS, host_tag)
+    except Exception as exc:  # noqa: BLE001 - component not rendered yet
+        logger.debug("LMS empty check failed for %s: %s", host_tag, exc)
+        return False
+    return raw is True
 
 
 async def _scrape_lms_rows(page: Page, host_tag: str) -> list[LmsRow]:

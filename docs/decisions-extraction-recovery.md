@@ -2,15 +2,21 @@
 
 | | |
 |---|---|
-| **Status** | LOCKED |
+| **Status** | SUPERSEDED by `docs/decisions-extraction-retry.md` |
 | **Version** | v1 |
 | **Date** | 2026-11-06 |
 | **Locked** | 2026-11-06 |
 | **Approved by** | HarsimranVirk (user) |
 | **Scope** | Recovering a deviation skipped only because its list-row record URL had not rendered yet |
 | **Companions** | `docs/FR-deviations.md` (v5.28), `docs/class-design-deviations.md` (v4.11), `docs/guide-final-action.md` |
+| **Superseded by** | `docs/decisions-extraction-retry.md` (v1, LOCKED 2026-11-12) |
 
 ## Context
+
+> **Superseded.** D-01–D-03 are replaced by the retry register: extraction no longer
+> writes a terminal skip at all, a link-less row stays `present` without a job, and every
+> incomplete extraction lands in `needs_review` with a per-card retry. The text below is
+> kept as the record of what was decided on 2026-11-06.
 
 A row can appear in the Printable View before the live Lightning list has rendered its
 record link. `ListPage.read()` unions printable rows with scanned links, so the first
@@ -39,4 +45,6 @@ does store the URL, but a terminal skip is never re-queued.
 
 ## Amendments
 
-None.
+| Date | Amendment |
+|---|---|
+| 2026-11-12 | Entire register superseded by `docs/decisions-extraction-retry.md`. D-01 (revive a `SKIPPED` row), D-02 (only the missing-URL skip self-heals) and D-03 (no new endpoint) no longer describe the system. |

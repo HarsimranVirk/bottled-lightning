@@ -15,8 +15,14 @@ from decimal import Decimal, InvalidOperation
 from playwright.async_api import Locator, Page
 
 from app.core.field import FieldTarget, ValueType, normalise
+from app.core.job_logger import JobLogger
 from app.core.status import WriteOutcome
-from app.salesforce.adapters import AdapterBase, Discovery, DiscoveryContext
+from app.salesforce.adapters import (
+    AdapterBase,
+    Discovery,
+    DiscoveryContext,
+    describe_target,
+)
 from app.salesforce.tabs import TabProvider
 from app.utils.dom import (
     absolute_url,
@@ -147,44 +153,56 @@ class OpportunityAdapter(AdapterBase):
         self._org_base = org_base
         self._timeout_ms = timeout_ms
 
-    async def discover(self, tabs: TabProvider, context: DiscoveryContext) -> Discovery:
+    async def discover(
+        self, tabs: TabProvider, context: DiscoveryContext, log: JobLogger
+    ) -> Discovery:
         """Read the product type shown on the opportunity."""
         if not context.opportunity_url:
+            log("discover: opportunity: no opportunity link to open")
             return Discovery()
-        page = await tabs.new_page(absolute_url(context.opportunity_url, self._org_base))
+        url = absolute_url(context.opportunity_url, self._org_base)
+        log(f"discover: opportunity: opening {url}")
+        page = await tabs.new_page(url)
         try:
             await wait_for_text(page, "Product Type", self._timeout_ms)
             body = await safe_body_text(page)
-            return Discovery(
-                attributes={"product_type": product_type_from(body or "")}
-            )
+            product = product_type_from(body or "")
+            log(f"discover: opportunity: product type={product!r}")
+            return Discovery(attributes={"product_type": product})
         finally:
             await tabs.close_page(page)
 
     async def read(
-        self, page: Page, targets: Sequence[FieldTarget]
+        self, page: Page, targets: Sequence[FieldTarget], log: JobLogger
     ) -> dict[FieldTarget, str | None]:
         """Read the target values, converting the tenure display to months."""
         values: dict[FieldTarget, str | None] = {}
         for target in targets:
+            name = describe_target(target)
+            log(f"read: opportunity: {name}: locating field")
             field = await self._field(page, target)
             if field is None:
+                log(f"read: opportunity: {name}: field did not render")
                 values[target] = None
                 continue
             values[target] = _canonical(target, await self._read_text(field))
+            log(f"read: opportunity: {name}={values[target]!r}")
         return values
 
     async def write(
-        self, page: Page, values: Mapping[FieldTarget, str]
+        self, page: Page, values: Mapping[FieldTarget, str], log: JobLogger
     ) -> dict[FieldTarget, WriteOutcome]:
         """Edit each target inline and save it, returning per-target outcomes."""
         outcomes: dict[FieldTarget, WriteOutcome] = {}
         for target, value in values.items():
+            name = describe_target(target)
+            log(f"apply: opportunity: {name}: locating field")
             field = await self._field(page, target)
             if field is None:
+                log(f"apply: opportunity: {name}: field did not render")
                 outcomes[target] = WriteOutcome.UNKNOWN
                 continue
-            outcomes[target] = await self._edit(page, field, target, value)
+            outcomes[target] = await self._edit(page, field, target, value, log)
         return outcomes
 
     async def _section(self, page: Page, target: FieldTarget) -> Locator | None:
@@ -223,31 +241,60 @@ class OpportunityAdapter(AdapterBase):
         return await safe_inner_text(value, 2000)
 
     async def _edit(
-        self, page: Page, field: Locator, target: FieldTarget, value: str
+        self,
+        page: Page,
+        field: Locator,
+        target: FieldTarget,
+        value: str,
+        log: JobLogger,
     ) -> WriteOutcome:
         """Open one inline edit, fill it, save and verify the read-back."""
+        name = describe_target(target)
         try:
             edit = field.get_by_role("button", name="Edit", exact=False)
             if await edit.count() == 0:
+                log(f"apply: opportunity: {name}: no Edit control")
                 return WriteOutcome.UNKNOWN
+            log(f"apply: opportunity: {name}: opening edit")
             await edit.first.click(timeout=self._timeout_ms)
+            log(f"apply: opportunity: {name}: edit opened")
             if not await poll(lambda: _has_input(field), self._timeout_ms):
+                log(f"apply: opportunity: {name}: edit input did not appear")
                 return WriteOutcome.UNKNOWN
+            log(f"apply: opportunity: {name}: filling {value!r}")
             actual = await clear_and_fill(
-                field.locator("input").first, _display(target, value)
+                field.locator("input").first,
+                _display(target, value),
+                self._timeout_ms,
             )
             if not _same(target, actual, value):
+                log(
+                    f"apply: opportunity: {name}: input reads {actual!r}; "
+                    f"expected {value!r}"
+                )
                 return WriteOutcome.UNKNOWN
+            log(f"apply: opportunity: {name}: filled {value!r}")
             save = page.get_by_role("button", name="Save", exact=True)
+            log(f"apply: opportunity: {name}: clicking Save")
             if not await click_first_visible(save, self._timeout_ms):
+                log(f"apply: opportunity: {name}: Save did not become clickable")
                 return WriteOutcome.UNKNOWN
+            log(f"apply: opportunity: {name}: save clicked")
             if not await poll(
                 lambda: self._saved(field, target, value), self._timeout_ms
             ):
+                editing = await _has_input(field)
+                seen = await self._read_text(field)
+                log(
+                    f"apply: opportunity: {name}: read-back did not match "
+                    f"(still editing={editing}): {seen!r} != {value!r}"
+                )
                 return WriteOutcome.REJECTED
+            log(f"apply: opportunity: {name}: saved")
             return WriteOutcome.SAVED
         except Exception as exc:  # noqa: BLE001 - page may die mid-save
             logger.debug("opportunity write failed for %s: %s", target, exc)
+            log(f"apply: opportunity: {name}: error {type(exc).__name__}: {exc}")
             return WriteOutcome.UNKNOWN
 
     async def _saved(self, field: Locator, target: FieldTarget, value: str) -> bool:

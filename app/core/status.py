@@ -5,11 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from enum import StrEnum
 
-# A row can be seen in the Printable View before the live list has rendered its record
-# link. Extraction cannot open the record without the URL, so it skips with this exact
-# reason; the reconciler later revives the item when a valid refresh supplies the URL.
-MISSING_RECORD_URL_REASON = "no record URL on the list row"
-
 
 class WorkItemStatus(StrEnum):
     """
@@ -21,9 +16,14 @@ class WorkItemStatus(StrEnum):
                 -> APPLYING -> VALIDATING -> EXECUTING -> COMPLETED
 
     Closure can happen from most states: ``CLOSED`` when SF removed the item
-    (FR-2.6), ``SKIPPED`` when extraction hit ambiguity, and ``ABSENT_PENDING``
-    when closure was observed while a job still holds the lease (FR-6.11). Terminal
-    states are re-enterable only through ``PRESENT`` (a new presence epoch).
+    (FR-2.6) and ``ABSENT_PENDING`` when closure was observed while a job still holds
+    the lease (FR-6.11). ``NEEDS_REVIEW`` is the operator state: extraction parks an
+    item there when a required link is missing, and only an explicit retry leaves it.
+    Terminal states are re-enterable only through ``PRESENT`` (a new presence epoch).
+
+    ``SKIPPED`` is no longer written by extraction — every incomplete extraction goes to
+    ``NEEDS_REVIEW`` so it can be retried. The member stays because pre-v6 rows and the
+    history read model still contain it.
     """
 
     PRESENT = "present"
@@ -45,8 +45,8 @@ TERMINAL_STATUSES: frozenset[WorkItemStatus] = frozenset(
     {WorkItemStatus.COMPLETED, WorkItemStatus.CLOSED, WorkItemStatus.SKIPPED}
 )
 
-#: Terminal statuses that a running job must never write over another job's work.
-#: ``SKIPPED`` is excluded: the extraction pipeline writes it from inside its own lease.
+#: Terminal statuses a job must never write over another job's work. ``SKIPPED`` is
+#: excluded because legacy extraction wrote it from inside its own lease.
 CLOSURE_STATUSES: frozenset[WorkItemStatus] = frozenset(
     {WorkItemStatus.COMPLETED, WorkItemStatus.CLOSED}
 )
@@ -113,6 +113,13 @@ ACTIVE_JOB_STATUSES: frozenset[JobStatus] = frozenset(
     {JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.BLOCKED_AUTH}
 )
 
+#: How many attempts a job may consume before it is failed instead of retried.
+#:
+#: The worker's retry policy and the dispatcher's stale-lease sweep share this one
+#: constant: a running job whose expired lease reaches the cap becomes ``FAILED``
+#: (FR-7.14), so a job that keeps killing its worker cannot resurrect forever.
+MAX_JOB_ATTEMPTS = 2
+
 
 class Phase(StrEnum):
     """
@@ -156,6 +163,26 @@ class FieldStatus(StrEnum):
     REJECTED = "rejected"
 
 
+class RefState(StrEnum):
+    """
+    How much is known about one SF object link after extraction looked for it.
+
+    ``FOUND`` — the link exists and is stored on the item.
+    ``ABSENT`` — the related list or LMS component rendered and was *positively* empty,
+    so the object genuinely does not exist for this item.
+    ``UNRESOLVED`` — anything less certain: the page timed out, an adapter raised, or a
+    match was ambiguous. It is the conservative default, so a failed fetch is never
+    mistaken for a genuine absence.
+
+    Stored on ``work_item_refs.state``. Readiness and submission decide per workflow
+    whether ``ABSENT`` is acceptable; ``UNRESOLVED`` always needs a human.
+    """
+
+    FOUND = "found"
+    ABSENT = "absent"
+    UNRESOLVED = "unresolved"
+
+
 class WriteOutcome(StrEnum):
     """
     Per-field result of a write attempt.
@@ -173,13 +200,19 @@ class ExtractOutcome(StrEnum):
     """
     Pipeline result for an extraction job.
 
-    ``EXTRACTED`` — data (or the fact that it was already extracted) is stored.
-    ``SKIPPED`` — ambiguity or missing data; terminal, with a reason on the item.
-    ``FAILED`` — retryable; the worker may requeue once.
+    ``EXTRACTED`` — data (or the fact that it was already extracted) is stored, item
+    ``READY``.
+    ``INCOMPLETE`` — a required SF object link is absent or unresolved; the item is
+    ``NEEDS_REVIEW`` with a plain reason on it and the operator retries when they choose.
+    ``FAILED`` — a persistence or programming problem; the item returns to ``PRESENT``
+    and the worker may requeue once.
+
+    Extraction never returns "skipped": nothing about a deviation is terminal just
+    because Salesforce did not show a link.
     """
 
     EXTRACTED = "extracted"
-    SKIPPED = "skipped"
+    INCOMPLETE = "incomplete"
     FAILED = "failed"
 
 
@@ -208,7 +241,7 @@ _TRANSITIONS: Mapping[WorkItemStatus, frozenset[WorkItemStatus]] = {
         {S.EXTRACTING, S.READY, S.SKIPPED, S.CLOSED, S.ABSENT_PENDING}
     ),
     S.EXTRACTING: frozenset(
-        {S.READY, S.SKIPPED, S.PRESENT, S.CLOSED, S.ABSENT_PENDING}
+        {S.READY, S.NEEDS_REVIEW, S.SKIPPED, S.PRESENT, S.CLOSED, S.ABSENT_PENDING}
     ),
     S.READY: frozenset(
         {
@@ -235,7 +268,7 @@ _TRANSITIONS: Mapping[WorkItemStatus, frozenset[WorkItemStatus]] = {
     S.EXECUTING: frozenset({S.COMPLETED, S.READY, S.NEEDS_REVIEW, S.ABSENT_PENDING}),
     S.ABSENT_PENDING: frozenset({S.COMPLETED, S.CLOSED}),
     S.NEEDS_REVIEW: frozenset(
-        {S.READY, S.SUBMITTING, S.ABSENT_PENDING, S.CLOSED}
+        {S.EXTRACTING, S.READY, S.SUBMITTING, S.ABSENT_PENDING, S.CLOSED}
     ),
     S.COMPLETED: frozenset({S.PRESENT}),
     S.CLOSED: frozenset({S.PRESENT}),

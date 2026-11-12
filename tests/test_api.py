@@ -35,7 +35,7 @@ from app.core.repo.jobs import JobRepository
 from app.core.repo.refs import PageRefRepository
 from app.core.repo.sessions import SessionRepository
 from app.core.repo.sync_runs import SyncRunRepository
-from app.core.status import WorkItemStatus
+from app.core.status import RefState, WorkItemStatus
 from app.core.workflow import Workflow
 from app.devtools.db import DevDbService
 from app.jobs.auth import AuthGate
@@ -290,6 +290,7 @@ class ServiceTests(ApiTestCase):
 
     def test_submit_requires_a_proposal(self) -> None:
         self.make_ready_item()
+        self.add_refs()
         service, _registry, _workflow, _jobs, _edits = self.build()
         with self.assertRaises(ApiError) as caught:
             service.submit(WORKFLOW, KEY)
@@ -298,6 +299,7 @@ class ServiceTests(ApiTestCase):
     def test_submit_ignores_empty_proposals(self) -> None:
         """An empty field is not a proposal, so there is nothing to submit."""
         self.make_ready_item()
+        self.add_refs()
         service, _registry, _workflow, _jobs, _edits = self.build()
         service.patch_fields(WORKFLOW, KEY, {"tenure": ""})
         with self.assertRaises(ApiError) as caught:
@@ -306,6 +308,7 @@ class ServiceTests(ApiTestCase):
 
     def test_submit_enqueues_one_job_and_marks_submitting(self) -> None:
         self.make_ready_item()
+        self.add_refs()
         service, _registry, _workflow, _jobs, _edits = self.build()
         service.patch_fields(WORKFLOW, KEY, {"tenure": "300"})
         job = service.submit(WORKFLOW, KEY)
@@ -320,11 +323,179 @@ class ServiceTests(ApiTestCase):
 
     def test_submit_is_blocked_while_paused(self) -> None:
         self.make_ready_item()
+        self.add_refs()
         service, _registry, _workflow, _jobs, _edits = self.build(paused=True)
         service.patch_fields(WORKFLOW, KEY, {"tenure": "300"})
         with self.assertRaises(ApiError) as caught:
             service.submit(WORKFLOW, KEY)
         self.assertEqual(caught.exception.code, "login_required")
+
+    def test_submit_refuses_incomplete_links(self) -> None:
+        """A submission cannot start while a required page link is unusable."""
+        self.make_ready_item()
+        self.add_refs()
+        self.deps().refs.replace(
+            WORKFLOW,
+            KEY,
+            [
+                PageRef(
+                    WORKFLOW,
+                    KEY,
+                    "collateral",
+                    "",
+                    "",
+                    state=RefState.ABSENT,
+                    reason="No collateral attached to this opportunity",
+                ),
+                PageRef(WORKFLOW, KEY, "opportunity", "O", "https://e/opp"),
+                PageRef(WORKFLOW, KEY, "cl_contract", "C", "https://e/cl"),
+                PageRef(WORKFLOW, KEY, "lms2_cl_contract", "L", "https://e/lm-cl"),
+                PageRef(WORKFLOW, KEY, "lms2_collateral", "L", "https://e/lm-coll"),
+            ],
+        )
+        service, _registry, _workflow, _jobs, _edits = self.build()
+        service.patch_fields(WORKFLOW, KEY, {"tenure": "300"})
+
+        with self.assertRaises(ApiError) as caught:
+            service.submit(WORKFLOW, KEY)
+
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertEqual(caught.exception.code, "extraction_incomplete")
+        self.assertIn("No collateral attached", caught.exception.detail)
+        # patch_fields moved the item to `editing`; the refusal changes nothing.
+        self.assertIs(
+            self.deps().items.require(WORKFLOW, KEY).status, WorkItemStatus.EDITING
+        )
+
+
+class ExtractionRetryTests(ApiTestCase):
+    """The only path that re-runs extraction: an operator-initiated retry."""
+
+    def _needs_review(
+        self, *, keep_marker: bool = False, complete: bool = False
+    ) -> None:
+        """Create an item in ``NEEDS_REVIEW`` with the requested link/marker state."""
+        self.make_ready_item()
+        refs = [
+            PageRef(WORKFLOW, KEY, "opportunity", "O", "https://e/opp"),
+            PageRef(WORKFLOW, KEY, "cl_contract", "C", "https://e/cl"),
+            PageRef(WORKFLOW, KEY, "lms2_cl_contract", "L", "https://e/lm-cl"),
+            PageRef(WORKFLOW, KEY, "lms2_collateral", "L", "https://e/lm-coll"),
+        ]
+        if complete:
+            refs.append(
+                PageRef(WORKFLOW, KEY, "collateral", "K", "https://e/coll")
+            )
+        else:
+            refs.append(
+                PageRef(
+                    WORKFLOW,
+                    KEY,
+                    "collateral",
+                    "",
+                    "",
+                    state=RefState.UNRESOLVED,
+                    reason="Couldn't open the collateral list",
+                )
+            )
+        self.deps().refs.replace(WORKFLOW, KEY, refs)
+        self.deps().items.transition(
+            WORKFLOW, KEY, WorkItemStatus.NEEDS_REVIEW, reason="Couldn't open the collateral list"
+        )
+        if not keep_marker:
+            self.deps().items.reset_extraction(WORKFLOW, KEY)
+
+    def test_detail_exposes_the_missing_link_and_the_retry(self) -> None:
+        """The card needs the link state, a retryable flag and the running job."""
+        self._needs_review()
+        service, _registry, workflow, _jobs, _edits = self.build()
+
+        detail = service.get_item(WORKFLOW, KEY)
+
+        self.assertTrue(detail.extraction_retryable)
+        self.assertIsNone(detail.extraction_job)
+        collateral = next(ref for ref in detail.refs if ref.kind == "collateral")
+        self.assertEqual(collateral.state, "unresolved")
+        self.assertEqual(collateral.reason, "Couldn't open the collateral list")
+        self.assertEqual(
+            [ref.kind for ref in detail.refs],
+            [declared.kind for declared in workflow.ref_kinds],
+        )
+
+    def test_retry_enqueues_one_extraction_and_keeps_the_status(self) -> None:
+        """The item stays needs_review while queued so the card can show progress."""
+        self._needs_review()
+        service, _registry, _workflow, jobs, _edits = self.build()
+
+        job = service.retry_extraction(WORKFLOW, KEY)
+
+        self.assertEqual(job.kind, "extract")
+        self.assertEqual(job.status, "queued")
+        item = self.deps().items.require(WORKFLOW, KEY)
+        self.assertIs(item.status, WorkItemStatus.NEEDS_REVIEW)
+        detail = service.get_item(WORKFLOW, KEY)
+        self.assertIsNotNone(detail.extraction_job)
+        assert detail.extraction_job is not None
+        self.assertEqual(detail.extraction_job.id, job.id)
+        active = jobs.active_for(WORKFLOW, KEY)
+        assert active is not None
+        self.assertEqual(active.id, job.id)
+
+    def test_retry_is_refused_while_a_job_is_active(self) -> None:
+        """A second click must not queue a second extraction."""
+        self._needs_review()
+        service, _registry, _workflow, _jobs, _edits = self.build()
+        service.retry_extraction(WORKFLOW, KEY)
+
+        with self.assertRaises(ApiError) as caught:
+            service.retry_extraction(WORKFLOW, KEY)
+
+        self.assertEqual(caught.exception.code, "job_active")
+
+    def test_retry_requires_needs_review(self) -> None:
+        """A ready item is never re-extracted behind the operator's back."""
+        self.make_ready_item()
+        self.add_refs()
+        service, _registry, _workflow, _jobs, _edits = self.build()
+
+        with self.assertRaises(ApiError) as caught:
+            service.retry_extraction(WORKFLOW, KEY)
+
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertEqual(caught.exception.code, "extraction_not_retryable")
+
+    def test_retry_refuses_a_complete_extraction(self) -> None:
+        """Nothing to retry when every link resolved and the marker is set."""
+        self._needs_review(complete=True, keep_marker=True)
+        service, _registry, _workflow, _jobs, _edits = self.build()
+
+        with self.assertRaises(ApiError) as caught:
+            service.retry_extraction(WORKFLOW, KEY)
+
+        self.assertEqual(caught.exception.code, "extraction_complete")
+
+    def test_retry_clears_the_extraction_marker(self) -> None:
+        """A legacy row already stamped as extracted must actually run again."""
+        self._needs_review(keep_marker=True)
+        service, _registry, _workflow, _jobs, _edits = self.build()
+
+        service.retry_extraction(WORKFLOW, KEY)
+
+        item = self.deps().items.require(WORKFLOW, KEY)
+        self.assertIsNone(item.extracted_at)
+
+    def test_retry_route_returns_202(self) -> None:
+        """The HTTP surface is a sub-resource collection with the job as its body."""
+        self._needs_review()
+        service, registry, _workflow, _jobs, _edits = self.build()
+        client = TestClient(create_app(registry, service, _FakeAdmin()))
+
+        response = client.post(f"/api/deviations/{KEY}/extractions")
+        missing = client.post("/api/deviations/Nope/extractions")
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json()["kind"], "extract")
+        self.assertEqual(missing.status_code, 404)
 
     def test_unknown_workflow_and_item_are_404(self) -> None:
         service, _registry, _workflow, _jobs, _edits = self.build()
@@ -456,6 +627,7 @@ class HistoryServiceTests(ApiTestCase):
     def test_submit_refreshes_the_snapshot_with_edit_audit(self) -> None:
         """The edit audit written at submit time reaches the history detail."""
         self.make_ready_item()
+        self.add_refs()
         service, _registry, _workflow, _jobs, _edits = self.build()
         service.patch_fields(WORKFLOW, KEY, {"loan_amount": "25,50,000"})
         service.decide(WORKFLOW, KEY, "accept")
@@ -562,6 +734,7 @@ class RouteTests(ApiTestCase):
             ("PATCH", "/api/deviations/{key}/field-values"),
             ("DELETE", "/api/deviations/{key}/field-values"),
             ("POST", "/api/deviations/{key}/jobs"),
+            ("POST", "/api/deviations/{key}/extractions"),
             ("GET", "/api/sessions"),
             ("POST", "/api/sessions"),
             ("DELETE", "/api/sessions"),
@@ -775,7 +948,7 @@ class AdminSyncTests(ApiTestCase):
         runs = SyncRunRepository(self.db)
         closure = ClosureResolver(deps.items, jobs, deps.events)
         reconciler = Reconciler(
-            workflow, deps.items, jobs, deps.attributes, runs, closure
+            workflow, deps.items, jobs, deps.attributes, deps.refs, runs, closure
         )
         source = _SyncSource()
         watcher = ListWatcher(workflow, source, reconciler, deps.events, auth, 30.0)

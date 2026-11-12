@@ -313,15 +313,42 @@ class JobRepository:
             )
         return cursor.rowcount > 0
 
-    def requeue_stale(self) -> int:
+    def requeue_stale(self, max_attempts: int) -> int:
         """
-        Return expired running leases to the queue.
+        Recover expired running leases, failing a job that reached the attempt cap.
 
         Called when the queue looks idle and at boot. A crashed worker leaves a lease
         behind; this is what makes the job runnable again without duplicating effects,
         because every phase is idempotent (FR-6.8).
+
+        A running row whose lease expired ``max_attempts`` times is not requeued: it
+        becomes ``FAILED`` with ``lease expired; max attempts reached`` so a job that
+        keeps killing its worker cannot resurrect forever (FR-7.14). ``BLOCKED_AUTH``
+        rows are untouched: waiting for a manual login never consumes an attempt.
+
+        Returns:
+            The number of rows returned to the queue (failed rows are not counted).
         """
+        now = to_iso(utcnow())
         with self._db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE jobs
+                   SET status = ?, finished_at = ?, lease_owner = NULL,
+                       lease_expires_at = NULL,
+                       error = 'lease expired; max attempts reached'
+                 WHERE status = ?
+                   AND (lease_expires_at IS NULL OR lease_expires_at < ?)
+                   AND attempts >= ?
+                """,
+                [
+                    JobStatus.FAILED.value,
+                    now,
+                    JobStatus.RUNNING.value,
+                    now,
+                    max_attempts,
+                ],
+            )
             cursor = conn.execute(
                 """
                 UPDATE jobs
@@ -329,8 +356,14 @@ class JobRepository:
                        error = 'lease expired; requeued'
                  WHERE status = ?
                    AND (lease_expires_at IS NULL OR lease_expires_at < ?)
+                   AND attempts < ?
                 """,
-                [JobStatus.QUEUED.value, JobStatus.RUNNING.value, to_iso(utcnow())],
+                [
+                    JobStatus.QUEUED.value,
+                    JobStatus.RUNNING.value,
+                    now,
+                    max_attempts,
+                ],
             )
         return cursor.rowcount
 

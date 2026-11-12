@@ -148,12 +148,12 @@ export function ItemDrawer({
                 <Text color="secondary" styleAs="label">
                   {kind.replace(/_/g, ' ')}
                 </Text>
-                {ref ? (
+                {ref && ref.state === 'found' ? (
                   <Link href={ref.url} target="_blank">
                     {ref.name}
                   </Link>
                 ) : (
-                  <Text color="secondary">not found</Text>
+                  <Text color="secondary">{ref?.reason ?? 'not found'}</Text>
                 )}
               </FlexLayout>
             )

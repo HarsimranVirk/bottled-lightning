@@ -98,7 +98,7 @@ def workflow_view(workflow: Workflow) -> WorkflowView:
         route=workflow.route,
         label=workflow.name.replace("_", " ").title(),
         list_url=workflow.list_view.url,
-        ref_kinds=list(workflow.ref_kinds),
+        ref_kinds=[ref.kind for ref in workflow.ref_kinds],
         fields=[
             WorkflowFieldView(
                 key=field.key,
@@ -427,11 +427,62 @@ class WorkItemService:
         self._events.emit("decision_cleared", workflow=workflow.name, item=key)
         return self._detail_view(workflow, self._item(workflow, key))
 
+    def retry_extraction(self, workflow_name: str, key: str) -> JobView:
+        """
+        Queue one more extraction for an item the operator asked to retry.
+
+        This is the only path that starts an extraction after review: nothing retries
+        automatically. Allowed only for an item that needs review and whose extraction
+        did not produce a complete, current result — an incomplete link set, or no
+        extraction marker at all (the reconciler's abandoned-extraction audit). Any
+        other state, a complete extraction, or an active job is a 409.
+
+        The item keeps its status while the job is queued, so the card shows "retrying"
+        instead of flickering back to an unreviewed state. The extraction marker is
+        cleared, otherwise the pipeline's one-shot check would skip the work.
+        """
+        workflow = self._workflow(workflow_name)
+        item = self._item(workflow, key)
+        if item.status is not WorkItemStatus.NEEDS_REVIEW:
+            raise ApiError(
+                409,
+                f"item is {item.status.value}; only a needs_review item can be re-extracted",
+                "extraction_not_retryable",
+            )
+        gap = workflow.incomplete_ref(self._refs.for_item(workflow.name, key))
+        if gap is None and item.extracted_at is not None:
+            raise ApiError(
+                409,
+                "this item's extraction is already complete",
+                "extraction_complete",
+            )
+        if self._jobs.active_for(workflow.name, key) is not None:
+            raise ApiError(
+                409, "an active job already exists for this item", "job_active"
+            )
+
+        self._items.reset_extraction(workflow.name, key)
+        job = self._jobs.enqueue(workflow.name, JobKind.EXTRACT, key)
+        return job_view(job)
+
     def submit(self, workflow_name: str, key: str) -> JobView:
-        """Enqueue exactly one ``SUBMIT`` job for an item that has proposed values."""
+        """
+        Enqueue exactly one ``SUBMIT`` job for an item that has proposed values.
+
+        Refuses with 409 when a required Salesforce link is not usable: submission would
+        only fail in the browser, and the card can already explain which page is missing.
+        """
         workflow = self._workflow(workflow_name)
         item = self._item(workflow, key)
         self._ensure_status(item, _SUBMITTABLE, "submittable")
+
+        gap = workflow.incomplete_ref(self._refs.for_item(workflow.name, key))
+        if gap is not None:
+            raise ApiError(
+                409,
+                gap.reason or "this item's Salesforce links are incomplete",
+                "extraction_incomplete",
+            )
 
         if self._is_paused():
             raise ApiError(409, "manual login required", "login_required")
@@ -585,12 +636,14 @@ class WorkItemService:
             **base.model_dump(),
             refs=[
                 PageRefView(
-                    kind=refs[kind].kind,
-                    name=refs[kind].name,
-                    url=refs[kind].url,
+                    kind=refs[declared.kind].kind,
+                    name=refs[declared.kind].name,
+                    url=refs[declared.kind].url,
+                    state=refs[declared.kind].state.value,
+                    reason=refs[declared.kind].reason,
                 )
-                for kind in workflow.ref_kinds
-                if kind in refs
+                for declared in workflow.ref_kinds
+                if declared.kind in refs
             ],
         )
 
@@ -611,7 +664,13 @@ class WorkItemService:
             **row.model_dump(),
             attributes=self._history.attributes(workflow.name, item.key),
             refs=[
-                PageRefView(kind=ref.kind, name=ref.name, url=ref.url)
+                PageRefView(
+                    kind=ref.kind,
+                    name=ref.name,
+                    url=ref.url,
+                    state=ref.state.value,
+                    reason=ref.reason,
+                )
                 for ref in refs.values()
             ],
             edits=[
@@ -653,19 +712,36 @@ class WorkItemService:
         return fields
 
     def _detail_view(self, workflow: Workflow, item: WorkItem) -> ItemDetailView:
+        """
+        Full detail for one current item.
+
+        Links are projected in the workflow's declaration order with their state, so the
+        card can say which page is missing. ``extraction_retryable`` says the Retry
+        action would be accepted, and ``extraction_job`` is the running/queued extraction
+        the card uses to disable that button.
+        """
         latest = self._decisions.latest(workflow.name, item.key)
         if latest is not None and latest.decision is DecisionKind.PENDING:
             latest = None
         row = self._row_view(workflow, item, latest)
         refs = self._refs.for_item(workflow.name, item.key)
+        gap = workflow.incomplete_ref(refs)
+        active = self._jobs.active_for(workflow.name, item.key)
         edits = self._edits.for_item(workflow.name, item.key)
         decisions = self._decisions.history(workflow.name, item.key)
         return ItemDetailView(
             **row.model_dump(),
             attributes=self._attributes.for_item(workflow.name, item.key),
             refs=[
-                PageRefView(kind=ref.kind, name=ref.name, url=ref.url)
-                for ref in refs.values()
+                PageRefView(
+                    kind=refs[declared.kind].kind,
+                    name=refs[declared.kind].name,
+                    url=refs[declared.kind].url,
+                    state=refs[declared.kind].state.value,
+                    reason=refs[declared.kind].reason,
+                )
+                for declared in workflow.ref_kinds
+                if declared.kind in refs
             ],
             edits=[
                 EditView(
@@ -681,6 +757,15 @@ class WorkItemService:
                 for decision in decisions
                 if decision.decision is not DecisionKind.PENDING
             ],
+            extraction_retryable=(
+                item.status is WorkItemStatus.NEEDS_REVIEW
+                and (gap is not None or item.extracted_at is None)
+            ),
+            extraction_job=(
+                job_view(active)
+                if active is not None and active.kind is JobKind.EXTRACT
+                else None
+            ),
         )
 
 

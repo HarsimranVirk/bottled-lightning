@@ -47,9 +47,13 @@ class FieldView(ApiModel):
 
 
 class PageRefView(ApiModel):
+    """One link to an SF object, with how sure extraction is of it."""
+
     kind: str
     name: str
     url: str
+    state: str = "found"
+    reason: str | None = None
 
 
 class EditView(ApiModel):
@@ -107,6 +111,8 @@ class ItemDetailView(ItemRowView):
     refs: list[PageRefView]
     edits: list[EditView]
     decisions: list[DecisionView]
+    extraction_retryable: bool = False
+    extraction_job: JobView | None = None
 
 
 class ItemsPageView(ApiModel):

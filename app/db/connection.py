@@ -8,7 +8,13 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from .schema import BACKFILL_APPROVED_HISTORY, SCHEMA, SCHEMA_VERSION
+from .schema import (
+    BACKFILL_APPROVED_HISTORY,
+    BACKFILL_V6_STATUSES,
+    SCHEMA,
+    SCHEMA_VERSION,
+    V6_ADDED_COLUMNS,
+)
 
 
 class _Local(threading.local):
@@ -89,8 +95,10 @@ class Database:
 
         A database older than version 5 receives the approved-history tables and a
         one-time backfill of every current item whose latest decision is ``accept``.
-        The backfill and the ``user_version`` bump commit together, so a crash retries
-        the copy instead of skipping it.
+        A database older than version 6 gains the ref ``state``/``reason`` columns and
+        the one-time ``skipped`` -> ``needs_review`` status migration. The backfills and
+        the ``user_version`` bump commit together, so a crash retries the copy instead of
+        skipping it.
         """
         conn = self.connect()
         if self._is_legacy(conn):
@@ -110,11 +118,30 @@ class Database:
                 # skipping it.
                 for statement in BACKFILL_APPROVED_HISTORY:
                     conn.execute(statement)
+            self._add_missing_columns(conn)
+            if version < 6:
+                for statement in BACKFILL_V6_STATUSES:
+                    conn.execute(statement)
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             conn.commit()
         except BaseException:
             conn.rollback()
             raise
+
+    def _add_missing_columns(self, conn: sqlite3.Connection) -> None:
+        """Add the v6 ref columns to a table created before this schema version.
+
+        ``CREATE TABLE IF NOT EXISTS`` is a no-op on an existing table, so an upgraded
+        database needs explicit ``ALTER TABLE``. Checking ``PRAGMA table_info`` first
+        keeps the step idempotent across a crash and harmless on a fresh database.
+        """
+        for table, column, declaration in V6_ADDED_COLUMNS:
+            columns = {
+                str(row["name"])
+                for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+            }
+            if column not in columns:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
 
     def _is_legacy(self, conn: sqlite3.Connection) -> bool:
         """True when the file holds the pre-refactor schema (its ``jobs`` table has no

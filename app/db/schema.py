@@ -6,7 +6,7 @@ workflows share the same tables without interfering. See docs/class-design-devia
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS work_items (
@@ -57,6 +57,8 @@ CREATE TABLE IF NOT EXISTS work_item_refs (
     kind TEXT NOT NULL,
     name TEXT NOT NULL,
     url TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'found',
+    reason TEXT,
     PRIMARY KEY (workflow, item_key, kind)
 );
 
@@ -200,6 +202,8 @@ CREATE TABLE IF NOT EXISTS approved_deviation_refs (
     kind TEXT NOT NULL,
     name TEXT NOT NULL,
     url TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'found',
+    reason TEXT,
     PRIMARY KEY (workflow, item_key, kind),
     FOREIGN KEY (workflow, item_key)
         REFERENCES approved_deviations(workflow, item_key) ON DELETE CASCADE
@@ -219,6 +223,38 @@ CREATE TABLE IF NOT EXISTS approved_deviation_edits (
 CREATE INDEX IF NOT EXISTS approved_deviation_edits_item
     ON approved_deviation_edits(workflow, item_key, id DESC);
 """
+
+#: One-time v5 -> v6 status migration.
+#:
+#: Extraction no longer parks work in ``skipped``: a row that could not produce a
+#: complete extraction lands in ``needs_review`` instead. The one legacy case that is
+#: not operator work is the missing-record-URL skip — that row simply had no link yet,
+#: so it returns to ``present`` and the reconciler queues extraction when the link
+#: appears. Ordering matters: the first statement matches only that exact legacy reason.
+BACKFILL_V6_STATUSES = (
+    """
+    UPDATE work_items
+       SET status = 'present', reason = NULL
+     WHERE status = 'skipped'
+       AND reason = 'no record URL on the list row'
+    """,
+    """
+    UPDATE work_items
+       SET status = 'needs_review'
+     WHERE status = 'skipped'
+    """,
+)
+
+#: Columns added in v6, as ``(table, column, declaration)``.
+#:
+#: ``CREATE TABLE IF NOT EXISTS`` never changes an existing table, so ``Database.migrate``
+#: adds these with ``ALTER TABLE`` when the freshly created schema did not supply them.
+V6_ADDED_COLUMNS = (
+    ("work_item_refs", "state", "TEXT NOT NULL DEFAULT 'found'"),
+    ("work_item_refs", "reason", "TEXT"),
+    ("approved_deviation_refs", "state", "TEXT NOT NULL DEFAULT 'found'"),
+    ("approved_deviation_refs", "reason", "TEXT"),
+)
 
 #: One-time v4 -> v5 backfill. Every statement is idempotent enough for a retry after a
 #: crash before ``user_version`` is bumped. Snapshot timestamps use SQLite's UTC clock

@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
+from functools import partial
 
 from playwright.async_api import Frame, Locator, Page
 
 from app.core.field import FieldTarget, ValueType, normalise
+from app.core.job_logger import JobLogger
 from app.core.models import PageRef
 from app.core.status import WriteOutcome
 from app.salesforce.adapters import (
@@ -22,16 +24,22 @@ from app.salesforce.adapters import (
     DiscoveredRef,
     Discovery,
     DiscoveryContext,
+    absent,
+    describe_target,
+    unresolved,
 )
 from app.salesforce.tabs import TabProvider
 from app.utils.dom import (
+    Deadline,
     absolute_url,
+    bounded,
     clear_and_fill,
     click_first_visible,
     poll,
+    related_list_empty,
     related_list_url,
     safe_inner_text,
-    wait_for_rows,
+    settled_row_count,
 )
 from app.workflows.deviations_z02.catalog import DeviationObject
 from app.workflows.deviations_z02.product_map import CL_CONTRACT_PRODUCT_MAP
@@ -71,22 +79,28 @@ async def _form_frame(page: Page, timeout_ms: int) -> Frame | None:
     The Lightning ref redirects to the ``loan__Loan_Account__c`` record page and embeds
     the Classic form in a ``tabbedLoanAccount`` iframe. A ref that is already a Classic
     URL may serve the table top-level. Return the top-level frame when it has the labels;
-    otherwise wait for the iframe and return that.
+    otherwise wait for the iframe and return that. Every wait uses a monotonic deadline.
     """
-    waited = 0
-    while waited <= timeout_ms:
-        if await page.locator("td.labelCol").count() > 0:
-            return page.main_frame
+    deadline = Deadline(timeout_ms)
+    while not deadline.expired:
+        try:
+            if await bounded(page.locator("td.labelCol").count, deadline) > 0:
+                return page.main_frame
+        except TimeoutError:
+            return None
         for frame in page.frames:
             if "tabbedLoanAccount" not in frame.url:
                 continue
             try:
-                if await frame.locator("td.labelCol").count() > 0:
-                    return frame
+                count = await bounded(frame.locator("td.labelCol").count, deadline)
+            except TimeoutError:
+                return None
             except Exception as exc:  # noqa: BLE001 - frame may still be loading
                 logger.debug("CL contract frame check failed: %s", exc)
-        await page.wait_for_timeout(500)
-        waited += 500
+                continue
+            if count > 0:
+                return frame
+        await page.wait_for_timeout(max(0, min(500, deadline.remaining_ms())))
     return None
 
 
@@ -112,19 +126,40 @@ class ClContractAdapter(AdapterBase):
         """Open the Lightning record page that embeds the editable form."""
         return await tabs.new_page(ref.url)
 
-    async def discover(self, tabs: TabProvider, context: DiscoveryContext) -> Discovery:
+    async def discover(
+        self, tabs: TabProvider, context: DiscoveryContext, log: JobLogger
+    ) -> Discovery:
         """Find the single CL contract matching the opportunity product."""
+        kind = DeviationObject.CL_CONTRACT.value
         if not context.opportunity_url:
-            return Discovery()
+            log("discover: cl_contract: no opportunity link to open")
+            return Discovery(
+                refs=(unresolved(kind, "Couldn't open the opportunity page"),)
+            )
         url = related_list_url(
             absolute_url(context.opportunity_url, self._org_base), _RELATED_LIST
         )
+        log(f"discover: cl_contract: opening related list {url}")
         page = await tabs.new_page(url)
         try:
-            await wait_for_rows(page.locator("tr.slds-hint-parent"), page, self._timeout_ms)
-            contracts = await _contracts(page)
+            rows = page.locator("tr.slds-hint-parent")
+            count = await settled_row_count(
+                rows, related_list_empty(page), self._timeout_ms
+            )
+            log(f"discover: cl_contract: {count!r} row(s)")
+            if count is None:
+                return Discovery(
+                    refs=(unresolved(kind, "Couldn't open the CL contract list"),)
+                )
+            contracts = await _contracts(page) if count > 0 else []
         finally:
             await tabs.close_page(page)
+
+        if count > 0 and not contracts:
+            log("discover: cl_contract: rows rendered but none were readable")
+            return Discovery(
+                refs=(unresolved(kind, "Couldn't read the CL contract list"),)
+            )
 
         target = (
             CL_CONTRACT_PRODUCT_MAP.get(context.product_type)
@@ -137,120 +172,201 @@ class ClContractAdapter(AdapterBase):
             if target is None or product == target
         ]
         if len(matching) > 1:
+            log(
+                f"discover: cl_contract: {len(matching)} matching contracts "
+                f"for {context.product_type!r} -> {target!r}"
+            )
             return Discovery(
-                skip_reason=(
-                    "skipped due to SF ambiguity: multiple matching CL contracts "
-                    f"({len(matching)}) for {context.product_type} -> {target}"
+                refs=(
+                    unresolved(
+                        kind,
+                        f"There are {len(matching)} CL contracts for this product — "
+                        "can't tell which one",
+                    ),
                 )
             )
         if len(matching) == 1:
             href, cid = matching[0]
+            log(f"discover: cl_contract: matched {cid}")
             return Discovery(
                 refs=(
                     DiscoveredRef(
-                        kind=DeviationObject.CL_CONTRACT.value,
+                        kind=kind,
                         name=cid,
                         url=absolute_url(href, self._org_base),
                     ),
                 )
             )
-        return Discovery()
+        log("discover: cl_contract: no contract for the product")
+        return Discovery(refs=(absent(kind, "No CL contract for this product"),))
 
     async def read(
-        self, page: Page, targets: Sequence[FieldTarget]
+        self, page: Page, targets: Sequence[FieldTarget], log: JobLogger
     ) -> dict[FieldTarget, str | None]:
         """Read the Classic cells for the requested targets."""
+        log("read: cl_contract: resolving Classic form frame")
         frame = await _form_frame(page, self._timeout_ms)
         if frame is None:
+            log("read: cl_contract: Classic form frame not found")
             return {target: None for target in targets}
         values: dict[FieldTarget, str | None] = {}
         for target in targets:
-            cell = await self._value_cell(frame, target)
+            name = describe_target(target)
+            cell = await self._value_cell(frame, target, self._timeout_ms)
             if cell is None:
+                log(f"read: cl_contract: {name}: cell not found")
                 values[target] = None
                 continue
             values[target] = await safe_inner_text(cell, self._timeout_ms)
+            log(f"read: cl_contract: {name}={values[target]!r}")
         return values
 
     async def write(
-        self, page: Page, values: Mapping[FieldTarget, str]
+        self, page: Page, values: Mapping[FieldTarget, str], log: JobLogger
     ) -> dict[FieldTarget, WriteOutcome]:
         """Inline-edit and save each Classic cell, returning per-target outcomes."""
+        log("apply: cl_contract: resolving Classic form frame")
         frame = await _form_frame(page, self._timeout_ms)
         if frame is None:
+            log("apply: cl_contract: Classic form frame not found")
             return {target: WriteOutcome.UNKNOWN for target in values}
         outcomes: dict[FieldTarget, WriteOutcome] = {}
         for target, value in values.items():
-            cell = await self._value_cell(frame, target)
+            name = describe_target(target)
+            cell = await self._value_cell(frame, target, self._timeout_ms)
             if cell is None:
+                log(f"apply: cl_contract: {name}: cell not found")
                 outcomes[target] = WriteOutcome.UNKNOWN
                 continue
-            outcomes[target] = await self._edit(frame, cell, target, value)
+            outcomes[target] = await self._edit(frame, cell, target, value, log)
         return outcomes
 
-    async def _label_cell(self, frame: Frame, target: FieldTarget) -> Locator | None:
+    async def _label_cell(
+        self, frame: Frame, target: FieldTarget, timeout_ms: int
+    ) -> Locator | None:
         """Find the ``td.labelCol`` for a target, scoping by section if repeated."""
-        matches = await _matching_labels(frame.locator("td.labelCol"), target.label)
+        deadline = Deadline(timeout_ms)
+        matches = await _matching_labels(
+            frame.locator("td.labelCol"), target.label, deadline.remaining_ms()
+        )
         if len(matches) == 1:
             return matches[0]
         if len(matches) > 1 and target.section is not None:
             header = frame.get_by_text(target.section, exact=True).first
-            if await header.count() > 0:
+            try:
+                header_count = await bounded(header.count, deadline)
+            except TimeoutError:
+                return matches[0]
+            if header_count > 0:
                 table = header.locator("xpath=ancestor::table[1]")
-                if await table.count() > 0:
+                try:
+                    table_count = await bounded(table.count, deadline)
+                except TimeoutError:
+                    return matches[0]
+                if table_count > 0:
                     scoped = await _matching_labels(
-                        table.locator("td.labelCol"), target.label
+                        table.locator("td.labelCol"),
+                        target.label,
+                        deadline.remaining_ms(),
                     )
                     if scoped:
                         return scoped[0]
         return matches[0] if matches else None
 
-    async def _value_cell(self, frame: Frame, target: FieldTarget) -> Locator | None:
+    async def _value_cell(
+        self, frame: Frame, target: FieldTarget, timeout_ms: int
+    ) -> Locator | None:
         """The value cell immediately following a target's label cell."""
-        label = await self._label_cell(frame, target)
+        label = await self._label_cell(frame, target, timeout_ms)
         if label is None:
             return None
         cell = label.locator("xpath=following-sibling::td[1]")
-        return cell.first if await cell.count() > 0 else None
+        try:
+            count = await bounded(cell.count, Deadline(timeout_ms))
+        except TimeoutError:
+            return None
+        return cell.first if count > 0 else None
 
     async def _edit(
-        self, frame: Frame, cell: Locator, target: FieldTarget, value: str
+        self,
+        frame: Frame,
+        cell: Locator,
+        target: FieldTarget,
+        value: str,
+        log: JobLogger,
     ) -> WriteOutcome:
         """Double-click the cell, fill it, save and verify the read-back."""
+        name = describe_target(target)
         try:
+            log(f"apply: cl_contract: {name}: double-clicking cell")
             await cell.dblclick(timeout=self._timeout_ms)
             if not await poll(lambda: _has_input(cell), self._timeout_ms):
+                log(f"apply: cl_contract: {name}: edit input did not appear")
                 return WriteOutcome.UNKNOWN
-            actual = await clear_and_fill(cell.locator("input").first, value)
+            log(f"apply: cl_contract: {name}: edit opened")
+            log(f"apply: cl_contract: {name}: filling {value!r}")
+            actual = await clear_and_fill(
+                cell.locator("input").first, value, self._timeout_ms
+            )
             if not _same(target, actual, value):
+                log(
+                    f"apply: cl_contract: {name}: input reads {actual!r}; "
+                    f"expected {value!r}"
+                )
                 return WriteOutcome.UNKNOWN
+            log(f"apply: cl_contract: {name}: filled {value!r}")
             save = frame.locator('input[name="inlineEditSave"]')
+            log(f"apply: cl_contract: {name}: clicking Save")
             if not await click_first_visible(save, self._timeout_ms):
+                log(f"apply: cl_contract: {name}: Save did not become clickable")
                 return WriteOutcome.UNKNOWN
+            log(f"apply: cl_contract: {name}: save clicked")
             if not await poll(
                 lambda: self._saved(frame, target, value), self._timeout_ms
             ):
+                log(f"apply: cl_contract: {name}: read-back did not match")
                 return WriteOutcome.REJECTED
+            log(f"apply: cl_contract: {name}: saved")
             return WriteOutcome.SAVED
         except Exception as exc:  # noqa: BLE001 - Classic AJAX may replace the cell
             logger.debug("cl-contract write failed for %s: %s", target, exc)
+            log(f"apply: cl_contract: {name}: error {type(exc).__name__}: {exc}")
             return WriteOutcome.UNKNOWN
 
     async def _saved(self, frame: Frame, target: FieldTarget, value: str) -> bool:
         """Whether the cell left edit mode and reads back the intended value."""
-        cell = await self._value_cell(frame, target)
+        cell = await self._value_cell(frame, target, 2000)
         if cell is None or await _has_input(cell):
             return False
         raw = await safe_inner_text(cell, 2000)
         return _same(target, raw, value)
 
 
-async def _matching_labels(labels: Locator, text: str) -> list[Locator]:
-    """All label cells whose trimmed text equals ``text``."""
+async def _matching_labels(
+    labels: Locator, text: str, timeout_ms: int
+) -> list[Locator]:
+    """All label cells whose trimmed text equals ``text``, within one budget."""
+    deadline = Deadline(timeout_ms)
     found: list[Locator] = []
-    for index in range(await labels.count()):
+    try:
+        count = await bounded(labels.count, deadline)
+    except TimeoutError:
+        return found
+    for index in range(count):
+        if deadline.expired:
+            break
         cell = labels.nth(index)
-        current = await safe_inner_text(cell, 1000)
+        try:
+            current = await bounded(
+                partial(
+                    safe_inner_text,
+                    cell,
+                    max(1, min(1000, deadline.remaining_ms())),
+                ),
+                deadline,
+            )
+        except TimeoutError:
+            break
         if current == text:
             found.append(cell)
     return found

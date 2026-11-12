@@ -88,12 +88,14 @@ function detail(status: string): ItemDetail {
       product_type: 'Home Loan (Resale)',
     },
     refs: [
-      { kind: 'opportunity', name: 'Shaban Khan', url: 'https://example/opp' },
-      { kind: 'cl_contract', name: 'LAI-00533155', url: 'https://example/cl' },
-      { kind: 'collateral', name: 'CJID-0000280688', url: 'https://example/coll' },
+      { kind: 'opportunity', name: 'Shaban Khan', url: 'https://example/opp', state: 'found' },
+      { kind: 'cl_contract', name: 'LAI-00533155', url: 'https://example/cl', state: 'found' },
+      { kind: 'collateral', name: 'CJID-0000280688', url: 'https://example/coll', state: 'found' },
     ],
     edits: [{ field: 'tenure', oldValue: null, newValue: '240', at: '2026-11-04T18:05:00Z' }],
     decisions: [{ decision: 'accept', reason: null, at: '2026-11-04T18:20:00Z' }],
+    extractionRetryable: false,
+    extractionJob: null,
   }
 }
 
@@ -192,19 +194,19 @@ export function DevStates(): JSX.Element {
               ...row('ready', 'Deviation-03112026-486382'),
               decision: { decision: 'accept', reason: null, at: '2026-11-04T18:20:00Z' },
               refs: [
-                { kind: 'opportunity', name: '0065g00000AbCdE', url: 'https://example/opp' },
-                { kind: 'cl_contract', name: 'LAI-00533155', url: 'https://example/cl' },
-                { kind: 'collateral', name: 'CJID-0000280688', url: 'https://example/coll' },
-                { kind: 'lms2_cl_contract', name: 'LAI-00533155', url: 'https://example/lm-cl' },
-                { kind: 'lms2_collateral', name: 'CJID-0000280688', url: 'https://example/lm-coll' },
+                { kind: 'opportunity', name: '0065g00000AbCdE', url: 'https://example/opp', state: 'found' },
+                { kind: 'cl_contract', name: 'LAI-00533155', url: 'https://example/cl', state: 'found' },
+                { kind: 'collateral', name: 'CJID-0000280688', url: 'https://example/coll', state: 'found' },
+                { kind: 'lms2_cl_contract', name: 'LAI-00533155', url: 'https://example/lm-cl', state: 'found' },
+                { kind: 'lms2_collateral', name: 'CJID-0000280688', url: 'https://example/lm-coll', state: 'found' },
               ],
             },
             {
               ...row('completed', 'Deviation-04112026-486814'),
               decision: { decision: 'accept', reason: null, at: '2026-11-04T17:05:00Z' },
               refs: [
-                { kind: 'opportunity', name: '0065g00000XyZab', url: 'https://example/opp-2' },
-                { kind: 'collateral', name: 'CJID-0000280999', url: 'https://example/coll-2' },
+                { kind: 'opportunity', name: '0065g00000XyZab', url: 'https://example/opp-2', state: 'found' },
+                { kind: 'collateral', name: 'CJID-0000280999', url: 'https://example/coll-2', state: 'found' },
               ],
             },
           ]}
@@ -270,6 +272,8 @@ export function DevStates(): JSX.Element {
           onDecide={async () => true}
           onReplay={() => {}}
           replaying={false}
+          onRetryExtraction={() => {}}
+          retrying={false}
           onHistory={() => {}}
           onRefresh={() => {}}
           refreshing={false}
@@ -292,6 +296,8 @@ export function DevStates(): JSX.Element {
           onDecide={async () => true}
           onReplay={() => {}}
           replaying={false}
+          onRetryExtraction={() => {}}
+          retrying={false}
           onHistory={() => {}}
           onRefresh={() => {}}
           refreshing={false}
@@ -314,6 +320,8 @@ export function DevStates(): JSX.Element {
           onDecide={async () => false}
           onReplay={() => {}}
           replaying={false}
+          onRetryExtraction={() => {}}
+          retrying={false}
           onHistory={() => {}}
           onRefresh={() => {}}
           refreshing={false}
