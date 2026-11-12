@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v2.14 |
-| **Date** | 2026-11-06 |
+| **Version** | v2.15 |
+| **Date** | 2026-11-12 |
 | **Feature** | Loan deviations (Z02) |
 | **Companions** | `docs/FR-deviations.md`, `docs/class-design-deviations.md`, `docs/data-model-deviations.md` |
 | **Implemented by** | `app/api/*` (refactor Phase 7) — live |
@@ -242,11 +242,11 @@ selection with OR — the same rule as every other column (FR-9.18, FR-9.21).
       "decision": { "decision": "accept", "reason": null, "at": "2026-11-04T18:20:00Z" },
       "activeJob": null,
       "refs": [
-        { "kind": "opportunity", "name": "006…", "url": "https://…/006…/view" },
-        { "kind": "cl_contract", "name": "LAI-00533155", "url": "https://…/a4b…/view" },
-        { "kind": "collateral", "name": "CJID-0000280688", "url": "https://…/a49…/view" },
-        { "kind": "lms2_cl_contract", "name": "LAI-00533155", "url": "https://…/LMS2…" },
-        { "kind": "lms2_collateral", "name": "CJID-0000280688", "url": "https://…/LMS2…" }
+        { "kind": "opportunity", "name": "006…", "url": "https://…/006…/view", "state": "found", "reason": null },
+        { "kind": "cl_contract", "name": "LAI-00533155", "url": "https://…/a4b…/view", "state": "found", "reason": null },
+        { "kind": "collateral", "name": "CJID-0000280688", "url": "https://…/a49…/view", "state": "found", "reason": null },
+        { "kind": "lms2_cl_contract", "name": "LAI-00533155", "url": "https://…/LMS2…", "state": "found", "reason": null },
+        { "kind": "lms2_collateral", "name": "CJID-0000280688", "url": "https://…/LMS2…", "state": "found", "reason": null }
       ]
     }
   ]
@@ -285,16 +285,30 @@ Adds attributes and refs, grouped for the detail panel:
     "record_id": "a2fS2000000fR5tIAE"
   },
   "refs": [
-    { "kind": "opportunity", "name": "Shaban Khan", "url": "https://…/Opportunity/006…/view" },
-    { "kind": "cl_contract", "name": "LAI-00533155", "url": "https://…/a5B…/view" },
-    { "kind": "collateral", "name": "CJID-0000280688", "url": "https://…/a49…/view" },
-    { "kind": "lms2_cl_contract", "name": "LAI-00533155", "url": "https://…/CL_Contract_Detail?c__loanId=…" },
-    { "kind": "lms2_collateral", "name": "CJID-0000280688", "url": "https://…/Collateral_Detail?c__collateralId=…" }
+    { "kind": "opportunity", "name": "Shaban Khan", "url": "https://…/Opportunity/006…/view", "state": "found", "reason": null },
+    { "kind": "cl_contract", "name": "LAI-00533155", "url": "https://…/a5B…/view", "state": "found", "reason": null },
+    { "kind": "collateral", "name": "", "url": "", "state": "unresolved", "reason": "Couldn't open the collateral list" },
+    { "kind": "lms2_cl_contract", "name": "LAI-00533155", "url": "https://…/CL_Contract_Detail?c__loanId=…", "state": "found", "reason": null },
+    { "kind": "lms2_collateral", "name": "CJID-0000280688", "url": "https://…/Collateral_Detail?c__collateralId=…", "state": "found", "reason": null }
   ],
   "edits": [ { "field": "tenure", "oldValue": null, "newValue": "240", "at": "…" } ],
-  "decisions": [ { "decision": "accept", "reason": null, "at": "2026-11-04T18:20:00Z" } ]
+  "decisions": [ { "decision": "accept", "reason": null, "at": "2026-11-04T18:20:00Z" } ],
+  "extractionRetryable": false,
+  "extractionJob": null
 }
 ```
+
+`refs` is ordered by the workflow's declared kinds. `state` is `found`, `absent` (the
+related list rendered and Salesforce says the object does not exist) or `unresolved`
+(the page did not load or the match was ambiguous). A ref that is not `found` has an
+empty `name`/`url` and a plain-language `reason`, which is what the card shows instead of
+a dead link.
+
+`extractionRetryable` is true when `POST …/extractions` would be accepted for this item
+right now; the card shows the retry action from it and never derives eligibility itself.
+`extractionJob` is the item's queued/running `extract` job (`null` otherwise), used to
+disable that action and show the in-progress line. Both are `false`/`null` on history
+snapshots.
 
 ### `POST /api/deviations/{key}/decisions` → `200`
 
@@ -352,6 +366,8 @@ every proposed value before returning.
 - `409` when an active job already exists for the item (enforced by the partial unique
   index, not by a check-then-insert).
 - `409` with `code: "login_required"` when `AuthGate` is paused.
+- `409` with `code: "extraction_incomplete"` and the link's plain reason when a required
+  object link is not `found`; nothing is enqueued and the item keeps its status.
 - `422` when there are no proposed values to submit.
 
 A `SUBMIT` job applies and validates the values, then implements the deviation: it opens
@@ -368,6 +384,27 @@ Approval** (FR-6.17). That is internal browser work: no endpoint, payload, statu
 error code or TypeScript type changes. A refusal or an unconfirmed approval is reported
 exactly like any other failed write — the item moves to `needs_review` and the existing
 job log/reason names the object and target.
+
+### `POST /api/deviations/{key}/extractions` → `202`
+
+Queues one more extraction for an item that needs review. This is the only way an
+extraction starts after review; nothing retries automatically.
+
+```json
+{ "jobId": 43, "kind": "extract", "status": "queued" }
+```
+
+| Condition | Response |
+|---|---|
+| item is `needs_review` and its extraction is incomplete or has no marker | `202`, job queued |
+| item is in any other status | `409 extraction_not_retryable` |
+| links complete and a finished extraction exists | `409 extraction_complete` |
+| an active job already exists for the item | `409 job_active` |
+
+The item keeps its status while the job is queued, so the card shows the job instead of
+flickering back to an unreviewed state. The extraction marker (`extracted_at`) is cleared
+so the one-shot rule cannot skip the work; stored values, proposals and the current reason
+stay until the new job reports its own outcome.
 
 ## 6. Jobs
 
@@ -631,13 +668,21 @@ export interface ItemRow {
   activeJob: JobView | null;
 }
 
-export interface PageRefView { kind: string; name: string; url: string }
+export interface PageRefView {
+  kind: string;
+  name: string;
+  url: string;
+  state: "found" | "absent" | "unresolved";
+  reason: string | null;
+}
 
 export interface ItemDetail extends ItemRow {
   attributes: Record<string, string | null>;
   refs: PageRefView[];
   edits: { field: string; oldValue: string | null; newValue: string | null; at: string }[];
   decisions: DecisionView[];
+  extractionRetryable: boolean;
+  extractionJob: JobView | null;
 }
 
 export interface ItemsPage {
@@ -780,6 +825,8 @@ Deleted rather than deprecated: `/api/views*`, `/api/views/{id}/run`,
 - `PATCH` rejects unnormalisable values and never writes `proposed` without a validation
   pass.
 - `POST …/jobs` cannot create a second active job (409 from the index, not a race).
+- `POST …/extractions` is the only extraction retry path, and it refuses anything the
+  server would not accept (409 with a code, never a silent no-op).
 - The TypeScript in §9 compiles with `strict` and is the only copy of these payloads.
 - The deck picker adds no endpoint or query parameter; ordering is client-side over the
   fetched page (FR-10.12).

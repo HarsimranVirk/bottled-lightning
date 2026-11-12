@@ -24,9 +24,11 @@ const base: ItemDetail = {
   decision: null,
   activeJob: null,
   attributes: { product_type: 'Home Loan', description: 'LA-13,00,000' },
-  refs: [{ kind: 'opportunity', name: 'Opp', url: 'https://example/opp' }],
+  refs: [{ kind: 'opportunity', name: 'Opp', url: 'https://example/opp', state: 'found' }],
   edits: [{ field: 'tenure', oldValue: null, newValue: '240', at: '2026-11-04T18:05:00Z' }],
   decisions: [],
+  extractionRetryable: false,
+  extractionJob: null,
 }
 
 const fields = [

@@ -50,8 +50,18 @@ function props(overrides: Partial<Parameters<typeof HistoryTable>[0]> = {}) {
   return {
     rows: [
       row('Deviation-A', 'ready', [
-        { kind: 'opportunity', name: 'Opportunity 1', url: 'https://e/opp' },
-        { kind: 'collateral', name: 'CJID-0000280688', url: 'https://e/coll' },
+        {
+          kind: 'opportunity',
+          name: 'Opportunity 1',
+          url: 'https://e/opp',
+          state: 'found',
+        },
+        {
+          kind: 'collateral',
+          name: 'CJID-0000280688',
+          url: 'https://e/coll',
+          state: 'found',
+        },
       ]),
       row('Deviation-B', 'completed'),
     ],

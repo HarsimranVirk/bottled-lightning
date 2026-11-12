@@ -288,6 +288,8 @@ export const api = {
     request(`/api/${route}/${encodeURIComponent(key)}/decisions`, { method: 'DELETE' }),
   submitJob: (route: string, key: string): Promise<JobView> =>
     request(`/api/${route}/${encodeURIComponent(key)}/jobs`, { method: 'POST' }),
+  retryExtraction: (route: string, key: string): Promise<JobView> =>
+    request(`/api/${route}/${encodeURIComponent(key)}/extractions`, { method: 'POST' }),
   jobs: (params: JobQuery = {}): Promise<JobsPage> =>
     request(`/api/jobs${jobsQuery(params)}`),
   jobLogs: (id: number): Promise<JobLogs> => request(`/api/jobs/${id}/logs`),

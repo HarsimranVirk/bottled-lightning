@@ -12,207 +12,76 @@ Lightning list views we don't have REST API access to. Backend is Python
 the home page handles session auth (manual-login trigger, snapshot status,
 localStorage mirror).
 
-## Feature work goes through plan mode (mandatory)
+## Minimal changes: code is a liability
 
-Never start implementing a new feature request directly. Every feature — and any
-change that alters behaviour, data shape, or an API contract — starts in **plan
-mode**, and no code is written until the design is written down in `docs/`.
+Every line we add has to be read, tested, migrated and maintained, so treat code
+itself as a cost. For any task, change the **least** code that fully solves the
+stated problem, and leave everything else alone.
 
-A plan is only complete when it contains all five of these, in this order:
+- No speculative generality: no options, parameters, abstraction layers, or
+  helpers added "in case we need them". Add them when a second caller exists.
+- No scope creep: no drive-by renames, reformatting, dependency bumps, or
+  "while we're in there" refactors. Unrelated cleanups get their own task.
+- Prefer deleting code to adding it, and reuse the helper/pattern that already
+  does the job before writing a new one. Duplicating three lines is often
+  cheaper than a shared abstraction nobody else needs.
+- A new file, table, column, endpoint, or setting needs to be justified by *this
+  task*. If it cannot, it does not go in.
+- Tests cover the behaviour the task changed, not every branch passed on the way.
+- Minimal is not incomplete: the change still has to be correct, typed,
+  documented (see below), and verified. Cutting corners on those is not
+  "smaller", it is broken.
 
-1. **FR doc** — create or edit the feature's requirements document in `docs/`
-   (follow the existing shape, e.g. `docs/FR-deviations.md`: status/version
-   header, purpose, in-scope, out-of-scope, numbered requirement IDs `FR-x.y`,
-   edge cases, acceptance criteria). Existing FR docs are edited in place
-   (bump the version) rather than duplicated.
-2. **Class design** — `docs/class-design-<feature>.md`: the classes, Protocols,
-   workflow seams, ownership boundaries, and how the new pieces plug into
-   `app/core` / `app/salesforce` / `app/jobs` / `app/workflows/*`. Every class
-   named there must have a single clear responsibility and documented
-   collaborators.
-3. **Data model** — tables/columns, types, keys, indexes, one-shot vs. mutable
-   semantics, retention, and the migration path. State which store owns the
-   data (`data/app.db` SQLite, in-process state, or the browser session) and what
-   happens to existing rows.
-4. **API design** — endpoints and their request/response payloads (obeying the
-   API conventions below), status/error cases, and the matching TypeScript
-   types in `frontend/src/types.ts`.
-5. **Decision register** — `docs/decisions-<feature>.md`: every locked design
-   decision as a numbered entry (`D-01`, `D-02`, …) with the alternative that
-   was rejected and why. It is the lock record described in "Implementation
-   gate" below; implementation starts only once it is `LOCKED`.
+If you think a larger change is genuinely warranted, say so and get agreement
+first — do not fold it into the current task.
 
-Rules for the plan-mode phase:
+## Feature work: plan → review → implement
 
-- **All design decisions are recorded in `docs/` — the docs are the source of
-  truth.** A decision that exists only in chat, a commit message, or a PR
-  description does not count.
-- Implementation starts **only after** the five documents exist and the user has
-  approved the plan. Then `docs/refactor-plan-<feature>.md` (phases, cutover,
-  rollback) is the execution order to follow.
-- If implementation reveals a design gap, **stop and amend the doc first**, then
-  continue. Never let `docs/` drift from the code: a behaviour change and its
-  doc update ship in the same change.
+Every feature — and any change that alters behaviour, data shape, or an API
+contract — follows these steps, in this order.
 
-### Design discussion and approval gate (mandatory)
+1. **Write a solid implementation plan.** Before touching code, work out the
+   concrete change: the files, classes, functions, DB tables/columns, endpoints,
+   TypeScript types, and user-visible behaviour that would change, plus what
+   stays the same, the main risks, and how the result will be verified (tests,
+   commands, manual check). Keep it as long as the change deserves — a few
+   paragraphs for a small change, more for a large one — but be specific enough
+   that the user can spot a wrong assumption before code exists.
 
-A feature request is **not** approval of a design. Before changing behaviour,
-data shape, an API contract, a Protocol/interface, a database table, or a
-selector strategy, the agent must discuss the design with the user and wait for
-explicit approval. This applies even when the user says "do it" in general
-terms — the agent still proposes the concrete design first.
+2. **Review and discuss it with the user.** Present the plan in plain language
+   (what changes, what stays, realistic alternatives where they matter) and ask
+   a concrete question. Do not implement in the same turn as the proposal;
+   wait for explicit approval. If the user asks a question, reports a bug, or
+   asks for an explanation, answer or investigate first — do not turn it into
+   an unrequested code change.
 
-The discussion must happen **before** code or doc edits, and must be in plain
-language, not a keyword dump:
+3. **Implement in small slices.** One slice at a time, each small enough that
+   the diff is easy to verify and validate in a single turn. Say what a slice
+   will change before starting it. Do not bundle unrelated changes, renames, or
+   "while we're in there" edits into the same slice. If implementation reveals
+   the plan was wrong, stop and say so before changing direction. Keep each
+   slice to the smallest code change that fully solves its part (see "Minimal
+   changes" above).
 
-1. **Explain what is being proposed and why.** Name the exact files, classes,
-   fields, endpoints, and user-visible behaviour that would change. Say what
-   stays the same.
-2. **List the realistic alternatives** (including "do nothing") and the
-   trade-offs: risk, effort, reversibility, effect on existing rows/data, and
-   effect on the operator workflow.
-3. **Ask a concrete question** and wait. A good question is "Approve option A
-   (…), option B (…), or do you want a different shape?" — not "shall I
-   proceed?".
-4. **Do not implement, edit code, or rewrite design docs in the same turn as the
-   proposal** unless the user has explicitly approved the proposal in that
-   conversation. Approval must be explicit ("yes, implement option A", "go
-   ahead with that design"), not inferred from an earlier feature request.
-5. **If the user asks a question, reports a bug, or asks for an explanation, answer
-   or investigate first.** Do not turn it into an unrequested code change.
-6. **If a design gap appears mid-implementation, stop and ask.** Do not silently
-   redesign, rename, or widen scope. Record the gap in the relevant `docs/` file
-   only after the user approves the direction.
-7. **Keep the user in the loop.** After approval, describe each implementation
-   slice in detail before starting it, and do not bundle unrelated design
-   changes into the same slice.
+4. **Report each slice before moving on.** After a slice lands, give a short
+   summary of the code changes plus a walkthrough of what changed and how to
+   validate it:
+   - which files changed and what each one now does;
+   - the user-visible flow or call chain affected (entry point → layers →
+     result), with concrete inputs/outputs;
+   - anything non-obvious and why it is written that way;
+   - exact validation steps: commands to run, UI clicks, or `curl` calls, and
+     the expected output/state;
+   - the gate results for that slice (ruff, mypy, typecheck, tests).
 
-This gate is intentionally stricter than "plan mode": the four design documents
-plus the locked decision register are the record, but the user's explicit
-approval is what authorises implementation.
+   Then continue with the next slice unless the user asks to pause or validate
+   first.
 
-## Implementation gate — lock → build → walkthrough (mandatory)
-
-Every implementation runs in three phases, in this order. A phase may not be
-skipped, and the agent may not enter the next phase on its own authority. The
-point is that the design is frozen before code exists and that the finished code
-is explained back to the user in writing.
-
-### Phase A — Design lock (before any code)
-
-Writing the design docs is not the same as locking them. Until locked, every
-decision is a proposal that can still change.
-
-1. **Keep a decision register** at `docs/decisions-<feature>.md`. One row per
-   decision, with a stable ID that is never reused or renumbered:
-
-   | ID | Decision (one sentence) | Rejected alternative | Why | Touches | Status |
-   |---|---|---|---|---|---|
-   | D-01 | … | … | … | files/tables/endpoints/classes | locked |
-
-   The header carries `Status: PROPOSED` or `Status: LOCKED`, a version, the
-   lock date, and who approved it. The register is a summary with pointers; the
-   reasoning still lives in the four design docs.
-
-2. **Present the register for approval.** Before locking, show the user the
-   complete `D-xx` list in plain language (what changes, what stays, the rejected
-   alternative) and ask a concrete question: "Lock D-01…D-12 as listed, or change
-   which ones?" This is a separate approval from "the plan looks good".
-
-3. **Lock only on explicit approval.** Then and only then write
-   `Status: LOCKED`, the date, the approver, and bump the register version.
-   Re-read the four design docs for contradictions first: two docs disagreeing
-   is a design gap, not something to resolve in code. Update the ledger row to
-   `locked` in the same edit so the state is visible from `docs/README.md`.
-
-4. **Locked means frozen.** A locked entry is never edited in place. To change
-   one, stop, add a dated amendment (`D-07a`, or a new `D-nn` that supersedes
-   `D-07`), state what changed and why, get explicit approval, re-lock at the
-   next version, and only then continue. Every amendment names the files and
-   behaviour it invalidates.
-
-5. **No lock, no code.** This includes "small" changes, renames, and
-   "while we're in there" edits. If the lock is missing or stale, the correct
-   action is to stop and ask, not to proceed and document afterwards.
-
-### Phase B — Build in announced slices
-
-Implement against the locked register, one slice at a time (see gate rule 7
-above). Each slice names the `D-xx` / `FR-x.y` IDs it satisfies. If the code
-disagrees with a locked decision, the code is wrong until an amendment is
-approved. Move the ledger row to `building` when the first slice lands and to
-`review` when the last one does.
-
-### Phase C — Short guide plus live walkthrough (before "done")
-
-Implementation is not finished when the tests pass. It is finished when the
-user can follow what was built. The short guide is written down; the walkthrough
-is a discussion with the user, not a document.
-
-1. **`docs/guide-<feature>.md` — the short guide.** Aim for one to two pages,
-   written for someone who has never seen the code. Required sections:
-   - what the feature does, in operator language;
-   - how to run and use it: exact commands, UI steps, and the endpoints it calls;
-   - configuration/env vars and where state lives (which DB, which table);
-   - the five most likely failure modes and what to do about each;
-   - a pointer to the design docs and decision register.
-
-2. **Live code walkthrough and review — in chat, with the user.** After the code
-   is green, walk the user through it as a conversation. Do **not** write a
-   walkthrough document; do not dump a wall of text and call it reviewed. The
-   walkthrough must cover, in whatever order the user wants:
-   - **File map** — every file added or changed, its responsibility, and the
-     `D-xx` / `FR-x.y` IDs it implements.
-   - **End-to-end traces with real examples** — one per user-visible flow,
-     following the actual call chain: UI action or `curl` → route → service →
-     repository/job → browser/DB → response. Quote real payloads and show the
-     row/state that results. Example shape:
-     `POST /api/syncs?workflow=deviations_z02` → `SyncService.request()` →
-     `jobs` row with `kind=SYNC` → dispatcher → worker → list page → reconcile.
-   - **Non-obvious code** — short excerpts with `file:line` and *why* it is
-     written that way: the locking, the retry, the regex, the ordering
-     constraint. Skip line-by-line narration of self-evident code.
-   - **Failure paths** — expired session, timeout, ambiguity, cancelled job, bad
-     payload: the exact status/error the user sees.
-   - **Lock reconciliation** — `D-id → where implemented (file:line) → test that
-     proves it`. Any row without a test or a file is a finding, said out loud.
-   - **Deviations found during review** — must be none, or each one is an
-     approved amendment. Anything else is an unreviewed design change and the
-     agent must stop and raise it.
-   - **Open risks and follow-ups** — stated plainly, not buried.
-
-   Run it interactively: take one flow at a time, pause, invite questions, and
-   follow the user's questions into whatever file or behaviour they care about.
-   The review is done when the user has asked what they wanted and confirms they
-   have the picture — not when the agent has finished talking. If the user's
-   questions expose a gap, stop and go back through the approval gate.
-
-3. **Update the ledger.** `docs/README.md` holds the index table
-   (`feature | status | decision register | FR | walkthrough | guide | last
-   updated`). Move the feature to `done` only when the guide exists and the live
-   walkthrough has happened; record the walkthrough as `reviewed <date>` rather
-   than a file link. Keep the guide and ledger current: a later behaviour change
-   updates them in the same change, and earns a fresh walkthrough of the part
-   that changed.
-
-4. **Report back in chat.** The closing message links the guide, names the
-   flows the walkthrough covered, and lists the gate results (ruff, mypy,
-   typecheck, tests). A feature with no guide or no walkthrough is reported as
-   incomplete, not as done.
-
-### What "followed" means (self-check before finishing)
-
-Before the final message, verify and state each of these:
-
-- the decision register is `LOCKED`, with no orphan `PROPOSED` rows;
-- every implemented behaviour traces to a `D-xx` (and an `FR-x.y` where one applies);
-- code, guide, and ledger agree on the behaviour;
-- the live walkthrough happened and covered the flows that changed — not that a
-  file exists;
-- gate commands were actually run and their results are quoted;
-- no scratch files or temporary artefacts remain.
-
-If any box is unticked, say so explicitly instead of implying completion.
+Existing design records in `docs/` (FR docs, class design, data model, API
+design, decision registers, refactor plans, guides) remain useful reference
+material for larger features, and should be kept consistent with the code when
+they exist. They are no longer a required gate: use them when a change is big
+enough to need a written record, and skip them for routine work.
 
 ## Code documentation (required for every class and method)
 
@@ -312,14 +181,11 @@ refresh; the watcher also refreshes every `SF_RESYNC_INTERVAL_SECONDS`.
     tests/             backend unit tests (no network, no browser)
     frontend/          React (Vite) + Salt DS SPA (TypeScript, strict) —
                        home/auth + deviations deck; API types in src/types.ts
-    docs/              design docs and the source of truth for decisions:
-                       FR-<feature>.md, class-design-<feature>.md,
-                       data-model-<feature>.md, api-<feature>.md,
-                       decisions-<feature>.md (the lock),
-                       refactor-plan-<feature>.md (see "plan mode" above),
-                       then guide-<feature>.md after implementation; the code
-                       walkthrough happens as a discussion, not a doc;
-                       README.md is the feature ledger
+    docs/              reference docs: existing FR / class-design / data-model
+                       / api / decisions / refactor-plan records,
+                       guide-<feature>.md, dev-tools.md, and README.md (feature
+                       ledger). Used for larger features; not a required gate
+                       (see "Feature work" above)
     data/              runtime state in a checkout (gitignored): app.db (includes
                        session snapshots), sf_profile_login/, sf_profile_worker/;
                        installed builds use the OS app-data dir
@@ -425,9 +291,8 @@ saved session — run the manual login once; snapshots refresh automatically.
   the total and later pages stay correct.
 - Clean up any temporary/scratch files created during work, wherever on the system (e.g. /tmp, the OS temp dir, scratch dirs, worktrees) before finishing; don't leave throwaway scripts or artifacts behind.
 - Extraction code changes require re-verifying the header-total cross-check.
-- Never close a task without the Phase C artefacts: `docs/guide-<feature>.md`,
-  the live walkthrough with the user, and an updated `docs/README.md`. If the
-  work changed behaviour, the guide and ledger move in the same change as the
-  code, and the changed part gets walked through again — no walkthrough doc is
-  written.
+- Close a task by reporting what changed, why, and the quoted gate results
+  (ruff, mypy, typecheck, tests). If a change altered behaviour in a way
+  operators or future maintainers need to know, update the relevant `docs/`
+  guide or notes in the same change.
 - After every edit, run ruff (`ruff check app/ frontend/`) and resolve **all** reported issues (including import sorting I001) before considering the change complete. The project uses ruff for linting/formatting; no ruff warnings may remain.

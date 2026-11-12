@@ -58,7 +58,13 @@ def main() -> int:
     workflow = build_workflow(settings, deps)
     closure = ClosureResolver(deps.items, jobs, events)
     reconciler = Reconciler(
-        workflow, deps.items, jobs, deps.attributes, SyncRunRepository(database), closure
+        workflow,
+        deps.items,
+        jobs,
+        deps.attributes,
+        deps.refs,
+        SyncRunRepository(database),
+        closure,
     )
     auth = AuthGate(jobs, events)
     runtime = BrowserRuntime(settings, session)

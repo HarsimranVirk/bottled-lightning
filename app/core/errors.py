@@ -19,6 +19,15 @@ class UnknownAdapter(WorkflowError):
     """A workflow has no adapter for an object kind."""
 
 
+class UnknownRefKind(WorkflowError):
+    """Extraction produced a link kind the workflow does not declare.
+
+    A programming error, not an operator problem: it means an adapter named an object
+    kind that is missing from ``Workflow.ref_kinds``. Extraction raises it before
+    persisting, so a typo fails loudly instead of storing a link nobody reads.
+    """
+
+
 class InvalidTransition(WorkflowError):
     """A status change is not allowed by the state machine."""
 

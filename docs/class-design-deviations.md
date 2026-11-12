@@ -3,10 +3,10 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v4.13 |
-| **Date** | 2026-11-06 |
-| **Companions** | `docs/FR-deviations.md` (v3), `docs/data-model-deviations.md`, `docs/api-deviations.md`, `docs/refactor-plan-deviations.md` |
-| **Change** | Introduced the workflow abstraction; earlier drafts were deviations-only |
+| **Version** | v4.15 |
+| **Date** | 2026-11-12 |
+| **Companions** | `docs/FR-deviations.md` (v5.32), `docs/data-model-deviations.md` (v4.3), `docs/api-deviations.md` (v2.15), `docs/decisions-extraction-retry.md`, `docs/class-design-job-runtime.md` |
+| **Change** | Introduced the workflow abstraction; earlier drafts were deviations-only. v4.14 added the job-runtime seam; v4.15 adds the tri-state link model, the completeness gate and the reconciler audit (`docs/decisions-extraction-retry.md`). |
 | **Implemented so far** | Phases 1–7 including the full 6: `app/db`, `app/core` (models, status, field, list view, workflow, registry, repos), `app/salesforce/{runtime,session,login,tabs,list_page,urls,adapters}`, `app/jobs/{dispatcher,worker,auth,logger}`, `app/pipeline/{watcher,reconciler,closure}`,
 `app/utils/dom`, `app/workflows/deviations_z02/{catalog,description,product_map,adapters,extraction,submission}` |
 
@@ -172,9 +172,9 @@ Outcomes are shared vocabulary, because the worker (not the pipeline) owns the e
 
 ```python
 class ExtractOutcome(StrEnum):
-    EXTRACTED = "extracted"     # ready for the operator
-    SKIPPED = "skipped"         # ambiguity / missing data, terminal, with reason
-    FAILED = "failed"           # retryable
+    EXTRACTED = "extracted"     # every required link found; item ready
+    INCOMPLETE = "incomplete"   # a required link is absent/unresolved; item needs_review
+    FAILED = "failed"           # persistence or programming problem; job may retry once
 
 class SubmitOutcome(StrEnum):
     COMPLETED = "completed"     # final action performed by us
@@ -200,7 +200,7 @@ class Workflow:
     submission: SubmissionPipeline
     map_row: Callable[[ListRow], Mapping[str, str]]   # list-visible attrs → store
     terminal_labels: Mapping[WorkItemStatus, str]     # UI wording, e.g. COMPLETED→Implemented
-    ref_kinds: tuple[str, ...] = ()                   # object kinds the UI must show, or mark missing
+    ref_kinds: tuple[RefKind, ...] = ()               # declared object kinds, in display order
 ```
 
 `name` identifies the workflow internally (and scopes every DB row); `route` is the REST
@@ -314,7 +314,7 @@ class WorkItemStatus(StrEnum):
     NEEDS_REVIEW = "needs_review"
     COMPLETED = "completed"          # terminal, source=system
     CLOSED = "closed"                # terminal, source=external
-    SKIPPED = "skipped"              # terminal, with reason
+    SKIPPED = "skipped"              # legacy terminal state; extraction no longer writes it
 
 TERMINAL_STATUSES: frozenset[WorkItemStatus] = frozenset(
     {WorkItemStatus.COMPLETED, WorkItemStatus.CLOSED, WorkItemStatus.SKIPPED}
@@ -433,8 +433,10 @@ class PageRef:
     workflow: str
     item: str
     kind: str                     # workflow-defined: "cl_contract", "lms2_collateral", …
-    name: str
-    url: str
+    name: str                     # empty unless state is found
+    url: str                      # empty unless state is found
+    state: RefState = RefState.FOUND   # found | absent | unresolved
+    reason: str | None = None     # plain-language reason when not found
 
 @dataclass(frozen=True, slots=True)
 class Job:
@@ -571,6 +573,8 @@ class AttributeRepository:
 
 class PageRefRepository:
     def for_item(self, workflow: str, key: str) -> dict[str, PageRef]: ...
+    def for_items_in_status(self, workflow: str, status: WorkItemStatus
+                            ) -> dict[str, dict[str, PageRef]]: ...   # audit LEFT JOIN
     def replace(self, workflow: str, key: str, refs: Sequence[PageRef]) -> None: ...
 
 class JobRepository:
@@ -582,7 +586,7 @@ class JobRepository:
     def fail(self, job_id: int, error: str, retryable: bool) -> None: ...
     def release_blocked(self, job_id: int) -> None: ...
     def cancel_active_for(self, workflow: str, key: str) -> int: ...
-    def requeue_stale(self) -> int: ...
+    def requeue_stale(self, max_attempts: int) -> int: ...  # fail at the cap
     def query(self, filters: JobQuery) -> JobPage: ...   # paginated + sorted
     def recent(self, workflow: str | None, kind: JobKind | None,
              status: JobStatus | None, limit: int) -> list[Job]: ...
@@ -770,24 +774,29 @@ class DiscoveryContext:
 @dataclass(frozen=True, slots=True)
 class DiscoveredRef:
     kind: str
-    name: str
-    url: str
+    name: str = ""                # empty unless state is found
+    url: str = ""                 # empty unless state is found
+    state: RefState = RefState.FOUND
+    reason: str | None = None     # plain-language, never exception text
+
+def unresolved(kind: str, reason: str) -> DiscoveredRef: ...
+def absent(kind: str, reason: str) -> DiscoveredRef: ...
 
 @dataclass(frozen=True, slots=True)
 class Discovery:
     refs: tuple[DiscoveredRef, ...] = ()
     attributes: Mapping[str, str | None] = field(default_factory=dict)
     fields: Mapping[str, str | None] = field(default_factory=dict)
-    skip_reason: str | None = None
 
 class ObjectAdapter(Protocol):
     kind: str
-    async def discover(self, tabs: TabProvider, context: DiscoveryContext) -> Discovery: ...
+    async def discover(self, tabs: TabProvider, context: DiscoveryContext,
+                       log: JobLogger) -> Discovery: ...
     async def open(self, tabs: TabProvider, ref: PageRef) -> Page: ...
-    async def read(self, page: Page,
-                   targets: Sequence[FieldTarget]) -> dict[FieldTarget, str | None]: ...
-    async def write(self, page: Page,
-                    values: Mapping[FieldTarget, str]) -> dict[FieldTarget, WriteOutcome]: ...
+    async def read(self, page: Page, targets: Sequence[FieldTarget],
+                   log: JobLogger) -> dict[FieldTarget, str | None]: ...
+    async def write(self, page: Page, values: Mapping[FieldTarget, str],
+                    log: JobLogger) -> dict[FieldTarget, WriteOutcome]: ...
 
 class AdapterRegistry:
     def __init__(self, adapters: Iterable[ObjectAdapter]) -> None: ...
@@ -795,8 +804,15 @@ class AdapterRegistry:
 ```
 
 `discover()` runs during extraction and returns only what that object contributes: its
-link, its read-only attributes, any catalogue values it is the source of, or a skip
-reason (FR-3.7). It never persists and never decides item status.
+link — `found`, `absent` or `unresolved`, with a plain reason when it is not `found` —
+its read-only attributes, and any catalogue values it is the source of (FR-3.5, FR-3.7).
+It never persists and never decides item status.
+
+Every adapter method also receives the job's `JobLogger` and writes one line per object,
+field and step (`docs/class-design-job-runtime.md` §3.7, FR-7.13), so a stall names the
+exact operation in the persisted log. The logger is a callable seam only; adapters still
+cannot read or write the database directly. All adapter waits use the bounded helpers in
+`app/utils/dom.py` (`Deadline`/`bounded`, FR-7.12).
 
 `write()` = open the record → enter edit mode (inline pencil/double-click or the page's
 Edit button) → **clear each input**, fill the canonical value, read the widget value back
@@ -929,8 +945,8 @@ outcome, handled by the two branches above.
 ```python
 class Reconciler:
     def __init__(self, workflow: Workflow, items: WorkItemRepository,
-                 fields: FieldValueRepository, attrs: AttributeRepository,
-                 jobs: JobRepository, runs: SyncRunRepository,
+                 jobs: JobRepository, attrs: AttributeRepository,
+                 refs: PageRefRepository, runs: SyncRunRepository,
                  closure: ClosureResolver) -> None: ...
     def apply(self, sample: ListSample) -> SyncRun: ...
 ```
@@ -941,12 +957,13 @@ knowing what a deviation is:
 ```
 if not sample.valid:            record warning, mutate nothing        (FR-2.9)
 for row in sample.rows:
-    unknown      → create_present + enqueue EXTRACT                   (FR-2.3)
+    unknown      → create_present; enqueue EXTRACT only when href     (FR-2.3)
     known        → touch(last_seen), update last_synced via workflow.map_row
                    (never proposed, FR-2.5); if absent before → begin_epoch (FR-6.13)
-                   if skipped only for a missing record URL and href now exists
-                   → PRESENT + enqueue EXTRACT                        (FR-3.9)
+                   if the record link is new → enqueue EXTRACT        (FR-3.9)
 for known item not in rows:     closure.close_if_absent(...)           (FR-2.6)
+audit(seen)     → EXTRACTING with no active job, or READY with an incomplete
+                  required link set → NEEDS_REVIEW (guarded by expect=) (FR-2.14)
 ```
 
 `workflow.map_row(row)` is the only workflow-specific part: a pure function mapping list
@@ -1056,22 +1073,32 @@ class DeviationsZ02Extraction:
     def __init__(self, workflow: str, items: WorkItemRepository,
                  fields: FieldValueRepository, attrs: AttributeRepository,
                  refs: PageRefRepository, events: EventRepository,
-                 adapters: AdapterRegistry, *, force: bool = False) -> None: ...
+                 adapters: AdapterRegistry, *, ref_kinds: tuple[RefKind, ...],
+                 force: bool = False) -> None: ...
     async def run(self, item: WorkItem, tabs: TabProvider, log: JobLogger) -> ExtractOutcome: ...
 ```
+
+`ref_kinds` is validated at construction: every declared kind needs a plain fallback
+reason, and a kind an adapter reports without being declared raises `UnknownRefKind`
+before anything is persisted.
 
 Order (dependencies only):
 
 1. `deviation_record` adapter → description, ROI fields, loan deviation type/sub-type,
-   record id/url, opportunity ref. A skip here ends the item immediately.
+   record id/url, opportunity ref. A record page that never opens leaves the opportunity
+   link unresolved and ends the run there.
 2. `opportunity` adapter → product type (the CL-contract match needs it).
 3. In parallel on the same `TabGroup`: `cl_contract`, `collateral`, `lms2_cl_contract`,
    `lms2_collateral` related lists / panels.
 4. Persist: description-parsed values → `set_extracted`; ROI/product type/description →
-   `attributes`; refs → `replace()`.
-5. `EXTRACTED`, or `SKIPPED` with the first skip reason (FR-3.7). An adapter exception is
-   logged and becomes a skip for that object, never a crash; `SessionExpired` propagates.
+   `attributes`; refs → `replace()` — exactly one row per declared kind, filled with the
+   kind's plain fallback reason when no adapter reported it.
+5. `incomplete_ref(declared, refs)` decides the outcome: every required link `found` →
+   `EXTRACTED`; otherwise the item moves to `needs_review` with that link's reason and the
+   result is `INCOMPLETE` (FR-3.10). An adapter exception is logged and becomes an
+   `unresolved` link, never a crash; `SessionExpired` propagates.
 6. Early exit when `extracted_at` is set (FR-3.8), unless constructed with `force=True`.
+   A row with no record link is left `present` with no job and no reason (FR-3.9).
 
 ### 9.3 `DeviationsZ02Submission`
 
@@ -1080,7 +1107,8 @@ class DeviationsZ02Submission:
     def __init__(self, workflow: str, items: WorkItemRepository,
                  fields: FieldValueRepository, refs: PageRefRepository,
                  events: EventRepository, adapters: AdapterRegistry,
-                 catalog: Sequence[EditableField]) -> None: ...
+                 catalog: Sequence[EditableField], *,
+                 ref_kinds: tuple[RefKind, ...]) -> None: ...
     async def run(self, item: WorkItem, tabs: TabProvider,
                   log: JobLogger) -> SubmitOutcome: ...
     async def preview(self, item: WorkItem, tabs: TabProvider,
@@ -1089,6 +1117,7 @@ class DeviationsZ02Submission:
 
 ```
 precheck   → re-read item; absent/terminal? → ALREADY_CLOSED (no writes)   (FR-6.6)
+             any required link not found → FAILED, nothing written          (FR-6.18)
 apply      → group targets by object_kind; open every page and read all current
              values before the first write for the audit and idempotency
              (FR-6.2); a difference does NOT block the write; write; persist
@@ -1151,7 +1180,9 @@ class Dispatcher:
 Claim loop + `asyncio.Semaphore(settings.workers)`. No thread pool and no global
 `Queue.join()` (the current implementation's join waits for every queued task, which is a
 correctness bug as soon as two jobs exist). Pauses with `AuthGate` (FR-7.8); requeues
-stale leases at boot and on a timer (FR-7.2).
+stale leases at boot and on a timer (FR-7.2). The stale sweep passes
+`MAX_JOB_ATTEMPTS` and fails a running row whose expired lease has reached the cap
+(FR-7.14) instead of resurrecting it forever.
 
 ### 10.2 `Worker`
 
@@ -1169,7 +1200,9 @@ failure is logged and never changes the job result.
 
 Routes `(job.workflow, job.kind)` → `workflow.extraction` / `workflow.submission`;
 owns the `TabGroup` lifecycle, phase markers, log lines, exception translation, and
-guaranteed lease release.
+guaranteed lease release. The heartbeat never dies silently: a failed write is logged to
+the job and retried (`docs/class-design-job-runtime.md` §3.9, FR-7.14). There is no
+wall-clock job timeout; waits are bounded inside each browser step instead (FR-7.12).
 
 ### 10.3 Retry policy
 
@@ -1177,7 +1210,7 @@ guaranteed lease release.
 |---|---|---|
 | `TransientBrowserError` | once | `FAILED(retryable)` |
 | `SessionExpired` | no — requeue | `BLOCKED_AUTH`, pool paused |
-| `AmbiguousRecord` | no | `SKIPPED` |
+| `AmbiguousRecord` | no | `NEEDS_REVIEW` (unresolved link) |
 | `SaveRejected` / `ValueMismatch` | no | `NEEDS_REVIEW` |
 | `AlreadyClosed` | no | `CLOSED(external)` — success |
 
@@ -1310,7 +1343,8 @@ Each should have a test.
    `transition()` asserts it.
 7. **I7** A job's effects are idempotent per phase, so a released lease is safe to re-run
    (FR-6.8).
-8. **I8** Extraction is skipped when `extracted_at` is set (FR-3.8).
+8. **I8** Extraction is not re-run when `extracted_at` is set (FR-3.8); a retry clears
+   the marker deliberately (FR-3.10).
 9. **I9** Core (`core/`, `salesforce/`, `pipeline/`, `jobs/`) imports no workflow module;
    workflows import core, never each other.
 10. **I10** A failed submission does not roll back values that were already written; it
@@ -1332,6 +1366,13 @@ Each should have a test.
     idempotent while the page is already open, and at most one open/sample runs per
     workflow at a time (`ListWatcher` lock). An authentication failure closes the page and
     pauses the gate; it never ends the watcher task (FR-2.10–2.13).
+17. **I17** Every retrying browser wait is bounded by real elapsed time and never starts
+    another attempt after its deadline; a step's exhaustion is a normal outcome, not an
+    unbounded wait (FR-7.12).
+18. **I18** A running job whose expired lease reaches `MAX_JOB_ATTEMPTS` becomes `failed`
+    with `lease expired; max attempts reached`; it is never requeued again (FR-7.14).
+19. **I19** A heartbeat failure is logged to the job and retried; the job's lease is not
+    silently abandoned (FR-7.14).
 
 ## 13. Test seams
 

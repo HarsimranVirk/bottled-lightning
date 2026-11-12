@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Status** | Draft for review |
-| **Version** | v5.30 |
-| **Date** | 2026-11-06 |
+| **Version** | v5.33 |
+| **Date** | 2026-11-12 |
 | **Scope** | Loan deviations workflow only |
 | **Supersedes** | The pre-refactor behaviour in `app/deviations*`, `app/sync.py`, `app/jobs.py` |
 
@@ -61,7 +61,7 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **Phase** — an ordered step of a `SUBMIT` job: *apply*, *validate*, *implement*.
 - **Editable value** — one of the fields listed in FR-4.3.
 - **Terminal status** — a status that removes the deviation from the active work
-  (`implemented`, `closed`, `skipped`).
+  (`completed`, `closed`; `skipped` survives only on pre-v6 rows).
 - **Presence epoch** — one continuous period during which a deviation is present in the
   SF list. A deviation that disappears and later reappears begins a new epoch.
 - **Session snapshot** — the Playwright `storage_state()` captured after a manual login
@@ -105,7 +105,8 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   deviations are added, list-visible values of known deviations are updated, and missing
   deviations are closed (FR-2.6). The approval date is such a value: SF fills it after a
   deviation first appears, so a later sync must add it (and must never clear a known
-  date when a sample omits it).
+  date when a sample omits it). Extraction is queued only for a row that carries a record
+  link; a row without one is still stored, but quietly and without a job (FR-3.9).
 - **FR-2.4** The "N items" header total is read on every refresh and compared with the
   number of rows parsed. A mismatch makes the refresh invalid (FR-2.9); it is persisted
   and shown as a sync warning and is never silently ignored.
@@ -149,6 +150,11 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   is not), the session is paused and surfaced through the normal session state. Such a
   request is not retried, and no fabricated error is reported for a response that was
   already sent.
+- **FR-2.14** A valid refresh also audits the items it can see: an item left in
+  `extracting` with no active job (a crashed or abandoned extraction) and a `ready` item
+  whose required links are not all present become `needs_review` with a plain reason, so
+  no item can sit invisible and progressless. The audit never retries anything by itself
+  and never touches an item that is no longer in the sample (closure owns those).
 
 ### FR-3 Extraction
 
@@ -172,24 +178,36 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   operator handles the details.
 - **FR-3.4** From the Opportunity page the system captures the product type and maps it
   to the CL-contract product using the existing product mapping.
-- **FR-3.5** The system discovers and records page refs for the Opportunity, the matching
-  CL contract, the collateral, the LMS 2.0 CL contract and the LMS 2.0 collateral.
-  The LMS 2.0 CL contract is narrowed by the *same* product mapping as the CL contract,
-  because a loan legitimately has more than one LMS 2.0 CL contract.
+- **FR-3.5** The system discovers and records one stored link per declared object kind:
+  the Opportunity, the matching CL contract, the collateral, the LMS 2.0 CL contract and
+  the LMS 2.0 collateral. Every link carries a state: `found` (usable URL), `absent` (the
+  related list rendered and Salesforce says the object does not exist) or `unresolved`
+  (the page did not load, the list never rendered, or the match was ambiguous). A link
+  that is not `found` stores a plain one-line reason instead of a URL. The LMS 2.0 CL
+  contract is narrowed by the *same* product mapping as the CL contract, because a loan
+  legitimately has more than one LMS 2.0 CL contract.
 - **FR-3.6** All pages belonging to one deviation are opened in parallel tabs within the
-  same authenticated session. The deviation is complete only when every page has been
-  read or explicitly skipped.
-- **FR-3.7** Ambiguity is a skip, never a guess. Ambiguous means several candidates that
-  match the *required* product (for CL contracts and LMS 2.0 CL contracts), several
-  collaterals, a missing detail page, or an SF internal error — each records the deviation
-  as skipped with a human-readable reason.
+  same authenticated session. The deviation is complete only when every *required* link
+  is `found`; an optional kind may be `absent`, but never `unresolved`.
+- **FR-3.7** Ambiguity is never a guess. Several candidates matching the required
+  product, several collaterals, a missing detail page and an SF internal error each leave
+  that link `unresolved` with a sentence the operator can read ("There are 2 CL contracts
+  for this product — can't tell which one"). Exception types and timeouts stay in the job
+  log, never in the item reason.
 - **FR-3.8** Linked-object pages are cached and are not re-scraped on every sync.
-  Re-extraction happens only for newly seen deviations, or on an explicit operator
-  refresh.
+  Re-extraction happens only for newly seen deviations, after the record link first
+  appears (FR-3.9), or when the operator explicitly retries (FR-3.10).
 - **FR-3.9** A deviation first seen from the Printable View before its live list record
-  link renders is not stranded: when a later valid refresh supplies the record URL, an
-  item skipped solely with `no record URL on the list row` returns to `PRESENT`, clears
-  that reason and queues one new extraction. Other skip reasons stay terminal.
+  link renders is not stranded and not made into operator work: the row is stored as
+  `present`, no job is queued, and no card appears. When a later valid refresh supplies
+  the record URL, exactly one extraction is queued.
+- **FR-3.10** An extraction that does not resolve every required link never writes a
+  terminal status. The item moves to `needs_review` with the first incomplete link's
+  plain reason, the job fails with that reason and is never requeued, and the item stays
+  there until the operator asks for another extraction. Nothing retries extraction
+  automatically. A retry is offered on the review card (FR-9.26), is accepted only for a
+  `needs_review` item whose extraction did not produce a complete current result, and
+  clears the one-shot marker so the new job actually re-reads Salesforce (FR-3.8).
 
 ### FR-4 Unified view
 
@@ -246,7 +264,10 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
 - **FR-6.4** Validation means: every written value was accepted by SF and reads back
   equal to the intended value, **and** the deviation is still present in the list view.
   A write that does not stick is a failure. An absent deviation is not a failure — it
-  means SF already closed it (see FR-6.6).
+  means SF already closed it (see FR-6.6). Validation re-opens each record page on a
+  fresh load instead of re-reading the page the writes just re-rendered, and compares
+  canonicalised values, so a field's display formatting (an ROI page showing `13.00%`
+  for a proposal of `13`) can never fail a write Salesforce accepted.
 - **FR-6.5** `Implement` is clicked only when apply succeeded, every value read back
   equal, and the deviation is still present. The action runs on the deviation record page,
   opened from the item's record URL. If the deviation's Implemented checkbox is already
@@ -301,6 +322,10 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   attempted (consistent with FR-6.15). A retry against an already-approved contract does
   not click Approve again. Only the LMS 2.0 CL contract is gated this way; the regular CL
   contract, collateral, LMS 2.0 collateral and Opportunity are unchanged.
+- **FR-6.18** A submission never starts while a required page link is not usable. The API
+  refuses the request (`409`, `detail.code = "extraction_incomplete"`) with the link's
+  plain reason, and the job re-checks before its first status change so a link lost in
+  between cannot open an empty URL. Nothing is written and the item keeps its status.
 
 ### FR-7 Jobs & workers
 
@@ -308,7 +333,9 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   `SUBMIT(deviation)`, plus internal refresh work. Each job carries subject, status,
   attempts, lease, timestamps and log lines.
 - **FR-7.2** Jobs are claimed with a lease, so a restart or a crashed worker can neither
-  lose nor double-run them. Stale leases are requeued.
+  lose nor double-run them. A stale lease is requeued at most `MAX_JOB_ATTEMPTS` times
+  (2); a running job whose lease expires after that is failed with a visible error instead
+  of being resurrected forever (FR-7.14).
 - **FR-7.3** Workers are always-alive: the browser is launched once and kept warm for the
   lifetime of the process. Tabs are opened per job and closed when the job ends.
 - **FR-7.4** Concurrency is controlled by a single worker-count setting (default 3,
@@ -335,6 +362,24 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   text input with exact-value checkboxes. Repeated values are sent to the server so the
   filtered total and every page are correct. Started and duration keep their range
   inputs (FR-9.19).
+- **FR-7.12** Every browser wait is bounded by **real elapsed time**. A helper that
+  retries (poll, click-first-visible, wait-for-text, wait-for-rows) measures a monotonic
+  deadline and passes the *remaining* budget to each action; it never counts a nominal
+  interval while an individual action blocks for its own timeout. A step that exhausts
+  its budget returns its documented "not ready"/`UNKNOWN` outcome and the job continues
+  to its normal failure handling. No wait, including a label scan, may run for an
+  unbounded multiple of its configured timeout.
+- **FR-7.13** Every job log names the phase, object, field and step it is executing, in
+  both extraction and submission: discovery start/result, precheck and read-back stage,
+  per-target page navigation, edit-mode entry, fill, save and read-back, the final
+  action, and every outcome (`saved`, `rejected`, `unknown`, `skipped`). The log is
+  persisted in `job_logs` and is sufficient to identify the last step before a hang
+  without reading the process console.
+- **FR-7.14** A lease heartbeat failure is logged to the job and retried; it never kills
+  the heartbeat task silently. A stale running lease is requeued only while the job has
+  fewer than `MAX_JOB_ATTEMPTS` attempts; the final stale recovery marks the job `FAILED`
+  with the error `lease expired; max attempts reached`. There is no wall-clock kill of a
+  live job, so running SF work is still never force-killed mid-write (FR-7.7).
 
 ### FR-8 History & audit
 
@@ -390,7 +435,8 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   segments, selection by path parameter, filters and pagination in query parameters.
 - **FR-9.2** The API exposes: session status/create/delete, sync status and manual
   trigger, the unified view (list and single deviation), field-value edits, submission
-  as a job sub-resource, jobs and job logs, worker/queue status, and update status.
+  and extraction retry as job sub-resources, jobs and job logs, worker/queue status, and
+  update status.
 - **FR-9.3** The frontend shows: authentication state with the manual-login trigger, sync
   health including header-count mismatch, the review deck, the unified view with inline
   editing and submission, per-deviation detail grouped by SF object, a live job/queue
@@ -478,6 +524,10 @@ Automate the extraction, review and update of loan deviations from Salesforce, a
   instead of offering a dead button. The UI never reports a successful refresh when the
   request was refused, and a known-bad session state disables **Sync now** / **Retry
   sync** rather than letting them fail silently.
+- **FR-9.26** The review card offers **Retry extraction** exactly when the server says a
+  retry would be accepted, shows the missing page's plain reason instead of an empty link,
+  and is disabled with the text “Retrying extraction — this can take a minute.” while an
+  extraction job is queued or running. The card never decides retry eligibility itself.
 
 ### FR-10 Review decisions (accept / reject)
 
@@ -600,7 +650,9 @@ Terminal states:
   observed.
 - `closed` — left the list without this system implementing it. `source=external`, with
   a reason such as `already_implemented` or `cancelled`.
-- `skipped` — extraction could not proceed (ambiguity or SF error), with reason.
+- `skipped` — legacy only: pre-v6 extraction wrote it for ambiguity or an SF error.
+  Extraction now parks an incomplete deviation in `needs_review` instead, with the same
+  kind of reason and a per-card retry.
 
 `absent_pending` is the only non-terminal closure marker: a valid refresh reported
 absence while a `SUBMIT` lease was held.
@@ -647,6 +699,16 @@ opens the Lightning ref URL directly, resolves that iframe, and uses Classic inl
 
 ## Appendix C — Change log
 
+- **v5.33** — validation re-opens each record page before reading values back, and a
+  rate compares canonically (`13` equals the page's `13.00%`), so a read of the edited
+  DOM or a field's display formatting can no longer fail a write SF accepted; a failed
+  inline-edit read-back logs the value it actually saw (FR-6.4).
+
+- **v5.32** — extraction links are tri-state (`found`/`absent`/`unresolved`) with a plain
+  per-link reason; an incomplete extraction lands in `needs_review` instead of a terminal
+  skip, the reconciler audits abandoned or incomplete items, submission refuses an
+  unusable link, and the review card offers a user-driven **Retry extraction**
+  (FR-2.3, FR-2.14, FR-3.5–FR-3.10, FR-6.18, FR-9.2, FR-9.26).
 - **v5.30** — ROI is an editable 0–100 rate written only on the Opportunity; the
   deviation record header's loan deviation type and sub-type are read as attributes and
   shown with the ROI values (FR-4.3, FR-4.4).

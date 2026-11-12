@@ -9,11 +9,19 @@ from collections.abc import Mapping, Sequence
 from playwright.async_api import Page
 
 from app.core.field import FieldTarget
+from app.core.job_logger import JobLogger
 from app.core.list_view import ListRow
 from app.core.models import PageRef, WorkItem, utcnow
-from app.core.status import FieldStatus, SubmitOutcome, WorkItemStatus, WriteOutcome
+from app.core.status import (
+    FieldStatus,
+    RefState,
+    SubmitOutcome,
+    WorkItemStatus,
+    WriteOutcome,
+)
 from app.salesforce.adapters import AdapterBase, AdapterRegistry
 from app.salesforce.tabs import TabProvider
+from app.workflows.deviations_z02 import REF_KINDS as DECLARED_REF_KINDS
 from app.workflows.deviations_z02.adapters.deviation_record import (
     DeviationRecordAdapter,
 )
@@ -57,6 +65,24 @@ class FakeTabs:
         """No-op: the fake page has nothing to close."""
 
 
+class CountingTabs(FakeTabs):
+    """Tab provider that records the pages it hands out and closes."""
+
+    def __init__(self) -> None:
+        """Start with no pages opened."""
+        self.opened: list[str] = []
+        self.closed = 0
+
+    async def new_page(self, url: str) -> Page:
+        """Record the URL, then return the inert page."""
+        self.opened.append(url)
+        return await super().new_page(url)
+
+    async def close_page(self, page: Page) -> None:
+        """Count one closed page."""
+        self.closed += 1
+
+
 class FakeDeviationAdapter(DeviationRecordAdapter):
     """In-memory deviation record: records the click and the tick it reports."""
 
@@ -75,11 +101,11 @@ class FakeDeviationAdapter(DeviationRecordAdapter):
         self.opened.append(record_url)
         return FakePage()
 
-    async def is_implemented(self, page: Page) -> bool | None:
+    async def is_implemented(self, page: Page, log: JobLogger) -> bool | None:
         """Report the seeded tick."""
         return self.implemented
 
-    async def implement(self, page: Page) -> bool:
+    async def implement(self, page: Page, log: JobLogger) -> bool:
         """Count the click; turn the tick on only when ``confirm`` is set."""
         self.clicks += 1
         if self.confirm:
@@ -105,14 +131,14 @@ class FakeWriteAdapter(AdapterBase):
         self.reads = 0
 
     async def read(
-        self, page: Page, targets: Sequence[FieldTarget]
+        self, page: Page, targets: Sequence[FieldTarget], log: JobLogger
     ) -> dict[FieldTarget, str | None]:
         """Return the current in-memory value for each target."""
         self.reads += 1
         return {target: self.current.get(target) for target in targets}
 
     async def write(
-        self, page: Page, values: Mapping[FieldTarget, str]
+        self, page: Page, values: Mapping[FieldTarget, str], log: JobLogger
     ) -> dict[FieldTarget, WriteOutcome]:
         """Apply each value unless the target is configured to reject it."""
         results: dict[FieldTarget, WriteOutcome] = {}
@@ -237,13 +263,24 @@ class SubmissionTests(DbTestCase):
             deps.events,
             adapters,
             FIELD_CATALOG,
+            ref_kinds=DECLARED_REF_KINDS,
         )
 
     def _run(
-        self, pipeline: DeviationsZ02Submission, item: WorkItem
+        self,
+        pipeline: DeviationsZ02Submission,
+        item: WorkItem,
+        lines: list[str] | None = None,
+        tabs: TabProvider | None = None,
     ) -> SubmitOutcome:
-        """Run the pipeline on a fresh event loop."""
-        return asyncio.run(pipeline.run(item, FakeTabs(), lambda _message: None))
+        """Run the pipeline on a fresh event loop, optionally capturing its log."""
+        sink = [] if lines is None else lines
+
+        def log(message: str) -> None:
+            """Append one captured line."""
+            sink.append(message)
+
+        return asyncio.run(pipeline.run(item, tabs or FakeTabs(), log))
 
     def test_apply_and_validate_marks_fields_applied(self) -> None:
         """A clean run writes every target, validates and implements."""
@@ -280,6 +317,59 @@ class SubmissionTests(DbTestCase):
         cl_adapter = adapters.get(DeviationObject.CL_CONTRACT.value)
         assert isinstance(cl_adapter, FakeWriteAdapter)
         self.assertEqual(len(cl_adapter.writes), 2)
+
+    def test_validation_reopens_each_record_page(self) -> None:
+        """The read-back loads fresh pages instead of re-reading the edited tabs."""
+        item = self._item()
+        self._refs()
+        self._seed({"loan_amount": "14,50,000"})
+        tabs = CountingTabs()
+        pipeline = self._pipeline(self._adapters(self._current()))
+        lines: list[str] = []
+
+        outcome = self._run(pipeline, item, lines, tabs)
+
+        self.assertIs(outcome, SubmitOutcome.COMPLETED)
+        loan_amount = next(
+            spec for spec in FIELD_CATALOG if spec.key == "loan_amount"
+        )
+        kinds = {target.object_kind for target in loan_amount.targets}
+        # One page per object for precheck/apply, one fresh page per object for the
+        # read-back, plus the deviation record page for the final action — all closed.
+        self.assertEqual(len(set(tabs.opened)), len(kinds))
+        self.assertEqual(len(tabs.opened), 2 * len(kinds))
+        self.assertEqual(tabs.closed, 2 * len(kinds) + 1)
+        self.assertIn("readback: reading opportunity", "\n".join(lines))
+
+    def test_job_log_names_every_phase_and_object(self) -> None:
+        """The persisted log names the phase, object and validation result."""
+        item = self._item()
+        self._refs()
+        self._seed(
+            {
+                "loan_amount": "14,50,000",
+                "tenure": "180",
+                "emi_incl_hffc": "18,585",
+            }
+        )
+        pipeline = self._pipeline(self._adapters(self._current()))
+        lines: list[str] = []
+
+        outcome = self._run(pipeline, item, lines)
+
+        self.assertIs(outcome, SubmitOutcome.COMPLETED)
+        joined = "\n".join(lines)
+        for expected in (
+            "phase: applying",
+            "precheck: reading opportunity",
+            "apply: cl_contract (3 target(s))",
+            "phase: validating",
+            "readback: reading cl_contract",
+            "validated: loan_amount",
+            "phase: executing",
+            "execute: deviation: record page opened",
+        ):
+            self.assertIn(expected, joined)
 
     def test_pre_read_does_not_block_the_write(self) -> None:
         """A changed current value is audited but does not abort the write."""
@@ -367,27 +457,70 @@ class SubmissionTests(DbTestCase):
         fresh = self.deps().items.require(WORKFLOW, KEY)
         self.assertIs(fresh.status, WorkItemStatus.NEEDS_REVIEW)
 
-    def test_missing_page_link_fails_before_writing(self) -> None:
-        """A missing object link cannot satisfy every target, so nothing is written."""
+    def test_missing_page_link_refuses_before_writing(self) -> None:
+        """A missing object link refuses the run before any write or status change."""
         item = self._item()
         self._refs(missing=DeviationObject.LMS2_CL_CONTRACT.value)
         self._seed({"loan_amount": "14,50,000"})
         current = self._current()
         adapters = self._adapters(current)
         pipeline = self._pipeline(adapters)
+        lines: list[str] = []
 
-        outcome = self._run(pipeline, item)
+        outcome = self._run(pipeline, item, lines)
 
         self.assertIs(outcome, SubmitOutcome.FAILED)
+        # Nothing was attempted, so the item keeps its status: the API refuses this
+        # case up front, and the pipeline is only the safety net.
         fresh = self.deps().items.require(WORKFLOW, KEY)
-        self.assertIs(fresh.status, WorkItemStatus.NEEDS_REVIEW)
-        self.assertIn("missing lms2_cl_contract", fresh.reason or "")
+        self.assertIs(fresh.status, WorkItemStatus.READY)
+        self.assertIn("missing the lms2 cl contract page link", "\n".join(lines))
         for kind in REF_KINDS:
             if kind == DeviationObject.LMS2_CL_CONTRACT.value:
                 continue
             adapter = adapters.get(kind)
             assert isinstance(adapter, FakeWriteAdapter)
             self.assertEqual(adapter.writes, {})
+
+    def test_absent_link_reports_its_plain_reason(self) -> None:
+        """A positively absent object is refused with the operator-facing sentence."""
+        item = self._item()
+        self.deps().refs.replace(
+            WORKFLOW,
+            KEY,
+            [
+                PageRef(
+                    workflow=WORKFLOW,
+                    item=KEY,
+                    kind=kind,
+                    name=kind,
+                    url="" if kind == DeviationObject.COLLATERAL.value else f"https://org/{kind}",
+                    state=(
+                        RefState.ABSENT
+                        if kind == DeviationObject.COLLATERAL.value
+                        else RefState.FOUND
+                    ),
+                    reason=(
+                        "No collateral attached to this opportunity"
+                        if kind == DeviationObject.COLLATERAL.value
+                        else None
+                    ),
+                )
+                for kind in REF_KINDS
+            ],
+        )
+        self._seed({"loan_amount": "14,50,000"})
+        pipeline = self._pipeline(self._adapters(self._current()))
+        lines: list[str] = []
+
+        outcome = self._run(pipeline, item, lines)
+
+        self.assertIs(outcome, SubmitOutcome.FAILED)
+        self.assertIn(
+            "No collateral attached to this opportunity", "\n".join(lines)
+        )
+        fresh = self.deps().items.require(WORKFLOW, KEY)
+        self.assertIs(fresh.status, WorkItemStatus.READY)
 
     def test_already_closed_skips_all_writes(self) -> None:
         """An absent item is a clean terminal outcome, not a write."""

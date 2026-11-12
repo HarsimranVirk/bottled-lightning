@@ -25,7 +25,7 @@ from app.core.models import (
     to_iso,
     utcnow,
 )
-from app.core.status import ClosureSource, FieldStatus, WorkItemStatus
+from app.core.status import ClosureSource, FieldStatus, RefState, WorkItemStatus
 from app.db.connection import Database
 
 from ._util import opt_str, opt_time
@@ -34,6 +34,20 @@ _PARENT_COLUMNS = (
     "workflow, item_key, epoch, status, source, present, record_url, approved_at, "
     "reason, decided_at, decision_reason, snapshot_at"
 )
+
+
+def _snapshot_ref(row: sqlite3.Row, workflow: str, key: str) -> PageRef:
+    """Map one snapshot ref row, including the v6 state and reason."""
+    reason = row["reason"]
+    return PageRef(
+        workflow=workflow,
+        item=key,
+        kind=str(row["kind"]),
+        name=str(row["name"]),
+        url=str(row["url"]),
+        state=RefState(str(row["state"])),
+        reason=None if reason is None else str(reason),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,8 +288,8 @@ class ApprovedHistoryRepository:
         conn.execute(
             """
             INSERT INTO approved_deviation_refs
-                (workflow, item_key, kind, name, url)
-            SELECT workflow, item_key, kind, name, url
+                (workflow, item_key, kind, name, url, state, reason)
+            SELECT workflow, item_key, kind, name, url, state, reason
               FROM work_item_refs
              WHERE workflow = ? AND item_key = ?
             """,
@@ -451,21 +465,14 @@ class ApprovedHistoryRepository:
         rows = (
             self._db.connect()
             .execute(
-                "SELECT kind, name, url FROM approved_deviation_refs "
+                "SELECT kind, name, url, state, reason FROM approved_deviation_refs "
                 "WHERE workflow = ? AND item_key = ? ORDER BY kind",
                 [workflow, key],
             )
             .fetchall()
         )
         return {
-            str(row["kind"]): PageRef(
-                workflow=workflow,
-                item=key,
-                kind=str(row["kind"]),
-                name=str(row["name"]),
-                url=str(row["url"]),
-            )
-            for row in rows
+            str(row["kind"]): _snapshot_ref(row, workflow, key) for row in rows
         }
 
     def refs_for(
@@ -484,7 +491,8 @@ class ApprovedHistoryRepository:
         rows = (
             self._db.connect()
             .execute(
-                "SELECT item_key, kind, name, url FROM approved_deviation_refs "
+                "SELECT item_key, kind, name, url, state, reason "
+                "FROM approved_deviation_refs "
                 f"WHERE workflow = ? AND item_key IN ({placeholders}) "
                 "ORDER BY item_key, kind",
                 [workflow, *keys],
@@ -494,13 +502,7 @@ class ApprovedHistoryRepository:
         grouped: dict[str, dict[str, PageRef]] = {}
         for row in rows:
             item_key = str(row["item_key"])
-            ref = PageRef(
-                workflow=workflow,
-                item=item_key,
-                kind=str(row["kind"]),
-                name=str(row["name"]),
-                url=str(row["url"]),
-            )
+            ref = _snapshot_ref(row, workflow, item_key)
             grouped.setdefault(item_key, {})[ref.kind] = ref
         return grouped
 

@@ -8,18 +8,18 @@ from collections.abc import Callable, Mapping
 
 from app.core.errors import SessionExpired
 from app.core.list_view import ListRow, ListSample, ListViewSpec
-from app.core.models import WorkItem, utcnow
+from app.core.models import PageRef, WorkItem, utcnow
 from app.core.repo.jobs import JobQuery, JobRepository
 from app.core.repo.sync_runs import SyncRunRepository
 from app.core.status import (
-    MISSING_RECORD_URL_REASON,
     ClosureSource,
     ExtractOutcome,
     JobKind,
+    RefState,
     SubmitOutcome,
     WorkItemStatus,
 )
-from app.core.workflow import JobLogger, Workflow
+from app.core.workflow import JobLogger, RefKind, Workflow
 from app.jobs.auth import AuthGate
 from app.pipeline.closure import ClosureResolver
 from app.pipeline.reconciler import Reconciler
@@ -87,6 +87,7 @@ class ReconcilerTestCase(DbTestCase):
             extraction=NoExtraction(),
             submission=NoSubmission(),
             map_row=map_row,
+            ref_kinds=(RefKind("opportunity"),),
         )
 
     def build(
@@ -101,6 +102,7 @@ class ReconcilerTestCase(DbTestCase):
             deps.items,
             jobs,
             deps.attributes,
+            deps.refs,
             SyncRunRepository(self.db),
             closure,
         )
@@ -121,20 +123,13 @@ class ReconcilerTests(ReconcilerTestCase):
         jobs = self.job_repo()
         self.assertEqual(len([j for j in jobs.query(JobQuery(workflow=WORKFLOW)).jobs if j.kind is JobKind.EXTRACT]), 2)
 
-    def test_missing_url_skip_is_retried_when_the_link_arrives(self) -> None:
-        """A printable-first row gets a second extraction once its link renders (FR-3.9)."""
+    def test_row_without_a_link_gets_no_job_until_the_link_appears(self) -> None:
+        """A printable-first row stays present and quiet until the live list has a link."""
         deps = self.deps()
         deps.items.create_present(
             WORKFLOW,
             ListRow(key=KEY, href="", columns={}, approved_at=None),
             utcnow(),
-        )
-        deps.items.transition(WORKFLOW, KEY, WorkItemStatus.EXTRACTING)
-        deps.items.transition(
-            WORKFLOW,
-            KEY,
-            WorkItemStatus.SKIPPED,
-            reason=MISSING_RECORD_URL_REASON,
         )
 
         reconciler, _closure, _workflow = self.build()
@@ -142,7 +137,6 @@ class ReconcilerTests(ReconcilerTestCase):
 
         item = deps.items.require(WORKFLOW, KEY)
         self.assertIs(item.status, WorkItemStatus.PRESENT)
-        self.assertIsNone(item.reason)
         self.assertEqual(item.record_url, f"/lightning/r/a2f/{KEY}/view")
         jobs = self.job_repo()
         queued = [
@@ -152,8 +146,22 @@ class ReconcilerTests(ReconcilerTestCase):
         ]
         self.assertEqual(len(queued), 1)
 
-    def test_other_skips_are_not_retried_when_a_link_arrives(self) -> None:
-        """Only the missing-URL skip self-heals; ambiguity stays terminal."""
+    def test_link_less_new_row_is_created_without_a_job(self) -> None:
+        """Creating the item is not enough to queue work; the row needs a link."""
+        reconciler, _closure, _workflow = self.build()
+        run = reconciler.apply(
+            sample(ListRow(key=KEY, href="", columns={}, approved_at=None))
+        )
+
+        self.assertEqual(run.added, 1)
+        item = self.deps().items.require(WORKFLOW, KEY)
+        self.assertIs(item.status, WorkItemStatus.PRESENT)
+        self.assertIsNone(item.record_url)
+        jobs = self.job_repo()
+        self.assertEqual(jobs.query(JobQuery(workflow=WORKFLOW)).jobs, [])
+
+    def test_skipped_item_is_not_retried_automatically(self) -> None:
+        """Legacy skipped rows are history: a refresh never queues work for them."""
         deps = self.deps()
         deps.items.create_present(WORKFLOW, row(), utcnow())
         deps.items.transition(WORKFLOW, KEY, WorkItemStatus.EXTRACTING)
@@ -295,6 +303,127 @@ class ReconcilerTests(ReconcilerTestCase):
         self.assertTrue(back.present)
         self.assertIs(back.status, WorkItemStatus.PRESENT)
         self.assertEqual(back.epoch, closed.epoch + 1)
+
+
+class AuditTests(ReconcilerTestCase):
+    """Items that cannot progress on their own become operator work."""
+
+    def _at(self, status: WorkItemStatus, reason: str | None = None) -> None:
+        """Create the item and walk it to ``status`` through the legal path."""
+        deps = self.deps()
+        deps.items.create_present(WORKFLOW, row(), utcnow())
+        if status is WorkItemStatus.PRESENT:
+            return
+        deps.items.transition(WORKFLOW, KEY, WorkItemStatus.EXTRACTING)
+        if status is WorkItemStatus.EXTRACTING:
+            return
+        deps.items.transition(
+            WORKFLOW, KEY, WorkItemStatus.READY, extracted_at=utcnow()
+        )
+        if status is WorkItemStatus.READY:
+            return
+        deps.items.transition(WORKFLOW, KEY, status, reason=reason)
+
+    def test_abandoned_extraction_becomes_needs_review(self) -> None:
+        """An extracting item with no job would otherwise sit invisible forever."""
+        self._at(WorkItemStatus.EXTRACTING)
+
+        reconciler, _closure, _workflow = self.build()
+        reconciler.apply(sample(row()))
+
+        item = self.deps().items.require(WORKFLOW, KEY)
+        self.assertIs(item.status, WorkItemStatus.NEEDS_REVIEW)
+        self.assertEqual(
+            item.reason, "Extraction didn't finish — retry it"
+        )
+
+    def test_extracting_item_with_an_active_job_is_left_alone(self) -> None:
+        """A leased job is still working; the audit must not steal its item."""
+        self._at(WorkItemStatus.EXTRACTING)
+        jobs = self.job_repo()
+        jobs.enqueue(WORKFLOW, JobKind.EXTRACT, KEY)
+        claimed = jobs.claim("w0", ttl_s=300)
+        assert claimed is not None
+
+        reconciler, _closure, _workflow = self.build()
+        reconciler.apply(sample(row()))
+
+        item = self.deps().items.require(WORKFLOW, KEY)
+        self.assertIs(item.status, WorkItemStatus.EXTRACTING)
+
+    def test_ready_item_without_links_goes_back_for_review(self) -> None:
+        """Readiness means every declared link exists; legacy rows may not have them."""
+        self._at(WorkItemStatus.READY)
+
+        reconciler, _closure, _workflow = self.build()
+        reconciler.apply(sample(row()))
+
+        item = self.deps().items.require(WORKFLOW, KEY)
+        self.assertIs(item.status, WorkItemStatus.NEEDS_REVIEW)
+        self.assertEqual(
+            item.reason, "Couldn't read some of this deviation's pages — retry it"
+        )
+
+    def test_ready_item_uses_the_stored_link_reason(self) -> None:
+        """When the ref itself knows why it is missing, that sentence wins."""
+        self._at(WorkItemStatus.READY)
+        self.deps().refs.replace(
+            WORKFLOW,
+            KEY,
+            [
+                PageRef(
+                    WORKFLOW,
+                    KEY,
+                    "opportunity",
+                    "",
+                    "",
+                    state=RefState.ABSENT,
+                    reason="No opportunity attached to this deviation",
+                )
+            ],
+        )
+
+        reconciler, _closure, _workflow = self.build()
+        reconciler.apply(sample(row()))
+
+        item = self.deps().items.require(WORKFLOW, KEY)
+        self.assertIs(item.status, WorkItemStatus.NEEDS_REVIEW)
+        self.assertEqual(item.reason, "No opportunity attached to this deviation")
+
+    def test_ready_item_with_a_found_link_stays_ready(self) -> None:
+        """A complete link set is not disturbed by the audit."""
+        self._at(WorkItemStatus.READY)
+        self.deps().refs.replace(
+            WORKFLOW,
+            KEY,
+            [
+                PageRef(
+                    WORKFLOW,
+                    KEY,
+                    "opportunity",
+                    "Opp",
+                    OPP,
+                )
+            ],
+        )
+
+        reconciler, _closure, _workflow = self.build()
+        reconciler.apply(sample(row()))
+
+        item = self.deps().items.require(WORKFLOW, KEY)
+        self.assertIs(item.status, WorkItemStatus.READY)
+        self.assertIsNone(item.reason)
+
+    def test_disappeared_item_is_closed_not_audited(self) -> None:
+        """A disappeared item belongs to the closure resolver, not the audit."""
+        self._at(WorkItemStatus.EXTRACTING)
+
+        reconciler, _closure, _workflow = self.build()
+        reconciler.apply(sample())
+
+        item = self.deps().items.require(WORKFLOW, KEY)
+        self.assertIs(item.status, WorkItemStatus.CLOSED)
+        self.assertNotEqual(item.reason, "Extraction didn't finish — retry it")
 
 
 class ClosureDuringLeaseTests(ReconcilerTestCase):

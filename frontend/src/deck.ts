@@ -15,6 +15,17 @@ export const DECIDABLE_STATUSES: ReadonlySet<string> = new Set([
   'needs_review',
 ])
 
+/**
+ * Whether this row is an accepted item that came back for review.
+ *
+ * That happens when the accepted deviation's submission failed: the item returns to
+ * `needs_review` so the operator can correct it and retry. It belongs in the deck, but it
+ * is not new work — see `orderDeckRows`.
+ */
+export function isReturnedRow(row: ItemRow): boolean {
+  return row.status === 'needs_review' && row.decision?.decision === 'accept'
+}
+
 /** Whether one row belongs in the working deck. */
 export function isDeckRow(row: ItemRow): boolean {
   if (!row.present || !DECIDABLE_STATUSES.has(row.status)) {
@@ -23,24 +34,25 @@ export function isDeckRow(row: ItemRow): boolean {
   if (!row.decision) {
     return true
   }
-  return row.status === 'needs_review' && row.decision.decision === 'accept'
+  return isReturnedRow(row)
 }
 
 /**
- * Reorder the deck so pinned rows come first, in the order they were checked.
+ * Order the deck: pinned cards first, then undecided cards, then returned ones.
  *
  * `DeviationsPage` owns the pin state and calls this on every render; the helper is pure
  * and never fetches. Rows that are already gone from the deck, and repeated keys, are
- * ignored so a stale pin can neither duplicate a card nor invent one. Rows that are not
- * pinned keep their incoming (server `last_seen`) order.
+ * ignored so a stale pin can neither duplicate a card nor invent one.
+ *
+ * An accepted item whose submission failed comes back for review, but it is not new work:
+ * it queues behind every card the operator has not decided yet, so a failure cannot jump
+ * ahead of the untouched queue. An explicit pin still brings it to the front, because
+ * that is the operator saying "this one next".
  */
 export function orderDeckRows(
   rows: readonly ItemRow[],
   pinnedKeys: readonly string[],
 ): ItemRow[] {
-  if (pinnedKeys.length === 0) {
-    return [...rows]
-  }
   const byKey = new Map(rows.map((row) => [row.key, row]))
   const pinned: ItemRow[] = []
   const seen = new Set<string>()
@@ -52,5 +64,10 @@ export function orderDeckRows(
     pinned.push(row)
     seen.add(key)
   }
-  return [...pinned, ...rows.filter((row) => !seen.has(row.key))]
+  const rest = rows.filter((row) => !seen.has(row.key))
+  return [
+    ...pinned,
+    ...rest.filter((row) => !isReturnedRow(row)),
+    ...rest.filter((row) => isReturnedRow(row)),
+  ]
 }

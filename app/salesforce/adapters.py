@@ -15,10 +15,23 @@ from playwright.async_api import Page
 
 from app.core.errors import UnknownAdapter
 from app.core.field import FieldTarget
+from app.core.job_logger import JobLogger
 from app.core.models import PageRef
-from app.core.status import WriteOutcome
+from app.core.status import RefState, WriteOutcome
 
 from .tabs import TabProvider
+
+
+def describe_target(target: FieldTarget) -> str:
+    """
+    Human-readable target name for job logs.
+
+    Returns ``Label [Section]`` when the target carries a section, otherwise ``Label``.
+    Adapters use it so a log line names the exact field the operator will recognise.
+    """
+    if target.section:
+        return f"{target.label} [{target.section}]"
+    return target.label
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,32 +57,70 @@ class DiscoveryContext:
 
 @dataclass(frozen=True, slots=True)
 class DiscoveredRef:
-    """A link found during extraction; the pipeline turns it into a stored PageRef."""
+    """
+    One SF object link, or the plain reason it could not be linked.
+
+    ``state`` is what the pipeline stores on the item. ``FOUND`` carries a usable
+    ``url`` and ``name``. ``ABSENT`` says the related list rendered and was positively
+    empty, so the object does not exist for this item. ``UNRESOLVED`` says the lookup
+    itself did not finish (page never opened, match ambiguous); it is the safe default
+    because a failed fetch must never look like a genuine absence.
+
+    Non-``FOUND`` refs carry empty ``name``/``url`` and a short ``reason`` written for
+    the operator ("No collateral attached to this opportunity"). Exception text and
+    timeouts belong in the job log, never in ``reason``.
+
+    Example:
+        DiscoveredRef("cl_contract", "LAI-1", "https://org/lightning/r/LAI/1/view")
+        absent("collateral", "No collateral attached to this opportunity")
+    """
 
     kind: str
-    name: str
-    url: str
+    name: str = ""
+    url: str = ""
+    state: RefState = RefState.FOUND
+    reason: str | None = None
+
+
+def unresolved(kind: str, reason: str) -> DiscoveredRef:
+    """
+    A link extraction could not resolve, with the plain reason to show the operator.
+
+    Adapters use this for a page that never opened, a list that never rendered, or a
+    match they refuse to guess. The item needs review and the operator can retry.
+    """
+    return DiscoveredRef(kind=kind, state=RefState.UNRESOLVED, reason=reason)
+
+
+def absent(kind: str, reason: str) -> DiscoveredRef:
+    """
+    A link that positively does not exist for this item.
+
+    Only call this after Salesforce itself said the list is empty (its "no items"
+    text or an empty shadow root). A timeout must stay ``UNRESOLVED``.
+    """
+    return DiscoveredRef(kind=kind, state=RefState.ABSENT, reason=reason)
 
 
 @dataclass(frozen=True, slots=True)
 class Discovery:
     """
-    What one adapter found, or why it stopped.
+    What one adapter found.
 
     Adapters contribute only their own slice: links (``refs``), read-only values
-    (``attributes``), catalogue values they are the source of (``fields``), or a
-    ``skip_reason`` such as an ambiguous match. The pipeline merges the slices and
-    persists once.
+    (``attributes``) and catalogue values they are the source of (``fields``). The
+    pipeline merges the slices and persists once. An adapter that owns a link kind
+    returns exactly one ref for it, even when that ref is ``ABSENT``/``UNRESOLVED``;
+    returning nothing leaves the pipeline to report the kind as unresolved.
 
     Example:
         Discovery(refs=(DiscoveredRef("cl_contract", "LAI-1", url),))
-        Discovery(skip_reason="multiple matching CL contracts (2)")
+        Discovery(refs=(absent("cl_contract", "No CL contract for this product"),))
     """
 
     refs: tuple[DiscoveredRef, ...] = ()
     attributes: Mapping[str, str | None] = field(default_factory=dict)
     fields: Mapping[str, str | None] = field(default_factory=dict)
-    skip_reason: str | None = None
 
 
 @runtime_checkable
@@ -86,7 +137,9 @@ class ObjectAdapter(Protocol):
 
     kind: str
 
-    async def discover(self, tabs: TabProvider, context: DiscoveryContext) -> Discovery:
+    async def discover(
+        self, tabs: TabProvider, context: DiscoveryContext, log: JobLogger
+    ) -> Discovery:
         """Find this object for an item (extraction)."""
         ...
 
@@ -95,13 +148,13 @@ class ObjectAdapter(Protocol):
         ...
 
     async def read(
-        self, page: Page, targets: Sequence[FieldTarget]
+        self, page: Page, targets: Sequence[FieldTarget], log: JobLogger
     ) -> dict[FieldTarget, str | None]:
         """Read the target values that live on this object, in canonical units."""
         ...
 
     async def write(
-        self, page: Page, values: Mapping[FieldTarget, str]
+        self, page: Page, values: Mapping[FieldTarget, str], log: JobLogger
     ) -> dict[FieldTarget, WriteOutcome]:
         """Write canonical values to their targets; returns per-target outcomes."""
         ...
@@ -116,7 +169,9 @@ class AdapterBase:
 
     kind: str = ""
 
-    async def discover(self, tabs: TabProvider, context: DiscoveryContext) -> Discovery:
+    async def discover(
+        self, tabs: TabProvider, context: DiscoveryContext, log: JobLogger
+    ) -> Discovery:
         """Not implemented for base adapters."""
         raise NotImplementedError(f"{type(self).__name__}.discover")
 
@@ -125,13 +180,13 @@ class AdapterBase:
         return await tabs.new_page(ref.url)
 
     async def read(
-        self, page: Page, targets: Sequence[FieldTarget]
+        self, page: Page, targets: Sequence[FieldTarget], log: JobLogger
     ) -> dict[FieldTarget, str | None]:
         """Not implemented for base adapters."""
         raise NotImplementedError(f"{type(self).__name__}.read")
 
     async def write(
-        self, page: Page, values: Mapping[FieldTarget, str]
+        self, page: Page, values: Mapping[FieldTarget, str], log: JobLogger
     ) -> dict[FieldTarget, WriteOutcome]:
         """Not implemented for base adapters."""
         raise NotImplementedError(f"{type(self).__name__}.write")

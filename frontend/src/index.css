@@ -248,11 +248,23 @@
   right: 6px;
 }
 
+.job-logs-output {
+  position: relative;
+}
+
+.job-logs-copy {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 1;
+}
+
 .job-logs-pre {
   margin: 0;
   max-height: 240px;
   overflow: auto;
   white-space: pre-wrap;
+  padding-right: 28px;
   font-family: var(--salt-typography-fontFamily-code, ui-monospace, monospace);
   font-size: 11px;
 }

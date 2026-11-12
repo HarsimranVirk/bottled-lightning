@@ -19,6 +19,7 @@ from app.core.repo.events import EventRepository
 from app.core.repo.jobs import JobRepository
 from app.core.repo.work_items import WorkItemRepository
 from app.core.status import (
+    MAX_JOB_ATTEMPTS,
     ExtractOutcome,
     JobKind,
     Phase,
@@ -32,8 +33,6 @@ from .auth import AuthGate
 from .logger import RepositoryLogger
 
 logger = logging.getLogger(__name__)
-
-_MAX_ATTEMPTS = 2
 
 
 class TabSessionFactory(Protocol):
@@ -102,7 +101,7 @@ class Worker:
             return
 
         tabs = self._tabs.new_tab_group()
-        heartbeat = asyncio.create_task(self._heartbeat(job.id))
+        heartbeat = asyncio.create_task(self._heartbeat(job.id, log))
         log(f"{job.kind.value} start: {job.workflow}/{job.item}")
         try:
             if job.kind is JobKind.EXTRACT:
@@ -116,7 +115,7 @@ class Worker:
             self._auth.on_session_expired(job)
             log(f"session expired — parked for manual login: {exc}")
         except TransientBrowserError as exc:
-            retryable = job.attempts < _MAX_ATTEMPTS
+            retryable = job.attempts < MAX_JOB_ATTEMPTS
             self._jobs.fail(job.id, f"transient: {exc}", retryable=retryable)
             log(f"transient failure (retryable={retryable}): {exc}")
         except Exception as exc:
@@ -146,8 +145,16 @@ class Worker:
     def _finish_extract(
         self, job: Job, outcome: ExtractOutcome, log: RepositoryLogger
     ) -> None:
-        """Map an extraction outcome to job status."""
-        if outcome in {ExtractOutcome.EXTRACTED, ExtractOutcome.SKIPPED}:
+        """
+        Map an extraction outcome to job status.
+
+        ``INCOMPLETE`` fails the job immediately with the item's plain reason and never
+        requeues: the item is already ``NEEDS_REVIEW``, and the operator's Retry action
+        is the only way back. ``FAILED`` keeps the job-runtime retry policy (one
+        automatic attempt) because it signals a persistence or programming problem, not
+        a missing Salesforce link.
+        """
+        if outcome is ExtractOutcome.EXTRACTED:
             self._jobs.complete(job.id)
             self._events.emit(
                 "job_succeeded",
@@ -158,9 +165,23 @@ class Worker:
             )
             log(f"done: {outcome.value}")
             return
-        retryable = job.attempts < _MAX_ATTEMPTS
+        if outcome is ExtractOutcome.INCOMPLETE:
+            reason = self._item_reason(job)
+            self._jobs.fail(job.id, f"extraction incomplete: {reason}")
+            log(f"extraction incomplete — {reason}")
+            return
+        retryable = job.attempts < MAX_JOB_ATTEMPTS
         self._jobs.fail(job.id, f"extraction {outcome.value}", retryable=retryable)
         log(f"extraction {outcome.value} (retryable={retryable})")
+
+    def _item_reason(self, job: Job) -> str:
+        """The item's plain reason, or a generic one if the row cannot be read."""
+        try:
+            item = self._items.require(job.workflow, job.item)
+        except Exception:
+            logger.exception("cannot read item reason for job %s", job.id)
+            return "needs review"
+        return item.reason or "needs review"
 
     def _finish_submit(
         self, job: Job, outcome: SubmitOutcome, log: RepositoryLogger
@@ -212,9 +233,19 @@ class Worker:
                     reason="submission job failed; review and retry",
                 )
 
-    async def _heartbeat(self, job_id: int) -> None:
-        """Keep renewing the lease while the job runs."""
+    async def _heartbeat(self, job_id: int, log: RepositoryLogger) -> None:
+        """
+        Keep renewing the lease while the job runs.
+
+        A failed write is logged to the job and retried on the next interval. It must
+        never kill the task silently: losing a live lease lets another slot claim and
+        execute the same job concurrently (FR-7.14).
+        """
         interval = max(1.0, self._lease_ttl_s / 3)
         while True:
             await asyncio.sleep(interval)
-            self._jobs.heartbeat(job_id, self._lease_ttl_s)
+            try:
+                self._jobs.heartbeat(job_id, self._lease_ttl_s)
+            except Exception as exc:
+                logger.exception("job %s heartbeat failed", job_id)
+                log(f"lease heartbeat failed: {type(exc).__name__}: {exc}")

@@ -13,6 +13,7 @@ from functools import partial
 
 from app.config import Settings
 from app.core.repo.jobs import JobRepository
+from app.core.status import MAX_JOB_ATTEMPTS
 
 from .auth import AuthGate
 from .worker import Worker
@@ -123,7 +124,7 @@ class Dispatcher:
             await self._auth.wait()
             job = self._jobs.claim(owner, self._lease_ttl_s)
             if job is None:
-                self._jobs.requeue_stale()
+                self._jobs.requeue_stale(MAX_JOB_ATTEMPTS)
                 await asyncio.sleep(self._poll_s)
                 continue
             await self._worker.execute(job)

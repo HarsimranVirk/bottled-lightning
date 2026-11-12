@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { DecisionView, ItemRow } from './api'
-import { isDeckRow, orderDeckRows } from './deck'
+import { isDeckRow, isReturnedRow, orderDeckRows } from './deck'
 
 function row(overrides: Partial<ItemRow> = {}): ItemRow {
   return {
@@ -48,6 +48,14 @@ describe('isDeckRow', () => {
       expect(isDeckRow(row({ status }))).toBe(false)
     }
   })
+
+  it('recognises only an accepted item in needs_review as returned', () => {
+    expect(
+      isReturnedRow(row({ status: 'needs_review', decision: decision('accept') })),
+    ).toBe(true)
+    expect(isReturnedRow(row({ status: 'needs_review' }))).toBe(false)
+    expect(isReturnedRow(row({ status: 'ready', decision: decision('accept') }))).toBe(false)
+  })
 })
 
 describe('orderDeckRows', () => {
@@ -84,6 +92,40 @@ describe('orderDeckRows', () => {
       'Deviation-1-1',
       'Deviation-2-2',
     ])
+  })
+
+  it('queues a returned card behind every undecided card', () => {
+    const returned = row({
+      key: 'Deviation-0-0',
+      status: 'needs_review',
+      decision: decision('accept'),
+    })
+    expect(orderDeckRows([returned, first, second], []).map((item) => item.key)).toEqual([
+      'Deviation-1-1',
+      'Deviation-2-2',
+      'Deviation-0-0',
+    ])
+  })
+
+  it('keeps returned cards in their incoming order', () => {
+    const one = row({ key: 'Deviation-0-1', status: 'needs_review', decision: decision('accept') })
+    const two = row({ key: 'Deviation-0-2', status: 'needs_review', decision: decision('accept') })
+    expect(orderDeckRows([one, two, first], []).map((item) => item.key)).toEqual([
+      'Deviation-1-1',
+      'Deviation-0-1',
+      'Deviation-0-2',
+    ])
+  })
+
+  it('lets an explicit pin bring a returned card to the front', () => {
+    const returned = row({
+      key: 'Deviation-0-0',
+      status: 'needs_review',
+      decision: decision('accept'),
+    })
+    expect(
+      orderDeckRows([returned, first], ['Deviation-0-0']).map((item) => item.key),
+    ).toEqual(['Deviation-0-0', 'Deviation-1-1'])
   })
 
   it('ignores duplicate pins and never duplicates a card', () => {

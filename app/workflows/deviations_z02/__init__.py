@@ -12,11 +12,11 @@ from collections.abc import Mapping
 from app.config import Settings
 from app.core.list_view import ListRow, ListViewSpec
 from app.core.status import WorkItemStatus
-from app.core.workflow import Workflow, WorkflowDeps
+from app.core.workflow import RefKind, Workflow, WorkflowDeps
 from app.salesforce.urls import list_view_url
 
 from .adapters import build_adapters
-from .catalog import FIELD_CATALOG
+from .catalog import FIELD_CATALOG, DeviationObject
 from .extraction import DeviationsZ02Extraction
 from .submission import DeviationsZ02Submission
 
@@ -25,6 +25,20 @@ LIST_OBJECT_API = "Consumer_Loan_Deviation__c"
 LIST_FILTER = "Z2_Loan_para_pricing1"
 #: Safe pattern: the middle segment is 8 digits, so ``\d{2,4}`` never matches.
 LIST_PATTERN = r"Deviation-\d+-\d+"
+
+#: Every SF object link this workflow expects, in display order.
+#:
+#: Single source of truth for three consumers: the workflow's declaration (readiness
+#: and submission), extraction (one stored ref per kind) and the API projection. All
+#: five are required — a deviation is incomplete without any of them. Adding a kind
+#: here also needs an adapter and a plain fallback reason in ``extraction``.
+REF_KINDS: tuple[RefKind, ...] = (
+    RefKind(DeviationObject.OPPORTUNITY.value),
+    RefKind(DeviationObject.CL_CONTRACT.value),
+    RefKind(DeviationObject.COLLATERAL.value),
+    RefKind(DeviationObject.LMS2_CL_CONTRACT.value),
+    RefKind(DeviationObject.LMS2_COLLATERAL.value),
+)
 
 
 def map_row(row: ListRow) -> Mapping[str, str]:
@@ -60,6 +74,7 @@ def build_workflow(
         deps.refs,
         deps.events,
         adapters,
+        ref_kinds=REF_KINDS,
         force=force,
     )
     submission = DeviationsZ02Submission(
@@ -70,6 +85,7 @@ def build_workflow(
         deps.events,
         adapters,
         FIELD_CATALOG,
+        ref_kinds=REF_KINDS,
     )
     return Workflow(
         name=WORKFLOW_NAME,
@@ -84,11 +100,5 @@ def build_workflow(
         submission=submission,
         map_row=map_row,
         terminal_labels={WorkItemStatus.COMPLETED: "Implemented"},
-        ref_kinds=(
-            "opportunity",
-            "cl_contract",
-            "collateral",
-            "lms2_cl_contract",
-            "lms2_collateral",
-        ),
+        ref_kinds=REF_KINDS,
     )
