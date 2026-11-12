@@ -59,9 +59,11 @@ export function UpdateCard({
           <Text color="secondary">Up to date.</Text>
         )}
         {installingNow ? null : (
-          <Button appearance="bordered" onClick={onCheck} disabled={checking}>
-            {checking ? 'Checking…' : 'Check for updates'}
-          </Button>
+          <FlexLayout gap={1} align="center" wrap>
+            <Button appearance="bordered" onClick={onCheck} disabled={checking}>
+              {checking ? 'Checking…' : 'Check for updates'}
+            </Button>
+          </FlexLayout>
         )}
         {error ? <Text color="secondary">{error}</Text> : null}
       </FlexLayout>
