@@ -53,8 +53,17 @@ class FieldTarget:
     """
 
     object_kind: str
+    """SF object the value lives on: a key in the workflow's ``AdapterRegistry``, e.g.
+    ``cl_contract`` or ``lms2_collateral``."""
+
     label: str
+    """Salesforce field label exactly as the record page renders it, e.g. ``Loan Amount``;
+    field API names are not available to this org's session."""
+
     section: str | None = None
+    """Page area that disambiguates a repeated label and is scrolled to before editing,
+    e.g. ``"Tenure"`` for the LMS 2.0 form's second ``New value`` input; ``None`` when the
+    label is unique on the page."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,13 +87,29 @@ class EditableField:
     """
 
     key: str
+    """Stable catalogue key used by the API, the deck and the database, e.g. ``tenure``;
+    never the SF label, so a relabelled SF field does not break stored rows."""
+
     label: str
+    """Heading the operator sees in the deck, e.g. ``EMI & other fixed payments incl.
+    HFFC Loan``."""
+
     value_type: ValueType
+    """How the text is parsed, compared and rendered (amount, tenure in months, rate,
+    free text)."""
+
     targets: tuple[FieldTarget, ...]
+    """Every SF field this value must be written to and agree with, in write order; more
+    than one when the same value spans objects (FR-6.3)."""
+
     #: Must be supplied by the operator before submit. Parsing is best-effort: a value
     #: that could not be extracted simply has no extracted value and is not an error.
     required: bool = False
+    """Whether the operator must supply this value before a submit is allowed."""
+
     source: str | None = None
+    """Description-line label extraction reads this value from, e.g. ``tenure``; ``None``
+    when no adapter parses it from the record text."""
 
 
 _AMOUNT_STRIP = re.compile(r"[,\s\u20b9$]")

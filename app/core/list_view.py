@@ -25,7 +25,12 @@ class ListViewSpec:
     """
 
     url: str
+    """Fully built Lightning list URL, including ``filterName`` and ``fcf``, that the
+    watcher opens in the browser."""
+
     pattern: str
+    """Regex that finds the item key inside a row's text, e.g. ``Deviation-\\d+-\\d+``;
+    shared by the list reader and every adapter so both agree on what a key is."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,9 +44,19 @@ class ListRow:
     """
 
     key: str
+    """Item key parsed with ``ListViewSpec.pattern``, e.g. ``Deviation-28102026-484106``."""
+
     href: str
+    """Record link from the row, relative or absolute (``/lightning/r/a2f…/view``);
+    may be ``""`` when the printable view omits it."""
+
     columns: Mapping[str, str]
+    """Any extra list columns captured verbatim, keyed by heading; reserved for list
+    views that expose values directly."""
+
     approved_at: str | None
+    """Approval Date column text exactly as the printable view rendered it; ``None`` when
+    the view did not provide it."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,8 +76,14 @@ class ListSample:
     """
 
     captured_at: datetime
+    """UTC timestamp the page was read; becomes the items' ``last_seen`` when valid."""
+
     header_total: int | None
+    """The "N items" count Salesforce rendered, or ``None`` when the header never
+    rendered (which makes the sample invalid)."""
+
     rows: tuple[ListRow, ...]
+    """Rows actually parsed from the printable view, in page order."""
 
     @property
     def valid(self) -> bool:

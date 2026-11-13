@@ -98,8 +98,14 @@ docstring. It must be genuinely explanatory, not a restatement of the name:
 - **Raises / failure modes** — what surfaces to the caller versus what is logged
   and swallowed.
 - **A short usage example** where the call shape is not obvious (a 2-4 line
-  snippet, not a full program). Pydantic models and `TypedDict`s can document
-  fields inline with comments if a docstring would be redundant.
+  snippet, not a full program).
+- **Every field carries an attribute docstring.** Dataclasses, Pydantic models
+  and `TypedDict`s document each field with a string literal on the line below
+  the declaration — the attribute-docstring convention Pyright/Pylance renders
+  on hover. A `#` comment is not enough: it is invisible to hover. Say what the
+  value holds, its concrete shape or example, units/format, and what `None` or
+  `""` means. The class docstring keeps the shared invariant; `docs/` records a
+  design — neither is the only place a field's meaning can be found.
 
 Keep docstrings current: touching a signature or behaviour means updating its
 docstring in the same change.
@@ -246,6 +252,15 @@ saved session — run the manual login once; snapshots refresh automatically.
   **fix the underlying type error** rather than silencing it. If an
   unavoidable upstream/stub gap truly blocks you, raise it with the user and
   document the decision in `docs/` — do not suppress it unilaterally.
+- **Prefer a domain type over a bare primitive.** A plain `str`/`int`/`bool` says
+  nothing about what it holds, so reach for a `StrEnum`/`Enum` when the set of
+  values is closed, a `NewType` (or a small frozen dataclass) when several
+  identifiers of the same primitive type get passed around, and `Literal` or
+  `Annotated` when the shape is fixed but the values are not. Do this for new
+  and touched code; do not launch a sweeping retype of existing fields — the
+  older bare-primitive models are grandfathered until a change already has to
+  touch them, and a field left as `str` gets an attribute docstring saying what
+  that `str` holds.
 - Releases are wheels: bump `__version__` in `app/__init__.py`, tag `vX.Y.Z`
   (the workflow fails on a mismatch) and let CI build. Never edit the version
   only in `pyproject.toml` — it is dynamic and read from `app/__init__.py`.

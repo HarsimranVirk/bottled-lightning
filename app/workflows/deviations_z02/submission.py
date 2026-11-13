@@ -68,8 +68,13 @@ class _Plan:
     """One proposed field, its canonical intended value and whether it was applied."""
 
     field: EditableField
+    """The catalogue entry being written, which carries the target labels."""
+
     intended: str
+    """Canonical value the operator proposed, already normalised for comparison."""
+
     applied: bool
+    """Whether an earlier attempt already wrote this field, so a retry may skip it."""
 
     @property
     def targets(self) -> tuple[FieldTarget, ...]:
@@ -82,8 +87,13 @@ class _ObjectGroup:
     """All targets that live on one SF object, plus the page ref that opens it."""
 
     kind: str
+    """Object kind whose page carries these targets, e.g. ``cl_contract``."""
+
     ref: PageRef
+    """The link used to open that page; its ``state`` was already validated."""
+
     values: Mapping[FieldTarget, str]
+    """Canonical values to write, keyed by the exact target on this object."""
 
     @property
     def targets(self) -> tuple[FieldTarget, ...]:

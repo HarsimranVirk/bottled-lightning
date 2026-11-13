@@ -542,7 +542,10 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** ConcurrencyIn */
+        /**
+         * ConcurrencyIn
+         * @description Requested worker count for the running queue.
+         */
         ConcurrencyIn: {
             /** Concurrency */
             concurrency: number;
@@ -557,7 +560,10 @@ export interface components {
             /** Reason */
             reason?: string | null;
         };
-        /** DecisionView */
+        /**
+         * DecisionView
+         * @description One row of the append-only review-decision trail.
+         */
         DecisionView: {
             /**
              * At
@@ -631,7 +637,10 @@ export interface components {
             /** Tables */
             tables: components["schemas"]["DevTableView"][];
         };
-        /** EditView */
+        /**
+         * EditView
+         * @description One row of the append-only edit audit for an item.
+         */
         EditView: {
             /**
              * At
@@ -652,7 +661,10 @@ export interface components {
         FieldValuesBody: {
             [key: string]: string | null;
         };
-        /** FieldView */
+        /**
+         * FieldView
+         * @description The four value slots plus lifecycle status for one editable field.
+         */
         FieldView: {
             /** Applied */
             applied?: string | null;
@@ -712,7 +724,10 @@ export interface components {
             /** Status */
             status: string;
         };
-        /** ItemDetailView */
+        /**
+         * ItemDetailView
+         * @description Everything the drawer shows for one item: values, links, and audit history.
+         */
         ItemDetailView: {
             activeJob?: components["schemas"]["JobView"] | null;
             /** Approvedat */
@@ -751,7 +766,10 @@ export interface components {
             /** Status */
             status: string;
         };
-        /** ItemRowView */
+        /**
+         * ItemRowView
+         * @description One card/row in the review deck.
+         */
         ItemRowView: {
             activeJob?: components["schemas"]["JobView"] | null;
             /** Approvedat */
@@ -774,7 +792,10 @@ export interface components {
             /** Status */
             status: string;
         };
-        /** ItemsPageView */
+        /**
+         * ItemsPageView
+         * @description One page of deck rows plus the filtered total.
+         */
         ItemsPageView: {
             /** Count */
             count: number;
@@ -785,13 +806,19 @@ export interface components {
             /** Workflow */
             workflow: string;
         };
-        /** JobLogsView */
+        /**
+         * JobLogsView
+         * @description A job plus the log lines it produced.
+         */
         JobLogsView: {
             job: components["schemas"]["JobView"];
             /** Logs */
             logs: string[];
         };
-        /** JobView */
+        /**
+         * JobView
+         * @description One queued job as the jobs table and the drawer show it.
+         */
         JobView: {
             /** Attempts */
             attempts: number;
@@ -912,7 +939,10 @@ export interface components {
             /** Total */
             total: number;
         };
-        /** QueueView */
+        /**
+         * QueueView
+         * @description Job-queue depth and pause state.
+         */
         QueueView: {
             /** Concurrency */
             concurrency: number;
@@ -925,7 +955,10 @@ export interface components {
             /** Paused */
             paused: boolean;
         };
-        /** SessionEventView */
+        /**
+         * SessionEventView
+         * @description One entry in the session's recent-event list (home page).
+         */
         SessionEventView: {
             /**
              * At
@@ -937,7 +970,10 @@ export interface components {
             /** Event */
             event: string;
         };
-        /** SessionView */
+        /**
+         * SessionView
+         * @description Login/session state for the home page.
+         */
         SessionView: {
             /** Cookies */
             cookies?: number | null;
@@ -949,7 +985,10 @@ export interface components {
             /** State */
             state: string;
         };
-        /** SyncView */
+        /**
+         * SyncView
+         * @description The newest list refresh for a workflow, including its cross-check evidence.
+         */
         SyncView: {
             /** Added */
             added: number;
@@ -1012,7 +1051,10 @@ export interface components {
             /** Version */
             version: string;
         };
-        /** WorkflowFieldView */
+        /**
+         * WorkflowFieldView
+         * @description One catalogue entry, as the deck renders it.
+         */
         WorkflowFieldView: {
             /** Key */
             key: string;
@@ -1025,7 +1067,10 @@ export interface components {
             /** Valuetype */
             valueType: string;
         };
-        /** WorkflowView */
+        /**
+         * WorkflowView
+         * @description One registered workflow, enough for the SPA to build its screens.
+         */
         WorkflowView: {
             /** Fields */
             fields: components["schemas"]["WorkflowFieldView"][];

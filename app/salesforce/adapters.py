@@ -50,9 +50,19 @@ class DiscoveryContext:
     """
 
     item_key: str
+    """Item key being extracted, e.g. ``Deviation-28102026-484106``; used for log lines."""
+
     record_url: str
+    """Lightning URL of the deviation record, taken from the list row; every adapter
+    starts its discovery from here."""
+
     opportunity_url: str | None = None
+    """URL of the opportunity the record belongs to, once the opportunity adapter has
+    resolved it; ``None`` before that step or when it failed."""
+
     product_type: str | None = None
+    """Product type read from the opportunity, e.g. ``Home Loan (Resale)``; the CL-contract
+    adapter needs it to pick the right form, so it is ``None`` until that step runs."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,10 +86,23 @@ class DiscoveredRef:
     """
 
     kind: str
+    """Object kind this link is for, e.g. ``opportunity``; must be one of the workflow's
+    declared ``RefKind`` values."""
+
     name: str = ""
+    """The object's Salesforce identifier as displayed, e.g. ``LAI-00533155``; ``""`` when
+    nothing was found."""
+
     url: str = ""
+    """Absolute Lightning URL to open; ``""`` when ``state`` is not ``FOUND``."""
+
     state: RefState = RefState.FOUND
+    """``FOUND``, ``ABSENT`` (positively no such object) or ``UNRESOLVED`` (the lookup did
+    not finish); the pipeline stores it verbatim on the item."""
+
     reason: str | None = None
+    """One operator-facing sentence when ``state`` is not ``FOUND``; exception text and
+    timeouts belong in the job log, never here."""
 
 
 def unresolved(kind: str, reason: str) -> DiscoveredRef:
@@ -119,8 +142,16 @@ class Discovery:
     """
 
     refs: tuple[DiscoveredRef, ...] = ()
+    """Links this adapter owns, one per kind it is responsible for (including ``ABSENT``
+    ones, so the pipeline never has to guess)."""
+
     attributes: Mapping[str, str | None] = field(default_factory=dict)
+    """Read-only values found here, keyed by stored attribute name (e.g. ``description``);
+    ``None`` records a value the page genuinely had nothing for."""
+
     fields: Mapping[str, str | None] = field(default_factory=dict)
+    """Catalogue values this adapter is the source of, keyed by field key (e.g.
+    ``tenure``); merged into the item's extracted values by the pipeline."""
 
 
 @runtime_checkable
@@ -136,6 +167,8 @@ class ObjectAdapter(Protocol):
     """
 
     kind: str
+    """Object kind this adapter serves, e.g. ``cl_contract``; must match a declared
+    ``RefKind.kind`` and the kind on every ref, attribute and field it returns."""
 
     async def discover(
         self, tabs: TabProvider, context: DiscoveryContext, log: JobLogger
@@ -168,6 +201,8 @@ class AdapterBase:
     """
 
     kind: str = ""
+    """Object kind served by this base adapter; subclasses override it with a declared
+    ``RefKind.kind``."""
 
     async def discover(
         self, tabs: TabProvider, context: DiscoveryContext, log: JobLogger

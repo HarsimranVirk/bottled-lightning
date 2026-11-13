@@ -30,18 +30,47 @@ class Settings:
     """Immutable runtime configuration, built once in ``main()`` and injected."""
 
     org_base: str
+    """Salesforce Lightning base URL used for every navigation and link, e.g.
+    ``https://hffc.lightning.force.com``."""
+
     data_dir: Path
+    """Directory holding runtime state (``app.db``, browser profiles, update state); the
+    OS app-data dir for installed builds, ``./data`` in a source checkout."""
+
     db_path: Path
+    """Absolute path to ``app.db``; the only store, including the session snapshot."""
+
     workers: int
+    """Concurrent job workers, clamped to 1..``MAX_WORKERS`` (5)."""
+
     refresh_interval_s: float
+    """Seconds between automatic list refreshes of every workflow."""
+
     request_timeout_ms: int
+    """Per-page navigation/selector timeout in milliseconds (60 s)."""
+
     login_wait_s: int
+    """How long the manual login waits for a human to finish, in seconds (600)."""
+
     headless: bool
+    """Run the browser without a window; ``False`` only for manual debugging."""
+
     update_policy: str
+    """Self-update behaviour: ``auto`` installs at boot when a newer release exists,
+    ``check`` only reports, ``off`` disables the GitHub lookup."""
+
     host: str = "0.0.0.0"
+    """Interface the HTTP server binds to; ``0.0.0.0`` exposes the LAN."""
+
     port: int = 8765
+    """TCP port the HTTP server listens on."""
+
     dev_tools: bool = True
+    """Whether the hidden ``/dev/db`` explorer is mounted; ``SF_DEV_TOOLS=0`` disables it."""
+
     dev_tools_allow_remote: bool = False
+    """Whether ``/dev/db`` accepts non-loopback clients; loopback-only unless explicitly
+    enabled, because the explorer reads the whole database."""
 
 
 def _env_int(name: str, default: int) -> int:

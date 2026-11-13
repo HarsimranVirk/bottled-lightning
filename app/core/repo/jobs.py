@@ -49,29 +49,76 @@ class JobQuery:
     """
 
     workflow: str | None = None
+    """Exact workflow scope; ``None`` matches every workflow."""
+
     kind: JobKind | None = None
+    """Legacy single-kind equality filter; ``kinds`` is the one the UI sends."""
+
     status: JobStatus | None = None
+    """Legacy single-status equality filter; ``statuses`` is the one the UI sends."""
+
     phase: Phase | None = None
+    """Legacy single-phase equality filter; ``phases`` is the UI's filter."""
+
     item: str | None = None
+    """Substring match on the item key, e.g. ``484106``."""
+
     job_id: str | None = None
+    """Substring match on the job id, e.g. ``12`` to find ``12``, ``120``, ``312``."""
+
     error: str | None = None
+    """Substring match on the failure message; useful for grouping one failure mode."""
+
     kinds: tuple[JobKind, ...] = ()
+    """Exact job kinds to include (OR within the set); empty means all kinds."""
+
     statuses: tuple[JobStatus, ...] = ()
+    """Exact job statuses to include (OR within the set); empty means all statuses."""
+
     phases: tuple[Phase, ...] = ()
+    """Exact phases to include (OR within the set); empty means all phases."""
+
     status_text: str | None = None
+    """Case-insensitive substring over the status text, for typed filters."""
+
     kind_text: str | None = None
+    """Case-insensitive substring over the kind text, for typed filters."""
+
     phase_text: str | None = None
+    """Case-insensitive substring over the phase text, for typed filters."""
+
     job_ids_in: tuple[str, ...] = ()
+    """Exact job ids selected in a table filter (OR within the set)."""
+
     items_in: tuple[str, ...] = ()
+    """Exact item keys selected in a table filter (OR within the set)."""
+
     errors_in: tuple[str, ...] = ()
+    """Exact error strings selected in a table filter (OR within the set)."""
+
     started_after: str | None = None
+    """Inclusive lower bound on ``started_at``, as a stored ISO timestamp."""
+
     started_before: str | None = None
+    """Inclusive upper bound on ``started_at``, as a stored ISO timestamp."""
+
     duration_min_ms: int | None = None
+    """Minimum elapsed time in milliseconds; running jobs use live elapsed time."""
+
     duration_max_ms: int | None = None
+    """Maximum elapsed time in milliseconds; running jobs use live elapsed time."""
+
     sort: str = "id"
+    """Column to sort by; validated by the service before it reaches SQL."""
+
     order: str = "desc"
+    """``asc`` or ``desc``; validated by the service before it reaches SQL."""
+
     limit: int = 25
+    """Maximum rows in the page."""
+
     offset: int = 0
+    """Rows to skip, for server-side paging."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +126,10 @@ class JobPage:
     """One page of jobs plus the count of the whole filtered set."""
 
     jobs: list[Job]
+    """This page's jobs, already sorted and windowed."""
+
     total: int
+    """Jobs matching the filters across every page."""
 
 
 def _to_job(row: sqlite3.Row) -> Job:
