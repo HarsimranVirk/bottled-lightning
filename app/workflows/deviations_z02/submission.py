@@ -560,13 +560,19 @@ class DeviationsZ02Submission:
             values: dict[FieldTarget, str] = {}
             for target, intended in group.values.items():
                 plan = target_plan[target]
-                if plan.applied and (
+                if (
                     _canonical(current.get(target), plan.field.value_type)
                     == plan.intended
                 ):
-                    # A retry after a crash: the value is already there, so do not
-                    # write it again (FR-6.8). Record it as saved for per-field truth.
+                    # The page already holds the proposed value, so there is nothing
+                    # to write: a retry after a crash must not write it twice
+                    # (FR-6.8), and an SF form can leave a modification to an equal
+                    # value unconfirmed, which would fail the item over a no-op.
                     outcomes[target] = WriteOutcome.SAVED
+                    log(
+                        f"apply: {group.kind}: {describe_target(target)} already "
+                        f"at {plan.intended}; no write needed"
+                    )
                     continue
                 values[target] = intended
             if not values:

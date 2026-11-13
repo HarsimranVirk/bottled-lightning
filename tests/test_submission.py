@@ -477,7 +477,7 @@ class SubmissionTests(DbTestCase):
         self._seed(
             {
                 "loan_amount": "14,50,000",
-                "tenure": "180",
+                "tenure": "192",
                 "emi_incl_hffc": "18,585",
             }
         )
@@ -691,6 +691,38 @@ class SubmissionTests(DbTestCase):
         fields = self.deps().fields.for_item(WORKFLOW, KEY)
         self.assertEqual(fields["loan_amount"].applied, "1450000")
 
+
+    def test_target_already_at_proposed_value_is_not_written(self) -> None:
+        """A target that already holds the proposal is skipped; others still write."""
+        item = self._item()
+        self._refs()
+        # loan_amount is proposed at its extracted value, emi_incl_hffc changes.
+        self._seed({"loan_amount": EXTRACTED["loan_amount"], "emi_incl_hffc": "18,585"})
+        adapters = self._adapters(self._current())
+        pipeline = self._pipeline(adapters)
+        lines: list[str] = []
+
+        outcome = self._run(pipeline, item, lines)
+
+        self.assertIs(outcome, SubmitOutcome.COMPLETED)
+        emi_target = next(
+            target
+            for target in _targets(DeviationObject.OPPORTUNITY.value)
+            if target.label.startswith("EMIs")
+        )
+        opportunity = adapters.get(DeviationObject.OPPORTUNITY.value)
+        assert isinstance(opportunity, FakeWriteAdapter)
+        self.assertEqual(set(opportunity.writes), {emi_target})
+        for kind in (
+            DeviationObject.CL_CONTRACT.value,
+            DeviationObject.LMS2_CL_CONTRACT.value,
+        ):
+            adapter = adapters.get(kind)
+            assert isinstance(adapter, FakeWriteAdapter)
+            self.assertEqual(adapter.writes, {})
+        self.assertIn("already at", "\n".join(lines))
+        fields = self.deps().fields.for_item(WORKFLOW, KEY)
+        self.assertIs(fields["loan_amount"].status, FieldStatus.APPLIED)
 
     def test_already_implemented_is_external(self) -> None:
         """A pre-existing tick is not claimed as our implementation."""

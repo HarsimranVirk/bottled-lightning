@@ -54,6 +54,11 @@ _FIELD_IDS: Mapping[str, str] = {
 _TENURE_LABEL = "Tenure (Yrs)"
 _ROI_LABEL = "ROI"
 
+#: How long one Edit click gets to turn a field into its inline input. A Lightning
+#: re-render can swallow the click entirely, so the adapter re-clicks once rather than
+#: burning the whole action budget on a click that never took effect.
+_EDIT_OPEN_MS = 5_000
+
 
 def product_type_from(body: str) -> str | None:
     """Pull the value Salesforce renders under the "Product Type" label."""
@@ -262,7 +267,14 @@ class OpportunityAdapter(AdapterBase):
         value: str,
         log: JobLogger,
     ) -> WriteOutcome:
-        """Open one inline edit, fill it, save and verify the read-back."""
+        """Open one inline edit, fill it, save and verify the read-back.
+
+        The Edit control is clicked once, and clicked again when the field has not
+        produced its input after ``_EDIT_OPEN_MS``: a Lightning re-render can consume a
+        click that the browser reports as successful. Every other failure (no control,
+        no input after the full action budget, save not confirmed) returns
+        ``UNKNOWN`` so the pipeline never trusts a half-edited field.
+        """
         name = describe_target(target)
         try:
             edit = field.get_by_role("button", name="Edit", exact=False)
@@ -272,6 +284,15 @@ class OpportunityAdapter(AdapterBase):
             log(f"apply: opportunity: {name}: opening edit")
             await edit.first.click(timeout=self._timeout_ms)
             log(f"apply: opportunity: {name}: edit opened")
+            if not await poll(lambda: _has_input(field), _EDIT_OPEN_MS):
+                # Lightning can swallow the pencil click while the section is still
+                # re-rendering: the click lands, but the field never switches to its
+                # input. Re-click once instead of waiting out the full budget.
+                log(
+                    f"apply: opportunity: {name}: edit did not open; "
+                    "clicking Edit again"
+                )
+                await edit.first.click(timeout=self._timeout_ms)
             if not await poll(lambda: _has_input(field), self._timeout_ms):
                 log(f"apply: opportunity: {name}: edit input did not appear")
                 return WriteOutcome.UNKNOWN
