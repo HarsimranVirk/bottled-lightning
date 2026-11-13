@@ -80,10 +80,19 @@ class WorkflowDeps:
     """
 
     items: WorkItemRepository
+    """Items table: the lifecycle rows this workflow's jobs transition."""
+
     fields: FieldValueRepository
+    """Editable values (extracted/proposed/applied) per item and catalogue key."""
+
     attributes: AttributeRepository
+    """Read-only extracted context (description, ROI, product type)."""
+
     refs: PageRefRepository
+    """One link per declared SF object kind, replaced atomically per extraction."""
+
     events: EventRepository
+    """Append-only audit trail jobs and pipelines write to."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,7 +108,12 @@ class RefKind:
     """
 
     kind: str
+    """Object kind as it appears in ``PageRef.kind`` and the API, e.g. ``opportunity`` or
+    ``lms2_cl_contract``; the workflow's own declared name for the object."""
+
     required: bool = True
+    """Whether an item may reach ``READY`` without this link. ``ABSENT`` satisfies an
+    optional kind; ``UNRESOLVED`` never satisfies anything."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,7 +126,11 @@ class RefGap:
     """
 
     kind: str
+    """The blocking object kind, e.g. ``collateral``; matches a ``RefKind.kind``."""
+
     reason: str | None
+    """Operator-facing sentence copied from the stored ref; ``None`` when no ref row
+    exists at all, so nothing is known about that object."""
 
 
 def incomplete_ref(
@@ -158,15 +176,39 @@ class Workflow:
     """
 
     name: str
+    """Registry key and database scope for every row this workflow owns, e.g.
+    ``deviations_z02``."""
+
     route: str
+    """REST noun the API mounts under ``/api/<route>``, e.g. ``deviations``; decoupled
+    from ``name`` so the registry key stays stable across renames."""
+
     list_view: ListViewSpec
+    """The SF list view the watcher refreshes (filter name, ``fcf`` id, columns)."""
+
     catalog: tuple[EditableField, ...]
+    """Editable fields in display order; drives both the deck's columns and submission."""
+
     adapters: AdapterRegistry
+    """Per-workflow object adapters keyed by object kind, used by extraction and submit."""
+
     extraction: ExtractionPipeline
+    """Pipeline that discovers and persists one item's data."""
+
     submission: SubmissionPipeline
+    """Pipeline that applies, verifies and finalises one item's edits."""
+
     map_row: Callable[[ListRow], Mapping[str, str]]
+    """Turns one parsed list row into extra stored attributes (column → value); the
+    generic reconciler calls it per row and needs no knowledge of the columns."""
+
     terminal_labels: Mapping[WorkItemStatus, str] = field(default_factory=dict)
+    """Operator-facing label per terminal status, e.g. ``COMPLETED`` → "Implemented";
+    empty for statuses that keep their enum label."""
+
     ref_kinds: tuple[RefKind, ...] = ()
+    """SF object kinds every item links to, in display order; empty for a workflow with
+    no related objects."""
 
     def required_ref_kinds(self) -> tuple[str, ...]:
         """Kinds this workflow cannot become ``READY`` without, in display order."""

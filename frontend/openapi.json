@@ -2,6 +2,7 @@
   "components": {
     "schemas": {
       "ConcurrencyIn": {
+        "description": "Requested worker count for the running queue.",
         "properties": {
           "concurrency": {
             "title": "Concurrency",
@@ -40,6 +41,7 @@
         "type": "object"
       },
       "DecisionView": {
+        "description": "One row of the append-only review-decision trail.",
         "properties": {
           "at": {
             "format": "date-time",
@@ -214,6 +216,7 @@
         "type": "object"
       },
       "EditView": {
+        "description": "One row of the append-only edit audit for an item.",
         "properties": {
           "at": {
             "format": "date-time",
@@ -270,6 +273,7 @@
         "type": "object"
       },
       "FieldView": {
+        "description": "The four value slots plus lifecycle status for one editable field.",
         "properties": {
           "applied": {
             "anyOf": [
@@ -470,6 +474,7 @@
         "type": "object"
       },
       "ItemDetailView": {
+        "description": "Everything the drawer shows for one item: values, links, and audit history.",
         "properties": {
           "activeJob": {
             "anyOf": [
@@ -613,6 +618,7 @@
         "type": "object"
       },
       "ItemRowView": {
+        "description": "One card/row in the review deck.",
         "properties": {
           "activeJob": {
             "anyOf": [
@@ -702,6 +708,7 @@
         "type": "object"
       },
       "ItemsPageView": {
+        "description": "One page of deck rows plus the filtered total.",
         "properties": {
           "count": {
             "title": "Count",
@@ -733,6 +740,7 @@
         "type": "object"
       },
       "JobLogsView": {
+        "description": "A job plus the log lines it produced.",
         "properties": {
           "job": {
             "$ref": "#/components/schemas/JobView"
@@ -753,6 +761,7 @@
         "type": "object"
       },
       "JobView": {
+        "description": "One queued job as the jobs table and the drawer show it.",
         "properties": {
           "attempts": {
             "title": "Attempts",
@@ -1048,6 +1057,7 @@
         "type": "object"
       },
       "QueueView": {
+        "description": "Job-queue depth and pause state.",
         "properties": {
           "concurrency": {
             "title": "Concurrency",
@@ -1079,6 +1089,7 @@
         "type": "object"
       },
       "SessionEventView": {
+        "description": "One entry in the session's recent-event list (home page).",
         "properties": {
           "at": {
             "format": "date-time",
@@ -1103,6 +1114,7 @@
         "type": "object"
       },
       "SessionView": {
+        "description": "Login/session state for the home page.",
         "properties": {
           "cookies": {
             "anyOf": [
@@ -1154,6 +1166,7 @@
         "type": "object"
       },
       "SyncView": {
+        "description": "The newest list refresh for a workflow, including its cross-check evidence.",
         "properties": {
           "added": {
             "title": "Added",
@@ -1343,6 +1356,7 @@
         "type": "object"
       },
       "WorkflowFieldView": {
+        "description": "One catalogue entry, as the deck renders it.",
         "properties": {
           "key": {
             "title": "Key",
@@ -1379,6 +1393,7 @@
         "type": "object"
       },
       "WorkflowView": {
+        "description": "One registered workflow, enough for the SPA to build its screens.",
         "properties": {
           "fields": {
             "items": {
@@ -1434,7 +1449,7 @@
   },
   "info": {
     "title": "bottled-lightning",
-    "version": "0.5.1"
+    "version": "0.5.4"
   },
   "openapi": "3.1.0",
   "paths": {

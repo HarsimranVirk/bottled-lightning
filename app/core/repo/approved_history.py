@@ -62,20 +62,49 @@ class HistoryQuery:
     """
 
     q: str | None = None
+    """Substring match across the row's key and field text, for the free-text filter."""
+
     key: str | None = None
+    """Legacy single-key substring filter; ``keys`` is the one the UI sends."""
+
     keys: tuple[str, ...] = ()
+    """Exact item keys to include (OR within the set)."""
+
     status_text: str | None = None
+    """Legacy substring filter over the status text."""
+
     statuses: tuple[str, ...] = ()
+    """Exact status values to include (OR within the set)."""
+
     approved_at: str | None = None
+    """Substring match on the Approval Date text, as stored (not parsed)."""
+
     approved_values: tuple[str, ...] = ()
+    """Exact Approval Date strings selected in a table filter."""
+
     decided_after: str | None = None
+    """Inclusive lower bound on ``decided_at``, as a stored ISO timestamp."""
+
     decided_before: str | None = None
+    """Inclusive upper bound on ``decided_at``, as a stored ISO timestamp."""
+
     field_text: tuple[tuple[str, str], ...] = ()
+    """``(field_key, text)`` pairs; each must match a snapshot field by substring."""
+
     field_values: tuple[tuple[str, str], ...] = ()
+    """``(field_key, value)`` pairs; each must match a snapshot field exactly."""
+
     ref_text: tuple[tuple[str, str], ...] = ()
+    """``(kind, text)`` pairs; each must match a snapshot ref's name/url by substring."""
+
     ref_values: tuple[tuple[str, str], ...] = ()
+    """``(kind, value)`` pairs; each must match a snapshot ref exactly."""
+
     limit: int = 25
+    """Maximum rows in the page."""
+
     offset: int = 0
+    """Rows to skip, for server-side paging."""
 
 
 def _time(value: str | None) -> datetime:

@@ -91,8 +91,13 @@ class LmsRow:
     """One row of an LMS 2.0 related list."""
 
     data_id: str
+    """Stable row identifier from the LMS 2.0 table, used to re-open the record."""
+
     name: str
+    """First cell's text, i.e. the contract/collateral id shown in the list."""
+
     cells: tuple[str, ...]
+    """All cell texts in column order, used for exact product matching."""
 
 
 def match_rows(rows: Sequence[LmsRow], target: str | None) -> list[LmsRow]:
@@ -204,10 +209,21 @@ class _Lms2Adapter(AdapterBase):
     """Shared discovery for the two LMS 2.0 related lists."""
 
     host_tag: str = ""
+    """Custom element wrapping the list, e.g. ``c-lms2-cl-contract``; the adapter reads
+    rows out of its shadow root."""
+
     detail_path: str = ""
+    """Path fragment that opens one record's LMS 2.0 page, e.g. ``/s/lms2/…``."""
+
     uuid_param: str = ""
+    """Query parameter carrying the record uuid on ``detail_path``."""
+
     object_kind: str = ""
+    """Declared object kind this subclass serves, e.g. ``lms2_cl_contract``."""
+
     matches_product: bool = False
+    """Whether the related list must be matched to the opportunity's product before a row
+    is chosen."""
 
     def __init__(self, org_base: str, timeout_ms: int) -> None:
         """Store org base and page timeout."""

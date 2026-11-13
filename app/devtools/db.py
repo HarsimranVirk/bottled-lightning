@@ -75,8 +75,13 @@ class DevTable:
     """One table in the explorer list."""
 
     name: str
+    """SQLite table name, e.g. ``work_items``; the sessions table is never listed."""
+
     rows: int
+    """Row count at listing time, for the explorer's overview."""
+
     columns: tuple[str, ...]
+    """Column names in declaration order."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,9 +89,16 @@ class DevQueryResult:
     """A bounded, read-only result set."""
 
     columns: tuple[str, ...]
+    """Result column names in query order."""
+
     rows: tuple[tuple[DevCell, ...], ...]
+    """Result rows as scalars; SQLite blobs become placeholders, never raw bytes."""
+
     truncated: bool
+    """True when the statement produced more rows than the caller's limit."""
+
     duration_ms: int
+    """Wall-clock milliseconds the statement took, bounded by the explorer's timeout."""
 
 
 def _authorizer(

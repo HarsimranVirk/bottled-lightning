@@ -21,6 +21,7 @@ class _Local(threading.local):
     """Thread-local storage for this thread's connection."""
 
     conn: sqlite3.Connection | None = None
+    """This thread's open connection; ``None`` until ``Database.connect()`` opens it."""
 
 
 class Database:

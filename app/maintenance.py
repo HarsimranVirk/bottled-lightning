@@ -38,9 +38,16 @@ class PurgeResult:
     """One dry-run or real purge, with the cutoff and per-table deletion counts."""
 
     scope: PurgeScope
+    """Which store the action applied to: ``current`` or ``history``."""
+
     cutoff: datetime
+    """UTC cutoff the server fixed for this run; older rows were eligible."""
+
     dry_run: bool
+    """Whether this is a preview (``deleted`` counts are what *would* go)."""
+
     deleted: dict[str, int]
+    """Rows affected per table name, e.g. ``{"work_items": 12, "jobs": 30}``."""
 
     @property
     def total(self) -> int:
