@@ -8,6 +8,8 @@ from collections.abc import Mapping, Sequence
 
 from playwright.async_api import Page
 
+from app.config import NetworkProfile, SubmissionTimeouts, TimeoutPolicy
+from app.core.errors import TransientBrowserError
 from app.core.field import FieldTarget
 from app.core.job_logger import JobLogger
 from app.core.list_view import ListRow
@@ -51,7 +53,12 @@ class FakePage(Page):
     """A Page stand-in; the fake adapters never touch it."""
 
     def __init__(self) -> None:
-        """Skip Playwright's impl-bound constructor."""
+        """Skip Playwright's impl-bound constructor and start alive."""
+        self.closed = False
+
+    def is_closed(self) -> bool:
+        """Report the test-controlled liveness flag instead of asking a browser."""
+        return self.closed
 
 
 class FakeTabs:
@@ -90,7 +97,7 @@ class FakeDeviationAdapter(DeviationRecordAdapter):
         self, *, implemented: bool | None = False, confirm: bool = True
     ) -> None:
         """Seed the initial tick and whether the click should confirm it."""
-        super().__init__("https://org", 1000)
+        super().__init__("https://org", TimeoutPolicy())
         self.implemented = implemented
         self.confirm = confirm
         self.clicks = 0
@@ -129,18 +136,28 @@ class FakeWriteAdapter(AdapterBase):
         self.outcomes = dict(outcomes or {})
         self.writes: dict[FieldTarget, str] = {}
         self.reads = 0
+        self.kill_after_read = False
+        self.kill_after_write = False
+        self.read_delay_s = 0.0
+        self.write_delay_s = 0.0
 
     async def read(
         self, page: Page, targets: Sequence[FieldTarget], log: JobLogger
     ) -> dict[FieldTarget, str | None]:
-        """Return the current in-memory value for each target."""
+        """Return the current in-memory value for each target, after any seeded delay."""
         self.reads += 1
+        if self.read_delay_s:
+            await asyncio.sleep(self.read_delay_s)
+        if self.kill_after_read and isinstance(page, FakePage):
+            page.closed = True
         return {target: self.current.get(target) for target in targets}
 
     async def write(
         self, page: Page, values: Mapping[FieldTarget, str], log: JobLogger
     ) -> dict[FieldTarget, WriteOutcome]:
         """Apply each value unless the target is configured to reject it."""
+        if self.write_delay_s:
+            await asyncio.sleep(self.write_delay_s)
         results: dict[FieldTarget, WriteOutcome] = {}
         for target, value in values.items():
             outcome = self.outcomes.get(target, WriteOutcome.SAVED)
@@ -148,7 +165,28 @@ class FakeWriteAdapter(AdapterBase):
             if outcome is WriteOutcome.SAVED:
                 self.current[target] = value
                 self.writes[target] = value
+        if self.kill_after_write and isinstance(page, FakePage):
+            page.closed = True
         return results
+
+
+class TinyTimeouts(TimeoutPolicy):
+    """A policy with millisecond budgets so the timeout paths run fast in tests."""
+
+    def __init__(self, *, read_ms: int, write_ms: int, total_ms: int) -> None:
+        """Freeze the per-stage and whole-run budgets at millisecond values."""
+        super().__init__()
+        self._tiny = SubmissionTimeouts(
+            profile=NetworkProfile.DEFAULT,
+            action_ms=1_000,
+            stage_read_ms=read_ms,
+            stage_write_ms=write_ms,
+            submission_ms=total_ms,
+        )
+
+    def current(self) -> SubmissionTimeouts:
+        """Return the frozen millisecond budgets."""
+        return self._tiny
 
 
 def _targets(kind: str) -> list[FieldTarget]:
@@ -163,6 +201,11 @@ def _targets(kind: str) -> list[FieldTarget]:
 
 class SubmissionTests(DbTestCase):
     """Submission pipeline behaviour with in-memory adapters."""
+
+    def setUp(self) -> None:
+        """Use the shipped timeouts unless a test swaps in tiny budgets."""
+        super().setUp()
+        self.timeouts: TimeoutPolicy = TimeoutPolicy()
 
     def _item(self) -> WorkItem:
         """Create a ready item with the extraction marker set."""
@@ -264,6 +307,7 @@ class SubmissionTests(DbTestCase):
             adapters,
             FIELD_CATALOG,
             ref_kinds=DECLARED_REF_KINDS,
+            timeouts=self.timeouts,
         )
 
     def _run(
@@ -317,6 +361,91 @@ class SubmissionTests(DbTestCase):
         cl_adapter = adapters.get(DeviationObject.CL_CONTRACT.value)
         assert isinstance(cl_adapter, FakeWriteAdapter)
         self.assertEqual(len(cl_adapter.writes), 2)
+
+    def test_dead_page_during_read_is_transient(self) -> None:
+        """A tab that dies mid-read raises instead of trusting its empty values."""
+        item = self._item()
+        self._refs()
+        self._seed({"loan_amount": "14,50,000"})
+        adapters = self._adapters(self._current())
+        opportunity = adapters.get(DeviationObject.OPPORTUNITY.value)
+        assert isinstance(opportunity, FakeWriteAdapter)
+        opportunity.kill_after_read = True
+        pipeline = self._pipeline(adapters)
+
+        with self.assertRaises(TransientBrowserError):
+            self._run(pipeline, item)
+
+        fresh = self.deps().items.require(WORKFLOW, KEY)
+        self.assertIs(fresh.status, WorkItemStatus.SUBMITTING)
+
+    def test_dead_page_during_apply_is_transient(self) -> None:
+        """A tab that dies mid-apply aborts before the next object is written."""
+        item = self._item()
+        self._refs()
+        self._seed({"loan_amount": "14,50,000"})
+        adapters = self._adapters(self._current())
+        opportunity = adapters.get(DeviationObject.OPPORTUNITY.value)
+        assert isinstance(opportunity, FakeWriteAdapter)
+        opportunity.kill_after_write = True
+        contract = adapters.get(DeviationObject.CL_CONTRACT.value)
+        assert isinstance(contract, FakeWriteAdapter)
+        pipeline = self._pipeline(adapters)
+        lines: list[str] = []
+
+        with self.assertRaises(TransientBrowserError):
+            self._run(pipeline, item, lines)
+
+        # The dead tab is reported as such, and the remaining objects are not touched.
+        self.assertIn("apply: opportunity: page closed during the write", lines)
+        self.assertEqual(contract.writes, {})
+        fresh = self.deps().items.require(WORKFLOW, KEY)
+        self.assertIs(fresh.status, WorkItemStatus.APPLYING)
+
+    def test_write_timeout_records_unknown_and_keeps_writing(self) -> None:
+        """A group that overruns is recorded UNKNOWN, and later objects are still written."""
+        item = self._item()
+        self._refs()
+        self._seed({"loan_amount": "14,50,000"})
+        adapters = self._adapters(self._current())
+        opportunity = adapters.get(DeviationObject.OPPORTUNITY.value)
+        assert isinstance(opportunity, FakeWriteAdapter)
+        opportunity.write_delay_s = 0.2
+        contract = adapters.get(DeviationObject.CL_CONTRACT.value)
+        assert isinstance(contract, FakeWriteAdapter)
+        self.timeouts = TinyTimeouts(read_ms=5_000, write_ms=50, total_ms=30_000)
+        pipeline = self._pipeline(adapters)
+        lines: list[str] = []
+
+        outcome = self._run(pipeline, item, lines)
+
+        self.assertIs(outcome, SubmitOutcome.FAILED)
+        self.assertIn(
+            "apply: opportunity: write did not finish within", "\n".join(lines)
+        )
+        fresh = self.deps().items.require(WORKFLOW, KEY)
+        self.assertIn("opportunity/Loan Amount=unknown", fresh.reason or "")
+        # The overrun costs one group, not the submission's other objects.
+        self.assertTrue(contract.writes)
+
+    def test_whole_run_timeout_fails_with_the_budget(self) -> None:
+        """The whole-run budget stops a merely slow job and names the budget."""
+        item = self._item()
+        self._refs()
+        self._seed({"loan_amount": "14,50,000"})
+        adapters = self._adapters(self._current())
+        opportunity = adapters.get(DeviationObject.OPPORTUNITY.value)
+        assert isinstance(opportunity, FakeWriteAdapter)
+        opportunity.read_delay_s = 0.2
+        self.timeouts = TinyTimeouts(read_ms=5_000, write_ms=5_000, total_ms=50)
+        pipeline = self._pipeline(adapters)
+
+        outcome = self._run(pipeline, item)
+
+        self.assertIs(outcome, SubmitOutcome.FAILED)
+        fresh = self.deps().items.require(WORKFLOW, KEY)
+        self.assertIs(fresh.status, WorkItemStatus.NEEDS_REVIEW)
+        self.assertIn("submission did not finish within", fresh.reason or "")
 
     def test_validation_reopens_each_record_page(self) -> None:
         """The read-back loads fresh pages instead of re-reading the edited tabs."""

@@ -1214,6 +1214,15 @@ wall-clock job timeout; waits are bounded inside each browser step instead (FR-7
 | `SaveRejected` / `ValueMismatch` | no | `NEEDS_REVIEW` |
 | `AlreadyClosed` | no | `CLOSED(external)` — success |
 
+A tab that dies mid-job (renderer crash, external close) is a `TransientBrowserError`:
+the submission checks `page.is_closed()` at every object-group boundary and between
+per-target writes, aborts with the page named instead of waiting out one timeout per
+target, and the retry re-reads the current Salesforce values before writing again. The
+item is parked `NEEDS_REVIEW` only when the retry also fails; until then it stays in its
+working status, which the retry accepts. The tab group also writes the page's own
+`close`/`crash` event to the job log with its URL, so the next occurrence names the tab
+that died.
+
 ---
 
 ## 11. Service + API

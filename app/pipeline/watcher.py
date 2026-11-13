@@ -91,7 +91,7 @@ class WorkflowListSource:
                 pattern=self._workflow.list_view.pattern,
             )
             list_page = ListPage(
-                context, page, spec, self._settings.request_timeout_ms
+                context, page, spec, self._settings.timeouts
             )
             await list_page.open()
         except BaseException:

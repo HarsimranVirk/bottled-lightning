@@ -8,7 +8,7 @@ from collections.abc import Callable, Mapping
 
 from playwright.async_api import Page
 
-from app.config import Settings
+from app.config import Settings, TimeoutPolicy
 from app.core.errors import SessionExpired, TransientBrowserError
 from app.core.list_view import ListRow, ListViewSpec
 from app.core.models import Job, WorkItem, utcnow
@@ -64,7 +64,7 @@ class FakeTabFactory:
         """Start with no groups."""
         self.groups: list[FakeTabs] = []
 
-    def new_tab_group(self) -> FakeTabs:
+    def new_tab_group(self, _log: JobLogger) -> FakeTabs:
         """Record and return a new fake group."""
         group = FakeTabs()
         self.groups.append(group)
@@ -160,7 +160,7 @@ class JobTestCase(DbTestCase):
             db_path=self.tmp_path / "app.db",
             workers=2,
             refresh_interval_s=30.0,
-            request_timeout_ms=1000,
+            timeouts=TimeoutPolicy(),
             login_wait_s=1,
             headless=True,
             update_policy="auto",

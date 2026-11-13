@@ -65,7 +65,7 @@ def build_workflow(
     the app leaves it ``False``. Raises only if an adapter implementation is missing
     at import time; construction itself does no browser work.
     """
-    adapters = build_adapters(settings.org_base, settings.request_timeout_ms)
+    adapters = build_adapters(settings.org_base, settings.timeouts)
     extraction = DeviationsZ02Extraction(
         WORKFLOW_NAME,
         deps.items,
@@ -75,6 +75,7 @@ def build_workflow(
         deps.events,
         adapters,
         ref_kinds=REF_KINDS,
+        timeouts=settings.timeouts,
         force=force,
     )
     submission = DeviationsZ02Submission(
@@ -86,6 +87,7 @@ def build_workflow(
         adapters,
         FIELD_CATALOG,
         ref_kinds=REF_KINDS,
+        timeouts=settings.timeouts,
     )
     return Workflow(
         name=WORKFLOW_NAME,

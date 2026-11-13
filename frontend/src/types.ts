@@ -370,6 +370,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Settings
+         * @description The network profile in force and the presets the dialog offers.
+         */
+        get: operations["get_settings_api_settings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Patch Settings
+         * @description Switch the network profile; it applies to the next job, no restart.
+         */
+        patch: operations["patch_settings_api_settings_patch"];
+        trace?: never;
+    };
     "/api/syncs": {
         parameters: {
             query?: never;
@@ -863,6 +887,18 @@ export interface components {
             total: number;
         };
         /**
+         * NetworkProfile
+         * @description How patient the browser is with this machine's connection.
+         *
+         *     A closed set rather than a raw number, so the operator picks an outcome ("how long
+         *     may a submit take") and nothing downstream has to validate a range.
+         *
+         *     Example:
+         *         profile = NetworkProfile(os.environ.get("SF_NETWORK_PROFILE", "default"))
+         * @enum {string}
+         */
+        NetworkProfile: "fast" | "default" | "slow";
+        /**
          * NetworkView
          * @description Server address information shown on the home page.
          */
@@ -986,6 +1022,22 @@ export interface components {
             state: string;
         };
         /**
+         * SettingsBody
+         * @description Request body for ``PATCH /api/settings``.
+         */
+        SettingsBody: {
+            profile: components["schemas"]["NetworkProfile"];
+        };
+        /**
+         * SettingsView
+         * @description The network profile in force and every preset the dialog offers.
+         */
+        SettingsView: {
+            /** Presets */
+            presets: components["schemas"]["TimeoutPresetView"][];
+            profile: components["schemas"]["NetworkProfile"];
+        };
+        /**
          * SyncView
          * @description The newest list refresh for a workflow, including its cross-check evidence.
          */
@@ -1008,6 +1060,21 @@ export interface components {
             warning?: string | null;
             /** Workflow */
             workflow: string;
+        };
+        /**
+         * TimeoutPresetView
+         * @description One selectable network profile and the budgets it produces, in seconds.
+         */
+        TimeoutPresetView: {
+            /** Actions */
+            actionS: number;
+            profile: components["schemas"]["NetworkProfile"];
+            /** Stagereads */
+            stageReadS: number;
+            /** Stagewrites */
+            stageWriteS: number;
+            /** Submissions */
+            submissionS: number;
         };
         /**
          * UpdateStatusView
@@ -1772,6 +1839,59 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    get_settings_api_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsView"];
+                };
+            };
+        };
+    };
+    patch_settings_api_settings_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
             };
         };
     };

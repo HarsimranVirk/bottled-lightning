@@ -34,6 +34,7 @@ from app.workflows.deviations_z02 import (
     LIST_FILTER,
     LIST_OBJECT_API,
     LIST_PATTERN,
+    REF_KINDS,
     WORKFLOW_NAME,
 )
 from app.workflows.deviations_z02.adapters import build_adapters
@@ -77,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
         refs=PageRefRepository(database),
         events=EventRepository(database),
     )
-    adapters = build_adapters(settings.org_base, settings.request_timeout_ms)
+    adapters = build_adapters(settings.org_base, settings.timeouts)
     pipeline = DeviationsZ02Extraction(
         WORKFLOW_NAME,
         deps.items,
@@ -86,6 +87,8 @@ def main(argv: list[str] | None = None) -> int:
         deps.refs,
         deps.events,
         adapters,
+        ref_kinds=REF_KINDS,
+        timeouts=settings.timeouts,
         force=not args.no_force,
     )
 
@@ -105,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
                     ),
                     pattern=LIST_PATTERN,
                 ),
-                settings.request_timeout_ms,
+                settings.timeouts,
             )
             try:
                 await session.ensure(page)

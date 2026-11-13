@@ -190,7 +190,7 @@ class SessionProvider:
             await page.goto(
                 target,
                 wait_until="domcontentloaded",
-                timeout=self._settings.request_timeout_ms,
+                timeout=self._settings.timeouts.current().action_ms,
             )
         except Exception as exc:  # navigation failure is an auth signal
             self.mark_expired()

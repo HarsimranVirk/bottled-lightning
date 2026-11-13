@@ -18,6 +18,7 @@ import time
 from collections.abc import Sequence
 from dataclasses import replace
 
+from app.config import TimeoutPolicy
 from app.core.errors import SessionExpired, UnknownRefKind
 from app.core.models import PageRef, WorkItem, utcnow
 from app.core.repo.attributes import AttributeRepository
@@ -116,10 +117,14 @@ class DeviationsZ02Extraction:
         adapters: AdapterRegistry,
         *,
         ref_kinds: tuple[RefKind, ...],
+        timeouts: TimeoutPolicy,
         force: bool = False,
     ) -> None:
         """
-        Wire repositories, adapters and the declared link kinds; ``force`` re-extracts.
+        Wire repositories, adapters, the declared link kinds and the timeout policy;
+        ``force`` re-extracts.
+
+        ``timeouts`` is read once per run, so a profile change applies to the next job.
 
         Raises:
             ValueError: the workflow declares no link kinds, declares one twice, or
@@ -132,6 +137,7 @@ class DeviationsZ02Extraction:
         self._refs = refs
         self._events = events
         self._adapters = adapters
+        self._timeouts = timeouts
         self._force = force
         self._declared = ref_kinds
         self._ref_kinds = tuple(ref.kind for ref in ref_kinds)
@@ -156,6 +162,11 @@ class DeviationsZ02Extraction:
         """
         Extract one deviation and persist everything it found.
 
+        The browser work runs under one whole-run budget (the same network profile as
+        submissions). An overrun is ``INCOMPLETE``: the item is parked for the operator
+        with a plain reason and is never auto-retried, so a stuck page costs one budget
+        rather than two.
+
         Example log for one item:
             extract start: deviations_z02/Deviation-03112026-486382
             Deviation-03112026-486382: extracted
@@ -178,10 +189,18 @@ class DeviationsZ02Extraction:
                 self._workflow, item.key, WorkItemStatus.PRESENT, clear_reason=True
             )
         self._items.transition(self._workflow, item.key, WorkItemStatus.EXTRACTING)
+        timeouts = self._timeouts.current()
+        log(
+            "budget: "
+            f"profile={timeouts.profile.value} "
+            f"action={timeouts.action_ms // 1000}s "
+            f"total={timeouts.submission_ms // 1000}s"
+        )
         try:
-            discoveries = await self._discover_all(item, tabs, log)
-            refs = self._collect(item, discoveries)
-            self._persist(item, discoveries, refs)
+            async with asyncio.timeout(timeouts.submission_ms / 1000):
+                discoveries = await self._discover_all(item, tabs, log)
+                refs = self._collect(item, discoveries)
+                self._persist(item, discoveries, refs)
             gap = incomplete_ref(self._declared, {ref.kind: ref for ref in refs})
             if gap is not None:
                 reason = gap.reason or _KIND_REASONS[gap.kind]
@@ -200,6 +219,13 @@ class DeviationsZ02Extraction:
             return ExtractOutcome.EXTRACTED
         except SessionExpired:
             raise
+        except TimeoutError:
+            return self._incomplete(
+                item,
+                f"extraction did not finish within "
+                f"{timeouts.submission_ms // 1000}s",
+                log,
+            )
         except Exception as exc:
             logger.exception("extraction failed for %s", item.key)
             # The item is left in EXTRACTING on purpose: the reconciler's audit turns it

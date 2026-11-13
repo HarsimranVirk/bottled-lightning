@@ -225,11 +225,6 @@ class _Lms2Adapter(AdapterBase):
     """Whether the related list must be matched to the opportunity's product before a row
     is chosen."""
 
-    def __init__(self, org_base: str, timeout_ms: int) -> None:
-        """Store org base and page timeout."""
-        self._org_base = org_base
-        self._timeout_ms = timeout_ms
-
     async def discover(
         self, tabs: TabProvider, context: DiscoveryContext, log: JobLogger
     ) -> Discovery:

@@ -13,6 +13,8 @@ from typing import Protocol
 
 from playwright.async_api import BrowserContext, Page
 
+from app.core.job_logger import JobLogger
+
 
 class TabProvider(Protocol):
     """What a pipeline needs from a tab group."""
@@ -43,7 +45,7 @@ class TabGroup:
     flight (NFR-2).
 
     Example:
-        tabs = runtime.new_tab_group()
+        tabs = runtime.new_tab_group(log)
         try:
             page = await tabs.new_page(url)
             ...
@@ -51,10 +53,11 @@ class TabGroup:
             await tabs.close_all()
     """
 
-    def __init__(self, context: BrowserContext, timeout_ms: int) -> None:
-        """Track tabs for one browser context."""
+    def __init__(self, context: BrowserContext, timeout_ms: int, log: JobLogger) -> None:
+        """Track tabs for one browser context; ``log`` receives tab life-cycle lines."""
         self._context = context
         self._timeout_ms = timeout_ms
+        self._log = log
         self._pages: list[Page] = []
 
     @property
@@ -66,6 +69,7 @@ class TabGroup:
         """Open and navigate a tab; closes it again if navigation fails."""
         page = await self._context.new_page()
         self._pages.append(page)
+        self._watch(page, url)
         try:
             await page.goto(
                 url, wait_until="domcontentloaded", timeout=self._timeout_ms
@@ -74,6 +78,29 @@ class TabGroup:
             await self.close_page(page)
             raise
         return page
+
+    def _watch(self, page: Page, url: str) -> None:
+        """
+        Report a tab that dies while the group still owns it.
+
+        Chromium can kill a renderer (memory pressure) and a tab can be closed from
+        outside the app; both surface later as ``TargetClosedError`` from an unrelated
+        action. Logging the close/crash when it happens, with the URL, is what makes
+        such a failure diagnosable in the job log. A close the group initiates is
+        silent, because :meth:`close_page` stops tracking the page before closing it.
+        """
+
+        def _closed(_page: Page) -> None:
+            """Warn only when the group did not close the tab itself."""
+            if page in self._pages:
+                self._log(f"tab closed while in use: {url}")
+
+        def _crashed(_page: Page) -> None:
+            """A renderer crash is always worth a line."""
+            self._log(f"tab crashed: {url}")
+
+        page.on("close", _closed)
+        page.on("crash", _crashed)
 
     async def close_page(self, page: Page) -> None:
         """Close one tab and stop tracking it."""

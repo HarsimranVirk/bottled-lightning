@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from app.config import Settings
+from app.config import Settings, TimeoutPolicy
 from app.core.models import utcnow
 from app.core.repo.sessions import SessionRepository
 from app.salesforce.runtime import BrowserRuntime
@@ -92,7 +92,7 @@ class SessionProviderTests(DbTestCase):
             db_path=self.tmp_path / "app.db",
             workers=3,
             refresh_interval_s=30.0,
-            request_timeout_ms=60_000,
+            timeouts=TimeoutPolicy(),
             login_wait_s=600,
             headless=True,
             update_policy="auto",
@@ -128,7 +128,7 @@ class RuntimeGuardTests(DbTestCase):
             db_path=self.tmp_path / "app.db",
             workers=1,
             refresh_interval_s=30.0,
-            request_timeout_ms=1000,
+            timeouts=TimeoutPolicy(),
             login_wait_s=1,
             headless=True,
             update_policy="auto",
@@ -140,10 +140,13 @@ class RuntimeGuardTests(DbTestCase):
             """Trivial coroutine never scheduled in this test."""
             return
 
+        def log(message: str) -> None:
+            """Discard tab life-cycle lines."""
+
         with self.assertRaises(RuntimeError):
             runtime.run(work)
         with self.assertRaises(RuntimeError):
-            runtime.new_tab_group()
+            runtime.new_tab_group(log)
 
 
 if __name__ == "__main__":

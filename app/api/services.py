@@ -14,7 +14,13 @@ from datetime import datetime
 from typing import Protocol
 
 from app import config, updater
-from app.config import Settings
+from app.config import (
+    SETTINGS_FILENAME,
+    NetworkProfile,
+    Settings,
+    SubmissionTimeouts,
+    write_profile,
+)
 from app.core.errors import SessionExpired
 from app.core.field import normalise
 from app.core.models import (
@@ -75,7 +81,9 @@ from .schemas import (
     QueueView,
     SessionEventView,
     SessionView,
+    SettingsView,
     SyncView,
+    TimeoutPresetView,
     UpdateStatusView,
     WorkflowFieldView,
     WorkflowView,
@@ -161,6 +169,24 @@ def update_block_reason(
     if source_checkout and not allow_source:
         return "source checkout (SF_UPDATE_ALLOW_SOURCE=1 to allow)"
     return None
+
+
+def settings_view(current: SubmissionTimeouts) -> SettingsView:
+    """Project the active timeouts onto the DTO, computing every preset server-side."""
+
+    presets: list[TimeoutPresetView] = []
+    for profile in NetworkProfile:
+        timeouts = SubmissionTimeouts.for_profile(profile)
+        presets.append(
+            TimeoutPresetView(
+                profile=profile,
+                action_s=timeouts.action_ms // 1000,
+                stage_read_s=timeouts.stage_read_ms // 1000,
+                stage_write_s=timeouts.stage_write_ms // 1000,
+                submission_s=timeouts.submission_ms // 1000,
+            )
+        )
+    return SettingsView(profile=current.profile, presets=presets)
 
 
 def update_status_view(payload: Mapping[str, JsonValue]) -> UpdateStatusView:
@@ -788,6 +814,10 @@ class AdminPort(Protocol):
 
     def network(self) -> NetworkView: ...
 
+    def settings(self) -> SettingsView: ...
+
+    def save_settings(self, profile: NetworkProfile) -> SettingsView: ...
+
     def update_status(self) -> UpdateStatusView: ...
 
     def install_update(self, *, auto: bool = False) -> UpdateStatusView: ...
@@ -1059,6 +1089,15 @@ class AdminService:
             local_url=f"http://127.0.0.1:{port}",
             lan_enabled=enabled,
         )
+
+    def settings(self) -> SettingsView:
+        """The network profile in force and every preset the dialog offers."""
+        return settings_view(self._settings.timeouts.current())
+
+    def save_settings(self, profile: NetworkProfile) -> SettingsView:
+        """Persist a new network profile and apply it to the next job."""
+        write_profile(self._settings.data_dir / SETTINGS_FILENAME, profile)
+        return settings_view(self._settings.timeouts.set_profile(profile))
 
     def update_status(self) -> UpdateStatusView:
         """The last update-check or install result."""

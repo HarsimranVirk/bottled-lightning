@@ -101,6 +101,29 @@ class LocatorLike(Protocol):
         ...
 
 
+def page_closed(page: Page) -> bool:
+    """
+    Whether the tab behind a page is gone (renderer crash, external close).
+
+    A tab can die while a job is mid-flight. Every later action then raises
+    ``TargetClosedError``, which :func:`poll` deliberately treats as "not yet" (it
+    normally means a locator detached during a re-render), so a dead tab burns a full
+    budget per wait and finally reports a plausible-looking DOM problem instead of the
+    real cause. Check this at object-group boundaries and between per-target writes to
+    fail fast with the true reason.
+
+    Playwright Python exports no ``TargetClosedError`` (only ``Error``,
+    ``TimeoutError`` and ``WebError``), so ``is_closed()`` is the only reliable probe.
+    An exception while asking counts as closed: a page we cannot query must never be
+    waited on.
+    """
+    try:
+        return page.is_closed()
+    except Exception:  # cannot query it, so cannot use it
+        logger.debug("page.is_closed failed", exc_info=True)
+        return True
+
+
 async def bounded[T](factory: Callable[[], Awaitable[T]], deadline: Deadline) -> T:
     """
     Run one awaitable within the deadline's remaining budget.

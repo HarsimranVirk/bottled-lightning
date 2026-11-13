@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 
-from app.config import Settings
+from app.config import Settings, TimeoutPolicy
 from app.core.errors import UnknownWorkflow
 from app.core.field import EditableField, FieldTarget, ValueType
 from app.core.list_view import ListRow, ListViewSpec
@@ -85,7 +85,7 @@ def settings_for(path: Path) -> Settings:
         db_path=path / "app.db",
         workers=3,
         refresh_interval_s=30.0,
-        request_timeout_ms=60_000,
+        timeouts=TimeoutPolicy(),
         login_wait_s=600,
         headless=True,
         update_policy="auto",
@@ -155,7 +155,7 @@ class Z02ContractTests(unittest.TestCase):
     def setUp(self) -> None:
         """Build the Z02 adapter registry (no browser, no database)."""
         settings = settings_for(Path("unused"))
-        self.adapters = build_adapters(settings.org_base, settings.request_timeout_ms)
+        self.adapters = build_adapters(settings.org_base, settings.timeouts)
         self.declared = tuple(ref.kind for ref in REF_KINDS)
 
     def test_every_declared_kind_has_an_adapter(self) -> None:

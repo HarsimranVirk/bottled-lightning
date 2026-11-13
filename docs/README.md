@@ -47,6 +47,7 @@ a plan, a review, and small implementation slices.
 | Shared table filters | `review` — built, walkthrough pending | `decisions-table-filter-picker.md` (v1, LOCKED 2026-11-06) | `FR-deviations.md` FR-9.18, FR-9.19, FR-9.21 (v5.28) | pending | `guide-table-filter-picker.md` | 2026-11-06 |
 | Workflow builders | `building` | missing — gap | — | not reviewed — gap | missing — gap | 2026-11-05 |
 | Update-check resilience — failed checks retry, Check again | `review` — built, walkthrough pending | `decisions-updates.md` (v1, LOCKED 2026-11-07) | `FR-delivery.md` FR-2.2, FR-2.5, FR-2.6, FR-4.5 (v1.2) | pending | `guide-updates.md` | 2026-11-07 |
+| Network profile — bounded submits/extractions, live per-machine setting | `review` — built, live submit pending | missing — gap | — | pending | `guide-network-profile.md` | 2026-11-13 |
 
 Supporting docs that are not per-feature: `dev-tools.md`.
 

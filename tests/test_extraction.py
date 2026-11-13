@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import unittest
 from collections.abc import Sequence
 
 from playwright.async_api import Page
 
+from app.config import NetworkProfile, SubmissionTimeouts, TimeoutPolicy
 from app.core.errors import UnknownRefKind
 from app.core.job_logger import JobLogger
 from app.core.list_view import ListRow
@@ -99,6 +101,36 @@ class FailingAdapter(AdapterBase):
         raise self._error
 
 
+class SlowAdapter(FakeAdapter):
+    """Adapter whose discovery outlives a test-sized budget."""
+
+    async def discover(
+        self, tabs: TabProvider, context: DiscoveryContext, log: JobLogger
+    ) -> Discovery:
+        """Sleep past the caller's budget before returning the canned discovery."""
+        await asyncio.sleep(0.2)
+        return await super().discover(tabs, context, log)
+
+
+class TinyTimeouts(TimeoutPolicy):
+    """A policy with a millisecond whole-run budget so the timeout path runs fast."""
+
+    def __init__(self, total_ms: int) -> None:
+        """Freeze one whole-run budget."""
+        super().__init__()
+        self._tiny = SubmissionTimeouts(
+            profile=NetworkProfile.DEFAULT,
+            action_ms=1_000,
+            stage_read_ms=total_ms // 4,
+            stage_write_ms=total_ms // 2,
+            submission_ms=total_ms,
+        )
+
+    def current(self) -> SubmissionTimeouts:
+        """Return the frozen millisecond budget."""
+        return self._tiny
+
+
 class ExtractionTests(DbTestCase):
     """Extraction pipeline ordering, persistence and incomplete-link handling."""
 
@@ -122,6 +154,7 @@ class ExtractionTests(DbTestCase):
         *,
         force: bool = False,
         ref_kinds: tuple[RefKind, ...] = REF_KINDS,
+        timeouts: TimeoutPolicy | None = None,
     ) -> DeviationsZ02Extraction:
         """Build the pipeline with a fresh adapter registry."""
         deps = self.deps()
@@ -134,6 +167,7 @@ class ExtractionTests(DbTestCase):
             deps.events,
             AdapterRegistry(adapters),
             ref_kinds=ref_kinds,
+            timeouts=timeouts or TimeoutPolicy(),
             force=force,
         )
 
@@ -180,6 +214,20 @@ class ExtractionTests(DbTestCase):
         import asyncio
 
         return asyncio.run(pipeline.run(item, FakeTabs(), DiscardLog()))
+
+    def test_overrun_parks_for_review_and_is_not_retried(self) -> None:
+        """A job that outlives its budget is INCOMPLETE, with the budget as the reason."""
+        item = self._item()
+        adapters = self._ready_adapters()
+        adapters[0] = SlowAdapter(DeviationObject.DEVIATION.value, Discovery())
+        pipeline = self._pipeline(adapters, timeouts=TinyTimeouts(50))
+
+        outcome = self._run(pipeline, item)
+
+        self.assertIs(outcome, ExtractOutcome.INCOMPLETE)
+        fresh = self.deps().items.require("deviations_z02", KEY)
+        self.assertIs(fresh.status, WorkItemStatus.NEEDS_REVIEW)
+        self.assertIn("extraction did not finish within", fresh.reason or "")
 
     def test_happy_path_persists_everything(self) -> None:
         """Fields, attributes and all five refs are stored and the item becomes ready."""

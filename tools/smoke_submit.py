@@ -37,7 +37,7 @@ from app.salesforce.adapters import AdapterRegistry
 from app.salesforce.runtime import BrowserRuntime
 from app.salesforce.session import SessionProvider
 from app.salesforce.tabs import TabSessions
-from app.workflows.deviations_z02 import WORKFLOW_NAME
+from app.workflows.deviations_z02 import REF_KINDS, WORKFLOW_NAME
 from app.workflows.deviations_z02.adapters import build_adapters
 from app.workflows.deviations_z02.catalog import FIELD_CATALOG, DeviationObject
 from app.workflows.deviations_z02.submission import DeviationsZ02Submission
@@ -214,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
         refs=PageRefRepository(database),
         events=EventRepository(database),
     )
-    adapters = build_adapters(settings.org_base, settings.request_timeout_ms)
+    adapters = build_adapters(settings.org_base, settings.timeouts)
     pipeline = DeviationsZ02Submission(
         WORKFLOW_NAME,
         deps.items,
@@ -223,6 +223,8 @@ def main(argv: list[str] | None = None) -> int:
         deps.events,
         adapters,
         FIELD_CATALOG,
+        ref_kinds=REF_KINDS,
+        timeouts=settings.timeouts,
     )
 
     if args.key is not None:

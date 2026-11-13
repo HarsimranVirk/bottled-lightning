@@ -13,6 +13,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 from pydantic.alias_generators import to_camel
 
+from app.config import NetworkProfile
+
 
 class ApiModel(BaseModel):
     """Base DTO: camelCase on the wire, snake_case in Python."""
@@ -458,6 +460,43 @@ class NetworkView(ApiModel):
 
     lan_enabled: bool
     """Whether the bind address actually exposes the server beyond loopback."""
+
+
+class TimeoutPresetView(ApiModel):
+    """One selectable network profile and the budgets it produces, in seconds."""
+
+    profile: NetworkProfile
+    """``fast``, ``default`` or ``slow``."""
+
+    action_s: int
+    """Budget for one browser action or wait; never below 60."""
+
+    stage_read_s: int
+    """Budget for reading all targets on one object."""
+
+    stage_write_s: int
+    """Budget for writing all targets on one object."""
+
+    submission_s: int
+    """Whole-run budget for one submission or extraction."""
+
+
+class SettingsView(ApiModel):
+    """The network profile in force and every preset the dialog offers."""
+
+    profile: NetworkProfile
+    """Profile applied to the next job; a change is live, no restart needed."""
+
+    presets: list[TimeoutPresetView]
+    """All three profiles with their derived budgets, computed server-side so the UI
+    never does arithmetic."""
+
+
+class SettingsBody(ApiModel):
+    """Request body for ``PATCH /api/settings``."""
+
+    profile: NetworkProfile
+    """Profile to apply and persist; an unknown value is a 422 from the enum."""
 
 
 #: One scalar cell in a dev query result. SQLite blobs are converted to placeholders.

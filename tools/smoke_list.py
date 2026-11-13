@@ -53,7 +53,7 @@ def main() -> int:
                     ),
                     pattern=LIST_PATTERN,
                 ),
-                settings.request_timeout_ms,
+                settings.timeouts,
             )
             try:
                 await list_page.open()

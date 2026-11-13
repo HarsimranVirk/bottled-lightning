@@ -498,6 +498,35 @@ independent of the update check.
 { "version": "0.4.5" }
 ```
 
+## 7b. Network profile
+
+### `GET /api/settings`
+
+The profile in force and every preset with the budgets the server derives from it.
+Every number is computed server-side; the client renders, never calculates.
+
+```json
+{
+  "profile": "default",
+  "presets": [
+    { "profile": "fast",    "actionS": 60,  "stageReadS": 45,  "stageWriteS": 90,  "submissionS": 180 },
+    { "profile": "default", "actionS": 60,  "stageReadS": 75,  "stageWriteS": 150, "submissionS": 300 },
+    { "profile": "slow",    "actionS": 120, "stageReadS": 150, "stageWriteS": 300, "submissionS": 600 }
+  ]
+}
+```
+
+### `PATCH /api/settings`
+
+```json
+{ "profile": "slow" }
+```
+
+Returns the same view. The value is persisted to `data/settings.json` and applied to
+the **next** job; a running job keeps the whole-run budget it started with. An unknown
+profile is a `422` from the enum, so there is no numeric range to police. See
+`guide-network-profile.md`.
+
 ## 8. Dev tools (dev-only)
 
 Enabled by default but hidden from the main UI; set `SF_DEV_TOOLS=0` to disable.
