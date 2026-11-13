@@ -900,6 +900,16 @@
         "title": "JobsPageView",
         "type": "object"
       },
+      "NetworkProfile": {
+        "description": "How patient the browser is with this machine's connection.\n\nA closed set rather than a raw number, so the operator picks an outcome (\"how long\nmay a submit take\") and nothing downstream has to validate a range.\n\nExample:\n    profile = NetworkProfile(os.environ.get(\"SF_NETWORK_PROFILE\", \"default\"))",
+        "enum": [
+          "fast",
+          "default",
+          "slow"
+        ],
+        "title": "NetworkProfile",
+        "type": "string"
+      },
       "NetworkView": {
         "description": "Server address information shown on the home page.",
         "properties": {
@@ -1165,6 +1175,40 @@
         "title": "SessionView",
         "type": "object"
       },
+      "SettingsBody": {
+        "description": "Request body for ``PATCH /api/settings``.",
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/NetworkProfile"
+          }
+        },
+        "required": [
+          "profile"
+        ],
+        "title": "SettingsBody",
+        "type": "object"
+      },
+      "SettingsView": {
+        "description": "The network profile in force and every preset the dialog offers.",
+        "properties": {
+          "presets": {
+            "items": {
+              "$ref": "#/components/schemas/TimeoutPresetView"
+            },
+            "title": "Presets",
+            "type": "array"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/NetworkProfile"
+          }
+        },
+        "required": [
+          "profile",
+          "presets"
+        ],
+        "title": "SettingsView",
+        "type": "object"
+      },
       "SyncView": {
         "description": "The newest list refresh for a workflow, including its cross-check evidence.",
         "properties": {
@@ -1236,6 +1280,39 @@
           "closed"
         ],
         "title": "SyncView",
+        "type": "object"
+      },
+      "TimeoutPresetView": {
+        "description": "One selectable network profile and the budgets it produces, in seconds.",
+        "properties": {
+          "actionS": {
+            "title": "Actions",
+            "type": "integer"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/NetworkProfile"
+          },
+          "stageReadS": {
+            "title": "Stagereads",
+            "type": "integer"
+          },
+          "stageWriteS": {
+            "title": "Stagewrites",
+            "type": "integer"
+          },
+          "submissionS": {
+            "title": "Submissions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "profile",
+          "actionS",
+          "stageReadS",
+          "stageWriteS",
+          "submissionS"
+        ],
+        "title": "TimeoutPresetView",
         "type": "object"
       },
       "UpdateStatusView": {
@@ -2948,6 +3025,68 @@
           }
         },
         "summary": "Start Login",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "description": "The network profile in force and the presets the dialog offers.",
+        "operationId": "get_settings_api_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Settings",
+        "tags": [
+          "admin"
+        ]
+      },
+      "patch": {
+        "description": "Switch the network profile; it applies to the next job, no restart.",
+        "operationId": "patch_settings_api_settings_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Settings",
         "tags": [
           "admin"
         ]

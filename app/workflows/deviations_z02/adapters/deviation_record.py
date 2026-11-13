@@ -67,11 +67,6 @@ class DeviationRecordAdapter(AdapterBase):
 
     kind = DeviationObject.DEVIATION.value
 
-    def __init__(self, org_base: str, timeout_ms: int) -> None:
-        """Store org base and page timeout."""
-        self._org_base = org_base
-        self._timeout_ms = timeout_ms
-
     async def discover(
         self, tabs: TabProvider, context: DiscoveryContext, log: JobLogger
     ) -> Discovery:

@@ -35,6 +35,7 @@ from app.utils.dom import (
     bounded,
     clear_and_fill,
     click_first_visible,
+    page_closed,
     poll,
     related_list_empty,
     related_list_url,
@@ -116,11 +117,6 @@ class ClContractAdapter(AdapterBase):
     """
 
     kind = DeviationObject.CL_CONTRACT.value
-
-    def __init__(self, org_base: str, timeout_ms: int) -> None:
-        """Store org base and page timeout."""
-        self._org_base = org_base
-        self._timeout_ms = timeout_ms
 
     async def open(self, tabs: TabProvider, ref: PageRef) -> Page:
         """Open the Lightning record page that embeds the editable form."""
@@ -224,7 +220,11 @@ class ClContractAdapter(AdapterBase):
     async def write(
         self, page: Page, values: Mapping[FieldTarget, str], log: JobLogger
     ) -> dict[FieldTarget, WriteOutcome]:
-        """Inline-edit and save each Classic cell, returning per-target outcomes."""
+        """Inline-edit and save each Classic cell, returning per-target outcomes.
+
+        A tab that dies part-way through leaves every remaining target ``UNKNOWN``
+        instead of waiting out one full timeout per target.
+        """
         log("apply: cl_contract: resolving Classic form frame")
         frame = await _form_frame(page, self._timeout_ms)
         if frame is None:
@@ -233,6 +233,19 @@ class ClContractAdapter(AdapterBase):
         outcomes: dict[FieldTarget, WriteOutcome] = {}
         for target, value in values.items():
             name = describe_target(target)
+            if page_closed(page):
+                log(
+                    f"apply: cl_contract: page closed; "
+                    f"{len(values) - len(outcomes)} target(s) not attempted"
+                )
+                outcomes.update(
+                    {
+                        other: WriteOutcome.UNKNOWN
+                        for other in values
+                        if other not in outcomes
+                    }
+                )
+                break
             cell = await self._value_cell(frame, target, self._timeout_ms)
             if cell is None:
                 log(f"apply: cl_contract: {name}: cell not found")

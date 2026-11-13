@@ -17,7 +17,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 
 import { AppFooter } from './components/AppFooter'
-import { QueueBar } from './components/QueueBar'
+import { SettingsMenu } from './components/SettingsMenu'
 import { SyncBanner } from './components/SyncBanner'
 import { ThemeToggle } from './components/ThemeToggle'
 import { DevDbPage } from './pages/DevDbPage'
@@ -28,10 +28,11 @@ import { JobsPage } from './pages/JobsPage'
 import {
   useLogin,
   useRequestSync,
+  useSaveSettings,
   useSession,
+  useSettings,
   useSync,
   useVersion,
-  useWorkers,
   useWorkflows,
 } from './queries'
 import { initialMode, nextMode, persistMode } from './theme'
@@ -66,9 +67,10 @@ function Shell({ mode, onToggleTheme }: ShellProps): JSX.Element {
   const session = useSession()
   const sync = useSync(workflow?.name ?? null)
   const version = useVersion()
-  const workers = useWorkers()
   const login = useLogin()
   const refresh = useRequestSync(workflow?.name ?? null)
+  const settings = useSettings()
+  const saveSettings = useSaveSettings()
 
   return (
     <div className="shell">
@@ -99,7 +101,12 @@ function Shell({ mode, onToggleTheme }: ShellProps): JSX.Element {
             </FlexItem>
           </FlexLayout>
           <FlexLayout gap={2} align="center">
-            <QueueBar queue={workers.data} />
+            <SettingsMenu
+              settings={settings.data}
+              saving={saveSettings.isPending}
+              error={saveSettings.error?.message ?? null}
+              onSave={(profile) => saveSettings.mutateAsync(profile)}
+            />
             <ThemeToggle mode={mode} onToggle={onToggleTheme} />
           </FlexLayout>
         </FlexLayout>

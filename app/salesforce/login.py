@@ -56,7 +56,7 @@ async def run_login(
                 await page.goto(
                     f"{settings.org_base}/lightning/",
                     wait_until="domcontentloaded",
-                    timeout=settings.request_timeout_ms,
+                    timeout=settings.timeouts.current().action_ms,
                 )
             except Exception as exc:  # noqa: BLE001 - operator can still log in manually
                 print(f"! navigation failed: {exc}", file=sys.stderr)

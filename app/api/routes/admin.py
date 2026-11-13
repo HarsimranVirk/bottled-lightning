@@ -15,6 +15,8 @@ from app.api.schemas import (
     NetworkView,
     QueueView,
     SessionView,
+    SettingsBody,
+    SettingsView,
     SyncView,
     UpdateStatusView,
     VersionView,
@@ -137,6 +139,16 @@ def make_router(admin: AdminPort) -> APIRouter:
     def get_network() -> NetworkView:
         """Bind host, port and the LAN address for the home page."""
         return admin.network()
+
+    @router.get("/settings", response_model=SettingsView)
+    def get_settings() -> SettingsView:
+        """The network profile in force and the presets the dialog offers."""
+        return admin.settings()
+
+    @router.patch("/settings", response_model=SettingsView)
+    def patch_settings(body: SettingsBody) -> SettingsView:
+        """Switch the network profile; it applies to the next job, no restart."""
+        return admin.save_settings(body.profile)
 
     @router.get("/updates", response_model=UpdateStatusView)
     def update_status() -> UpdateStatusView:

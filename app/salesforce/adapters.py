@@ -13,6 +13,7 @@ from typing import Protocol, runtime_checkable
 
 from playwright.async_api import Page
 
+from app.config import TimeoutPolicy
 from app.core.errors import UnknownAdapter
 from app.core.field import FieldTarget
 from app.core.job_logger import JobLogger
@@ -198,11 +199,25 @@ class AdapterBase:
 
     ``read``/``write`` land with the submission pipeline (refactor Phase 6); until then
     they fail loudly rather than pretending to succeed.
+
+    The org base and the live timeout policy are stored once here, so every adapter
+    reaches ``self._timeout_ms`` without knowing which profile is active.
     """
 
     kind: str = ""
     """Object kind served by this base adapter; subclasses override it with a declared
     ``RefKind.kind``."""
+
+    def __init__(self, org_base: str, timeouts: TimeoutPolicy) -> None:
+        """Store the org base and the policy every wait reads."""
+        self._org_base = org_base
+        self._timeouts = timeouts
+
+    @property
+    def _timeout_ms(self) -> int:
+        """Per-action timeout in milliseconds, read live so a profile change applies to
+        the next wait even inside a running job."""
+        return self._timeouts.current().action_ms
 
     async def discover(
         self, tabs: TabProvider, context: DiscoveryContext, log: JobLogger
@@ -232,7 +247,7 @@ class AdapterRegistry:
     Adapters by object kind for one workflow.
 
     Example:
-        registry = build_adapters(settings.org_base, settings.request_timeout_ms)
+        registry = build_adapters(settings.org_base, settings.timeouts)
         adapter = registry.get("cl_contract")
     """
 

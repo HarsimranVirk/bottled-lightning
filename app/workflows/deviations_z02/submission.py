@@ -9,6 +9,7 @@ claimed as ours (FR-6.16).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import Mapping, Sequence
@@ -16,7 +17,8 @@ from dataclasses import dataclass
 
 from playwright.async_api import Page
 
-from app.core.errors import SessionExpired
+from app.config import SubmissionTimeouts, TimeoutPolicy
+from app.core.errors import SessionExpired, TransientBrowserError
 from app.core.field import EditableField, FieldTarget, ValueType, normalise
 from app.core.models import PageRef, WorkItem, utcnow
 from app.core.repo.events import EventRepository
@@ -36,6 +38,7 @@ from app.salesforce.adapters import (
     describe_target,
 )
 from app.salesforce.tabs import TabProvider
+from app.utils.dom import page_closed
 
 from .adapters.deviation_record import DeviationRecordAdapter
 from .catalog import DeviationObject
@@ -153,13 +156,16 @@ class DeviationsZ02Submission:
         catalog: Sequence[EditableField],
         *,
         ref_kinds: tuple[RefKind, ...],
+        timeouts: TimeoutPolicy,
     ) -> None:
         """
-        Wire repositories, adapters, the catalogue and the declared link kinds.
+        Wire repositories, adapters, the catalogue, the declared link kinds and the
+        live timeout policy.
 
         ``ref_kinds`` is the same declaration extraction uses. The pipeline refuses to
         start when any required link is not ``FOUND``, so a submission can never try to
-        open an empty URL.
+        open an empty URL. ``timeouts`` is read once per run (see :meth:`run`), so a
+        profile change changes the next job, never one already in flight.
         """
         self._workflow = workflow
         self._items = items
@@ -169,6 +175,7 @@ class DeviationsZ02Submission:
         self._adapters = adapters
         self._catalog = tuple(catalog)
         self._ref_kinds = ref_kinds
+        self._timeouts = timeouts
 
     async def run(
         self, item: WorkItem, tabs: TabProvider, log: JobLogger
@@ -182,7 +189,27 @@ class DeviationsZ02Submission:
         click; the item moves to ``NEEDS_REVIEW``). A failed run does not roll back
         values that were already written; the per-target truth is recorded and the
         operator is notified.
+
+        A tab that dies mid-job raises :class:`TransientBrowserError` instead of
+        returning an outcome, so the worker retries the job once rather than parking a
+        half-written submission as a rejected write. The item is left in its working
+        status, which the retry accepts.
+
+        Three budgets bound the run, all snapshotted here so one job runs under one
+        profile: each object read, each object write, and the run as a whole. A write
+        that overruns is recorded ``UNKNOWN`` and the remaining objects are still
+        attempted, because this pipeline never retries a submission on its own — every
+        group that lands is manual work the operator does not have to redo.
         """
+        timeouts = self._timeouts.current()
+        log(
+            "budget: "
+            f"profile={timeouts.profile.value} "
+            f"action={timeouts.action_ms // 1000}s "
+            f"read={timeouts.stage_read_ms // 1000}s "
+            f"write={timeouts.stage_write_ms // 1000}s "
+            f"total={timeouts.submission_ms // 1000}s"
+        )
         try:
             # Re-read the item: the watcher may have recorded absence since the worker
             # claimed the job, and that is exactly the precheck FR-6.2/6.6 requires.
@@ -204,46 +231,62 @@ class DeviationsZ02Submission:
             groups = self._groups(item.key, plans)
             pages: dict[str, Page] = {}
             try:
-                current = await self._read_all(
-                    groups, tabs, pages, log, "precheck"
-                )
-                self._audit_precheck(item, groups, current, log)
-                log("phase: applying")
-                self._items.transition(self._workflow, item.key, WorkItemStatus.APPLYING)
-                outcomes = await self._write_all(groups, pages, current, plans, log)
-                self._record_apply(item.key, plans, outcomes, log)
-                rejected = [
-                    f"{target.object_kind}/{target.label}={result.value}"
-                    for target, result in outcomes.items()
-                    if result is not WriteOutcome.SAVED
-                ]
-                if rejected:
-                    raise _SubmitError(
-                        "writes not accepted: " + ", ".join(rejected)
+                async with asyncio.timeout(timeouts.submission_ms / 1000):
+                    current = await self._read_all(
+                        groups, tabs, pages, log, "precheck", timeouts
                     )
+                    self._audit_precheck(item, groups, current, log)
+                    log("phase: applying")
+                    self._items.transition(
+                        self._workflow, item.key, WorkItemStatus.APPLYING
+                    )
+                    outcomes = await self._write_all(
+                        groups, pages, current, plans, log, timeouts
+                    )
+                    self._record_apply(item.key, plans, outcomes, log)
+                    rejected = [
+                        f"{target.object_kind}/{target.label}={result.value}"
+                        for target, result in outcomes.items()
+                        if result is not WriteOutcome.SAVED
+                    ]
+                    if rejected:
+                        raise _SubmitError(
+                            "writes not accepted: " + ", ".join(rejected)
+                        )
 
-                log("phase: validating")
-                self._items.transition(
-                    self._workflow, item.key, WorkItemStatus.VALIDATING
-                )
-                # The apply tabs were just mutated by inline-edit saves, and Lightning
-                # re-renders (and lazily reloads) the record around them. Re-open the
-                # pages so validation reads what Salesforce stored, not the DOM the
-                # writes left behind — a stale/empty read must not fail the item.
-                await self._close_pages(pages, tabs, "submission")
-                readback = await self._read_all(
-                    groups, tabs, pages, log, "readback"
-                )
-                self._check_readback(item.key, plans, readback, log)
-                fresh = self._items.require(self._workflow, item.key)
-                if _is_closed(fresh):
-                    return self._already_closed(
-                        item, "item disappeared during validation", log
+                    log("phase: validating")
+                    self._items.transition(
+                        self._workflow, item.key, WorkItemStatus.VALIDATING
                     )
-                return await self._execute(fresh, tabs, log)
+                    # The apply tabs were just mutated by inline-edit saves, and Lightning
+                    # re-renders (and lazily reloads) the record around them. Re-open the
+                    # pages so validation reads what Salesforce stored, not the DOM the
+                    # writes left behind — a stale/empty read must not fail the item.
+                    await self._close_pages(pages, tabs, "submission")
+                    readback = await self._read_all(
+                        groups, tabs, pages, log, "readback", timeouts
+                    )
+                    self._check_readback(item.key, plans, readback, log)
+                    fresh = self._items.require(self._workflow, item.key)
+                    if _is_closed(fresh):
+                        return self._already_closed(
+                            item, "item disappeared during validation", log
+                        )
+                    return await self._execute(fresh, tabs, log)
             finally:
+                # Outside the budget on purpose: cleanup must run even when it fired.
                 await self._close_pages(pages, tabs, "submission")
+        except TimeoutError:
+            return self._fail(
+                item,
+                f"submission did not finish within "
+                f"{timeouts.submission_ms // 1000}s",
+                log,
+            )
         except SessionExpired:
+            raise
+        except TransientBrowserError:
+            # A dead tab is worth one retry, not a parked half-written submission.
             raise
         except _SubmitError as exc:
             return self._fail(item, str(exc), log)
@@ -339,7 +382,9 @@ class DeviationsZ02Submission:
         groups = self._groups(item.key, plans)
         pages: dict[str, Page] = {}
         try:
-            values = await self._read_all(groups, tabs, pages, log, "preview")
+            values = await self._read_all(
+                groups, tabs, pages, log, "preview", self._timeouts.current()
+            )
         finally:
             await self._close_pages(pages, tabs, "preview")
         result: dict[str, dict[str, str | None]] = {}
@@ -446,8 +491,17 @@ class DeviationsZ02Submission:
         pages: dict[str, Page],
         log: JobLogger,
         stage: str,
+        timeouts: SubmissionTimeouts,
     ) -> dict[FieldTarget, str | None]:
-        """Read every target, opening each object page once and keeping it open."""
+        """Read every target, opening each object page once and keeping it open.
+
+        A page that dies during its own read aborts the stage with
+        :class:`TransientBrowserError` rather than trusting the ``None`` values the
+        dead tab produced: those would look like fields that failed to render. A read
+        that merely overruns its budget is recorded as ``None`` for that object and the
+        remaining objects are still read: during precheck that value is audit data, and
+        during read-back the mismatch fails the item honestly.
+        """
         values: dict[FieldTarget, str | None] = {}
         for group in groups:
             adapter = self._adapters.get(group.kind)
@@ -459,7 +513,20 @@ class DeviationsZ02Submission:
             names = ", ".join(describe_target(target) for target in group.targets)
             log(f"{stage}: reading {group.kind} ({len(group.targets)} target(s)): {names}")
             started = time.monotonic()
-            values.update(await adapter.read(page, group.targets, log))
+            try:
+                async with asyncio.timeout(timeouts.stage_read_ms / 1000):
+                    values.update(await adapter.read(page, group.targets, log))
+            except TimeoutError:
+                log(
+                    f"{stage}: {group.kind}: read did not finish within "
+                    f"{timeouts.stage_read_ms // 1000}s"
+                )
+                for target in group.targets:
+                    values[target] = None
+                continue
+            if page_closed(page):
+                log(f"{stage}: {group.kind}: page closed while reading")
+                raise TransientBrowserError(f"{group.kind} page closed while reading")
             log(
                 f"{stage}: {group.kind}: read done in "
                 f"{time.monotonic() - started:.1f}s"
@@ -473,34 +540,73 @@ class DeviationsZ02Submission:
         current: Mapping[FieldTarget, str | None],
         plans: Sequence[_Plan],
         log: JobLogger,
+        timeouts: SubmissionTimeouts,
     ) -> dict[FieldTarget, WriteOutcome]:
-        """Write targets that are not already applied, object by object."""
+        """Write targets that are not already applied, object by object.
+
+        A target page that has already died aborts the stage with
+        :class:`TransientBrowserError`; continuing would write through a browser that
+        lost a tab, and the worker's retry re-reads the current values before writing
+        again.
+
+        A group that overruns its budget is a different fault: the tab is alive, so the
+        remaining groups are still written (this pipeline never retries a submission, so
+        every group that lands is manual work saved) and only the overrun group is
+        recorded ``UNKNOWN``, because its partial writes cannot be confirmed.
+        """
         target_plan = {target: plan for plan in plans for target in plan.targets}
         outcomes: dict[FieldTarget, WriteOutcome] = {}
         for group in groups:
             values: dict[FieldTarget, str] = {}
             for target, intended in group.values.items():
                 plan = target_plan[target]
-                if plan.applied and (
+                if (
                     _canonical(current.get(target), plan.field.value_type)
                     == plan.intended
                 ):
-                    # A retry after a crash: the value is already there, so do not
-                    # write it again (FR-6.8). Record it as saved for per-field truth.
+                    # The page already holds the proposed value, so there is nothing
+                    # to write: a retry after a crash must not write it twice
+                    # (FR-6.8), and an SF form can leave a modification to an equal
+                    # value unconfirmed, which would fail the item over a no-op.
                     outcomes[target] = WriteOutcome.SAVED
+                    log(
+                        f"apply: {group.kind}: {describe_target(target)} already "
+                        f"at {plan.intended}; no write needed"
+                    )
                     continue
                 values[target] = intended
             if not values:
                 log(f"apply: {group.kind}: already applied; no write needed")
                 continue
+            if page_closed(pages[group.kind]):
+                log(f"apply: {group.kind}: page closed; aborting the submission")
+                raise TransientBrowserError(f"{group.kind} page closed before apply")
             log(f"apply: {group.kind} ({len(values)} target(s))")
             adapter: ObjectAdapter = self._adapters.get(group.kind)
             started = time.monotonic()
-            outcomes.update(await adapter.write(pages[group.kind], values, log))
+            try:
+                async with asyncio.timeout(timeouts.stage_write_ms / 1000):
+                    outcomes.update(
+                        await adapter.write(pages[group.kind], values, log)
+                    )
+            except TimeoutError:
+                log(
+                    f"apply: {group.kind}: write did not finish within "
+                    f"{timeouts.stage_write_ms // 1000}s"
+                )
+                for target in values:
+                    outcomes[target] = WriteOutcome.UNKNOWN
+                continue
             log(
                 f"apply: {group.kind}: done in "
                 f"{time.monotonic() - started:.1f}s"
             )
+            if page_closed(pages[group.kind]):
+                # The tab died while its own targets were being written: the outcomes
+                # above were produced by a page that no longer exists, so they cannot
+                # be trusted or recorded as rejections.
+                log(f"apply: {group.kind}: page closed during the write")
+                raise TransientBrowserError(f"{group.kind} page closed during the write")
         return outcomes
 
     # -- checks ------------------------------------------------------------

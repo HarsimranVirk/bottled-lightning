@@ -16,6 +16,7 @@ from contextlib import suppress
 from playwright.async_api import BrowserContext, Playwright, async_playwright
 
 from app.config import Settings
+from app.core.job_logger import JobLogger
 
 from .session import SessionProvider, profile_dir_for
 from .tabs import TabGroup
@@ -95,9 +96,10 @@ class BrowserRuntime:
             raise RuntimeError("browser runtime not started")
         return context
 
-    def new_tab_group(self) -> TabGroup:
-        """Create a per-job tab group on the browser loop."""
-        return TabGroup(self.context, self._settings.request_timeout_ms)
+    def new_tab_group(self, log: JobLogger) -> TabGroup:
+        """Create a per-job tab group on the browser loop; tab deaths go to ``log``."""
+        timeouts = self._settings.timeouts.current()
+        return TabGroup(self.context, timeouts.action_ms, log)
 
     # -- bridges -----------------------------------------------------------
     def run[T](self, factory: Callable[[], Coroutine[None, None, T]]) -> T:

@@ -20,11 +20,17 @@ from app.api.schemas import (
     NetworkView,
     QueueView,
     SessionView,
+    SettingsView,
     SyncView,
     UpdateStatusView,
 )
-from app.api.services import AdminService, WorkItemService, workflow_view
-from app.config import Settings
+from app.api.services import (
+    AdminService,
+    WorkItemService,
+    settings_view,
+    workflow_view,
+)
+from app.config import NetworkProfile, Settings, SubmissionTimeouts, TimeoutPolicy
 from app.core.list_view import ListRow, ListSample
 from app.core.models import PageRef, utcnow
 from app.core.registry import WorkflowRegistry
@@ -62,7 +68,7 @@ def settings_for(root: Path) -> Settings:
         db_path=root / "app.db",
         workers=3,
         refresh_interval_s=30.0,
-        request_timeout_ms=1000,
+        timeouts=TimeoutPolicy(),
         login_wait_s=1,
         headless=True,
         update_policy="auto",
@@ -516,6 +522,19 @@ class ExtractionRetryTests(ApiTestCase):
 class _FakeAdmin:
     """AdminPort stub: the API tests only need the read shapes."""
 
+    def __init__(self) -> None:
+        """Start on the default network profile."""
+        self._profile = NetworkProfile.DEFAULT
+
+    def settings(self) -> SettingsView:
+        """The current profile and its presets, built like the real service."""
+        return settings_view(SubmissionTimeouts.for_profile(self._profile))
+
+    def save_settings(self, profile: NetworkProfile) -> SettingsView:
+        """Record the profile the route asked for."""
+        self._profile = profile
+        return self.settings()
+
     def session(self) -> SessionView:
         return SessionView(state="valid", paused=False, cookies=34, saved_at=None, last_event=None)
 
@@ -747,10 +766,34 @@ class RouteTests(ApiTestCase):
             ("PATCH", "/api/workers"),
             ("GET", "/api/updates"),
             ("GET", "/api/network"),
+            ("GET", "/api/settings"),
+            ("PATCH", "/api/settings"),
         ]:
             method, path = expected
             self.assertIn(path, paths, path)
             self.assertIn(method.lower(), {m.lower() for m in paths[path]}, path)
+
+    def test_settings_routes_expose_and_switch_the_profile(self) -> None:
+        """GET reports all three presets; PATCH switches the profile live."""
+        service, registry, _workflow, _jobs, _edits = self.build()
+        client = TestClient(create_app(registry, service, _FakeAdmin()))
+
+        current = client.get("/api/settings")
+        switched = client.patch("/api/settings", json={"profile": "slow"})
+        rejected = client.patch("/api/settings", json={"profile": "turbo"})
+
+        self.assertEqual(current.status_code, 200)
+        payload = current.json()
+        self.assertEqual(payload["profile"], "default")
+        self.assertEqual(
+            [preset["profile"] for preset in payload["presets"]],
+            ["fast", "default", "slow"],
+        )
+        self.assertEqual(payload["presets"][1]["actionS"], 60)
+        self.assertEqual(payload["presets"][1]["submissionS"], 300)
+        self.assertEqual(switched.status_code, 200)
+        self.assertEqual(switched.json()["profile"], "slow")
+        self.assertEqual(rejected.status_code, 422)
 
     def test_legacy_alias_routes_are_gone(self) -> None:
         service, registry, _workflow, _jobs, _edits = self.build()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.config import TimeoutPolicy
 from app.salesforce.adapters import AdapterRegistry
 
 from .cl_contract import ClContractAdapter
@@ -11,15 +12,15 @@ from .lms2 import Lms2ClContractAdapter, Lms2CollateralAdapter
 from .opportunity import OpportunityAdapter
 
 
-def build_adapters(org_base: str, timeout_ms: int) -> AdapterRegistry:
-    """Construct the six Z02 adapters."""
+def build_adapters(org_base: str, timeouts: TimeoutPolicy) -> AdapterRegistry:
+    """Construct the six Z02 adapters on one live timeout policy."""
     return AdapterRegistry(
         [
-            DeviationRecordAdapter(org_base, timeout_ms),
-            OpportunityAdapter(org_base, timeout_ms),
-            ClContractAdapter(org_base, timeout_ms),
-            CollateralAdapter(org_base, timeout_ms),
-            Lms2ClContractAdapter(org_base, timeout_ms),
-            Lms2CollateralAdapter(org_base, timeout_ms),
+            DeviationRecordAdapter(org_base, timeouts),
+            OpportunityAdapter(org_base, timeouts),
+            ClContractAdapter(org_base, timeouts),
+            CollateralAdapter(org_base, timeouts),
+            Lms2ClContractAdapter(org_base, timeouts),
+            Lms2CollateralAdapter(org_base, timeouts),
         ]
     )

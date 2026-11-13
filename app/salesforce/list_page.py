@@ -15,6 +15,7 @@ from urllib.parse import urljoin
 
 from playwright.async_api import BrowserContext, Page
 
+from app.config import TimeoutPolicy
 from app.core.list_view import ListRow, ListSample, ListViewSpec
 from app.core.models import utcnow
 
@@ -57,7 +58,7 @@ class ListPage:
 
     Example:
         page = await context.new_page()
-        lp = ListPage(context, page, spec, timeout_ms)
+        lp = ListPage(context, page, spec, settings.timeouts)
         await lp.open()
         sample = await lp.read()
     """
@@ -67,14 +68,19 @@ class ListPage:
         context: BrowserContext,
         page: Page,
         spec: ListViewSpec,
-        timeout_ms: int,
+        timeouts: TimeoutPolicy,
     ) -> None:
-        """Wrap one page for one list view."""
+        """Wrap one page for one list view; waits read the live timeout policy."""
         self._context = context
         self._page = page
         self._spec = spec
-        self._timeout_ms = timeout_ms
+        self._timeouts = timeouts
         self._pattern = re.compile(spec.pattern)
+
+    @property
+    def _timeout_ms(self) -> int:
+        """Per-action timeout in milliseconds, read live from the active profile."""
+        return self._timeouts.current().action_ms
 
     @property
     def page(self) -> Page:

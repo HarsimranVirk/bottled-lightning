@@ -12,6 +12,7 @@ from contextlib import suppress
 from typing import Protocol
 
 from app.core.errors import SessionExpired, TransientBrowserError
+from app.core.job_logger import JobLogger
 from app.core.models import Job
 from app.core.registry import WorkflowRegistry
 from app.core.repo.approved_history import ApprovedHistoryRepository
@@ -38,8 +39,8 @@ logger = logging.getLogger(__name__)
 class TabSessionFactory(Protocol):
     """Anything that can hand out a fresh tab group."""
 
-    def new_tab_group(self) -> TabSessions:
-        """Open a fresh tab group for one job."""
+    def new_tab_group(self, log: JobLogger) -> TabSessions:
+        """Open a fresh tab group for one job, logging tab deaths to ``log``."""
         ...
 
 
@@ -100,7 +101,7 @@ class Worker:
             log(f"cannot start: {type(exc).__name__}: {exc}")
             return
 
-        tabs = self._tabs.new_tab_group()
+        tabs = self._tabs.new_tab_group(log)
         heartbeat = asyncio.create_task(self._heartbeat(job.id, log))
         log(f"{job.kind.value} start: {job.workflow}/{job.item}")
         try:
@@ -118,6 +119,10 @@ class Worker:
             retryable = job.attempts < MAX_JOB_ATTEMPTS
             self._jobs.fail(job.id, f"transient: {exc}", retryable=retryable)
             log(f"transient failure (retryable={retryable}): {exc}")
+            if not retryable:
+                # Nothing will re-run this submission, so do not leave the item in
+                # APPLYING: the operator needs it back on the deck (FR-6.9).
+                self._park_submission(job)
         except Exception as exc:
             logger.exception("%s: job %s failed", self.name, job.id)
             self._jobs.fail(job.id, f"{type(exc).__name__}: {exc}")

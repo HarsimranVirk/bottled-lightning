@@ -23,6 +23,9 @@ export type JobView = components['schemas']['JobView']
 export type JobLogs = components['schemas']['JobLogsView']
 export type JobsPage = components['schemas']['JobsPageView']
 export type SessionView = components['schemas']['SessionView']
+export type SettingsView = components['schemas']['SettingsView']
+export type TimeoutPreset = components['schemas']['TimeoutPresetView']
+export type NetworkProfile = components['schemas']['NetworkProfile']
 export type SyncView = components['schemas']['SyncView']
 export type QueueView = components['schemas']['QueueView']
 export type VersionView = components['schemas']['VersionView']
@@ -295,6 +298,9 @@ export const api = {
   jobLogs: (id: number): Promise<JobLogs> => request(`/api/jobs/${id}/logs`),
   workers: (): Promise<QueueView> => request('/api/workers'),
   network: (): Promise<NetworkView> => request('/api/network'),
+  settings: (): Promise<SettingsView> => request('/api/settings'),
+  saveSettings: (profile: NetworkProfile): Promise<SettingsView> =>
+    request('/api/settings', { method: 'PATCH', body: JSON.stringify({ profile }) }),
   updates: (): Promise<UpdateStatus> => request('/api/updates'),
   checkUpdate: (): Promise<UpdateStatus> =>
     request('/api/updates/checks', { method: 'POST' }),

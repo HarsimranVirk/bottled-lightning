@@ -18,11 +18,13 @@ import type {
   JobLogs,
   JobsPage,
   JobView,
+  NetworkProfile,
   NetworkView,
   PurgeResult,
   PurgeScope,
   QueueView,
   SessionView,
+  SettingsView,
   SyncView,
   UpdateStatus,
   VersionView,
@@ -303,6 +305,25 @@ export function useNetwork(): ReturnType<typeof useQuery<NetworkView>> {
     queryKey: ['network'],
     queryFn: () => api.network(),
     refetchInterval: poll(10_000),
+  })
+}
+
+export function useSettings(): ReturnType<typeof useQuery<SettingsView>> {
+  return useQuery({
+    queryKey: ['settings'],
+    queryFn: () => api.settings(),
+    staleTime: Infinity,
+  })
+}
+
+/** Persist a profile; the server's view replaces the cache, so the dialog shows it. */
+export function useSaveSettings(): ReturnType<
+  typeof useMutation<SettingsView, Error, NetworkProfile>
+> {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (profile) => api.saveSettings(profile),
+    onSuccess: (view) => client.setQueryData(['settings'], view),
   })
 }
 

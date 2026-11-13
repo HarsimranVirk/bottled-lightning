@@ -827,6 +827,12 @@ LMS 2.0 contract form without workflow-specific branching in the pipeline. Adapt
 depend on `TabProvider` (two async methods), not on the concrete `TabGroup`, so pipelines
 can be tested without a browser.
 
+Entering edit mode is one click, not a reliable one: Lightning can consume a pencil click
+while a lazy section re-renders, leaving the field in view mode even though the browser
+reported the click as successful. The opportunity adapter therefore gives each click a
+short window (`_EDIT_OPEN_MS`) and clicks Edit once more when no input appeared, instead
+of failing the target after the full action budget.
+
 #### 7.5.1 LMS 2.0 CL contract approval gate (v4.12)
 
 `Lms2ClContractAdapter.write()` is the only adapter with a pre-write readiness gate. It
@@ -1139,12 +1145,15 @@ leaves the item in `EXECUTING` until the next valid refresh attributes the closu
 `COMPLETED`/`system` (invariant I13's lease rule). An already-ticked deviation is not
 claimed: the closure is `CLOSED`/`external` (FR-6.16).
 
-`ALREADY_CLOSED` is not an error: the worker marks the job succeeded (FR-6.6). A retry
-after a crash skips targets whose `applied` value already equals the intended value and
-whose current SF value still matches (FR-6.8), so a failed run can be resumed without
-double-writing. A failed run does **not** roll back values that were already written: it
-records per-target truth, moves the item to `NEEDS_REVIEW`, and notifies the operator
-(FR-6.15). The operator fixes the cause and resubmits.
+`ALREADY_CLOSED` is not an error: the worker marks the job succeeded (FR-6.6). Apply
+never writes a target whose pre-write read already equals the intended value — it is
+recorded `SAVED` without touching the page, whether that is a retry after a crash
+(FR-6.8) or a proposal that matches what SF already holds. Skipping an equal value is not
+just an optimisation: an SF edit form that receives an unchanged value may never confirm
+it (the LMS 2.0 Contract Modification panel stays open), which would fail a field that
+needed no work at all. A failed run does **not** roll back values that were already
+written: it records per-target truth, moves the item to `NEEDS_REVIEW`, and notifies the
+operator (FR-6.15). The operator fixes the cause and resubmits.
 
 ### 9.4 Description parser
 
@@ -1213,6 +1222,15 @@ wall-clock job timeout; waits are bounded inside each browser step instead (FR-7
 | `AmbiguousRecord` | no | `NEEDS_REVIEW` (unresolved link) |
 | `SaveRejected` / `ValueMismatch` | no | `NEEDS_REVIEW` |
 | `AlreadyClosed` | no | `CLOSED(external)` — success |
+
+A tab that dies mid-job (renderer crash, external close) is a `TransientBrowserError`:
+the submission checks `page.is_closed()` at every object-group boundary and between
+per-target writes, aborts with the page named instead of waiting out one timeout per
+target, and the retry re-reads the current Salesforce values before writing again. The
+item is parked `NEEDS_REVIEW` only when the retry also fails; until then it stays in its
+working status, which the retry accepts. The tab group also writes the page's own
+`close`/`crash` event to the job log with its URL, so the next occurrence names the tab
+that died.
 
 ---
 
