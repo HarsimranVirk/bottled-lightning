@@ -22,6 +22,8 @@ export type PageRefView = components['schemas']['PageRefView']
 export type JobView = components['schemas']['JobView']
 export type JobLogs = components['schemas']['JobLogsView']
 export type JobsPage = components['schemas']['JobsPageView']
+export type LinkBatch = components['schemas']['LinkBatchView']
+export type RejectedLink = components['schemas']['RejectedLinkView']
 export type SessionView = components['schemas']['SessionView']
 export type SettingsView = components['schemas']['SettingsView']
 export type TimeoutPreset = components['schemas']['TimeoutPresetView']
@@ -262,6 +264,11 @@ export const api = {
     request(`/api/syncs${query({ workflow })}`),
   items: (route: string, params: ItemQuery = {}): Promise<ItemsPage> =>
     request(`/api/${route}${itemsQuery(params)}`),
+  queueLinks: (route: string, links: string[]): Promise<LinkBatch> =>
+    request(`/api/${route}`, {
+      method: 'POST',
+      body: JSON.stringify({ links }),
+    }),
   item: (route: string, key: string): Promise<ItemDetail> =>
     request(`/api/${route}/${encodeURIComponent(key)}`),
   history: (route: string, params: HistoryQuery = {}): Promise<HistoryPage> =>

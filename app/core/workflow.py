@@ -166,13 +166,41 @@ def incomplete_ref(
 
 
 @dataclass(frozen=True, slots=True)
+class LinkIntake:
+    """
+    How a list-less workflow accepts operator-supplied item links.
+
+    A workflow with no list view has no watcher or reconciler; the operator supplies
+    links through the workflow's REST collection instead. ``parse`` runs on the API
+    thread once per pasted line and returns the same ``ListRow`` shape the reconciler
+    would have produced, so item creation and storage stay identical to list-driven
+    workflows.
+
+    Example:
+        intake = LinkIntake("lms2_cl_contract", parse_link)
+        row = intake.parse("https://org/lightning/n/CL_Contract_Detail?c__loanId=1")
+    """
+
+    kind: str
+    """Page-ref kind stored for every accepted link, e.g. ``lms2_cl_contract``; must be
+    one of the workflow's declared ``RefKind`` values."""
+
+    parse: Callable[[str], ListRow]
+    """Turn one pasted line into a row, or raise ``ValueError`` with a sentence the
+    operator can act on. Must not accept a link it cannot open later."""
+
+
+@dataclass(frozen=True, slots=True)
 class Workflow:
     """
-    One registered workflow: list view, catalogue, adapters and pipelines.
+    One registered workflow: list view (or manual link intake), catalogue, adapters and
+    pipelines.
 
     ``name`` scopes every database row; ``route`` is the REST noun (Z02 registers as
     ``deviations_z02`` but mounts at ``/api/deviations``). ``map_row`` is the only
-    hook the generic reconciler needs to understand a workflow's list columns.
+    hook the generic reconciler needs to understand a workflow's list columns. A
+    list-less workflow sets ``list_view`` and ``extraction`` to ``None`` and supplies
+    ``intake`` instead; it has no watcher and its items are created by the API.
     """
 
     name: str
@@ -183,8 +211,9 @@ class Workflow:
     """REST noun the API mounts under ``/api/<route>``, e.g. ``deviations``; decoupled
     from ``name`` so the registry key stays stable across renames."""
 
-    list_view: ListViewSpec
-    """The SF list view the watcher refreshes (filter name, ``fcf`` id, columns)."""
+    list_view: ListViewSpec | None
+    """The SF list view the watcher refreshes (filter name, ``fcf`` id, columns);
+    ``None`` for a workflow whose items are supplied manually and never refreshed."""
 
     catalog: tuple[EditableField, ...]
     """Editable fields in display order; drives both the deck's columns and submission."""
@@ -192,8 +221,9 @@ class Workflow:
     adapters: AdapterRegistry
     """Per-workflow object adapters keyed by object kind, used by extraction and submit."""
 
-    extraction: ExtractionPipeline
-    """Pipeline that discovers and persists one item's data."""
+    extraction: ExtractionPipeline | None
+    """Pipeline that discovers and persists one item's data; ``None`` when items arrive
+    complete (manual links), so no ``EXTRACT`` job can run for this workflow."""
 
     submission: SubmissionPipeline
     """Pipeline that applies, verifies and finalises one item's edits."""
@@ -209,6 +239,14 @@ class Workflow:
     ref_kinds: tuple[RefKind, ...] = ()
     """SF object kinds every item links to, in display order; empty for a workflow with
     no related objects."""
+
+    label: str | None = None
+    """Operator-facing workflow title, e.g. ``LMS2 Contract Approval``; ``None`` derives
+    one from ``name``."""
+
+    intake: LinkIntake | None = None
+    """Manual link intake for a list-less workflow; ``None`` for list-driven workflows,
+    which have no ``POST /api/<route>`` item-creation endpoint."""
 
     def required_ref_kinds(self) -> tuple[str, ...]:
         """Kinds this workflow cannot become ``READY`` without, in display order."""

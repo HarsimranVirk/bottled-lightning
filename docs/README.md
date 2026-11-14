@@ -36,6 +36,7 @@ a plan, a review, and small implementation slices.
 | Job runtime — bounded waits, detailed logs, lease recovery | `review` — built, live walkthrough pending | `decisions-job-runtime.md` (v1, LOCKED 2026-11-07) | `FR-deviations.md` FR-7.2, FR-7.12–FR-7.14 (v5.31) | pending | `guide-job-runtime.md` | 2026-11-07 |
 | Loan deviations (`deviations_z02`) | `review` — change C-1 built, walkthrough pending | `decisions-deviations.md` (v2, LOCKED 2026-11-06) | `FR-deviations.md` (v5.30) | pending | `guide-sync-recovery.md` | 2026-11-07 |
 | LMS 2.0 contract approval gate | `review` — built, live submit/walkthrough pending | `decisions-lms2-approval.md` (v2, LOCKED 2026-11-06) | `FR-deviations.md` FR-6.17 (v5.29) | pending | `guide-lms2-approval.md` | 2026-11-06 |
+| LMS2 Contract Approval workflow — manual links, automatic approval, audit history | `review` — built, live approval pending | reuses `decisions-lms2-approval.md` (no new register) | — | pending | `guide-lms2-approval-workflow.md` | 2026-11-14 |
 | Deck search & pin picker | `review` — built, walkthrough pending | `decisions-deck-picker.md` (v1, LOCKED 2026-11-06) | `FR-deviations.md` FR-10.12 (v5.28) | pending | `guide-deck-picker.md` | 2026-11-06 |
 | Approved history | `building` | missing — gap | — | not reviewed — gap | missing — gap | 2026-11-06 |
 | Retention — jobs, logs, sync runs | `review` — built, walkthrough pending | `decisions-retention.md` (v2, LOCKED) | `FR-deviations.md` FR-8.6–FR-8.10 | pending | `guide-retention.md` | 2026-11-05 |

@@ -16,11 +16,13 @@ from app.core.registry import WorkflowRegistry
 from app.core.repo.events import EventRepository
 from app.core.repo.jobs import JobQuery, JobRepository
 from app.core.status import (
+    ClosureSource,
     ExtractOutcome,
     JobKind,
     JobStatus,
     Phase,
     SubmitOutcome,
+    WorkItemStatus,
 )
 from app.core.workflow import (
     JobLogger,
@@ -115,9 +117,12 @@ class FakeSubmission:
 
 
 def make_workflow(
-    extraction: FakeExtraction, submission: FakeSubmission
+    extraction: FakeExtraction | None,
+    submission: FakeSubmission,
+    *,
+    listless: bool = False,
 ) -> Workflow:
-    """Build a workflow around the fake pipelines."""
+    """Build a workflow around the fake pipelines; ``listless`` drops the list view."""
     def map_row(row: ListRow) -> Mapping[str, str]:
         """No list columns are mapped for the fake workflow."""
         return {}
@@ -125,7 +130,9 @@ def make_workflow(
     return Workflow(
         name=WORKFLOW,
         route="deviations",
-        list_view=ListViewSpec(url="https://example/list", pattern=r"Deviation-\d+-\d+"),
+        list_view=None
+        if listless
+        else ListViewSpec(url="https://example/list", pattern=r"Deviation-\d+-\d+"),
         catalog=FIELD_CATALOG,
         adapters=AdapterRegistry([]),
         extraction=extraction,
@@ -186,6 +193,7 @@ class JobTestCase(DbTestCase):
         *,
         name: str = "w0",
         lease_ttl_s: float = 60,
+        listless: bool = False,
     ) -> tuple[Worker, JobRepository, AuthGate, FakeTabFactory]:
         """Wire a worker with fake pipelines and tab groups."""
         deps = self.deps()
@@ -193,7 +201,7 @@ class JobTestCase(DbTestCase):
         events = EventRepository(self.db)
         auth = AuthGate(jobs, events)
         registry = WorkflowRegistry()
-        registry.register(make_workflow(extraction, submission))
+        registry.register(make_workflow(extraction, submission, listless=listless))
         tabs = FakeTabFactory()
         closure = ClosureResolver(deps.items, jobs, events)
         worker = Worker(
@@ -215,6 +223,33 @@ class WorkerTests(JobTestCase):
     def run_job(self, job: Job, worker: Worker, jobs: JobRepository) -> None:
         """Execute one claimed job on a fresh event loop."""
         asyncio.run(worker.execute(job))
+
+    def test_listless_success_completes_the_item(self) -> None:
+        """A list-less workflow has no watcher, so a successful submit closes its item."""
+        self.create_item()
+        deps = self.deps()
+        for status in (
+            WorkItemStatus.READY,
+            WorkItemStatus.SUBMITTING,
+            WorkItemStatus.APPLYING,
+            WorkItemStatus.VALIDATING,
+            WorkItemStatus.EXECUTING,
+        ):
+            deps.items.transition(WORKFLOW, "Deviation-1-1", status)
+        worker, jobs, _auth, _tabs = self.build(
+            FakeExtraction(ExtractOutcome.EXTRACTED),
+            FakeSubmission(SubmitOutcome.COMPLETED),
+            listless=True,
+        )
+        job = jobs.enqueue(WORKFLOW, JobKind.SUBMIT, "Deviation-1-1")
+        claimed = jobs.claim("w0", ttl_s=60)
+        assert claimed is not None
+        self.run_job(claimed, worker, jobs)
+
+        self.assertIs(jobs.require(job.id).status, JobStatus.SUCCEEDED)
+        item = deps.items.require(WORKFLOW, "Deviation-1-1")
+        self.assertIs(item.status, WorkItemStatus.COMPLETED)
+        self.assertIs(item.source, ClosureSource.SYSTEM)
 
     def test_extracted_job_succeeds(self) -> None:
         """A successful extraction completes the job, logs every phase and closes tabs."""

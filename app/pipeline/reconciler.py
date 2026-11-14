@@ -42,8 +42,10 @@ class Reconciler:
     Apply one refresh of a workflow's list view to its stored items.
 
     Called by the watcher after a successful list read, on the watcher thread, with the
-    item/job repositories already wired. It is the only place that creates items and
-    queues extraction jobs, so the "no link, no job" rule lives here and nowhere else.
+    item/job repositories already wired. It is the only place list-driven items are
+    created and extraction jobs are queued, so the "no link, no job" rule lives here and
+    nowhere else. A list-less workflow creates its items through its manual link intake
+    instead and has no reconciler at all.
     """
 
     def __init__(

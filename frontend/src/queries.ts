@@ -18,6 +18,7 @@ import type {
   JobLogs,
   JobsPage,
   JobView,
+  LinkBatch,
   NetworkProfile,
   NetworkView,
   PurgeResult,
@@ -422,6 +423,22 @@ export function useRetryExtraction(
 }
 
 /** Enqueue the single SUBMIT job after an accept; refresh deck, detail and jobs. */
+/** Queue manually pasted links; refuses an empty batch in the component. */
+export function useQueueLinks(
+  route: string | null,
+): ReturnType<typeof useMutation<LinkBatch, Error, string[]>> {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (links) => api.queueLinks(route ?? '', links),
+    onSuccess: () => {
+      if (route === null) return
+      void client.invalidateQueries({ queryKey: ['items', route] })
+      void client.invalidateQueries({ queryKey: ['history', route] })
+      void client.invalidateQueries({ queryKey: ['jobs'] })
+    },
+  })
+}
+
 export function useSubmitJob(
   route: string | null,
 ): ReturnType<typeof useMutation<JobView, Error, { key: string }>> {

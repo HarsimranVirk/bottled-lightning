@@ -82,14 +82,16 @@ class WorkflowListSource:
         """
         if self._list is not None:
             return
+        view = self._workflow.list_view
+        if view is None:
+            raise RuntimeError(
+                f"{self._workflow.name}: WorkflowListSource needs a list view"
+            )
         context = self._runtime.context
         page = await context.new_page()
         try:
             await self._session.ensure(page)
-            spec = ListViewSpec(
-                url=self._workflow.list_view.url,
-                pattern=self._workflow.list_view.pattern,
-            )
+            spec = ListViewSpec(url=view.url, pattern=view.pattern)
             list_page = ListPage(
                 context, page, spec, self._settings.timeouts
             )

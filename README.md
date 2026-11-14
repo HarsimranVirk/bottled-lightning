@@ -125,7 +125,7 @@ for the safety rules.
     app/jobs/          persisted queue: dispatcher, worker, auth gate, logger
     app/pipeline/      list watcher, reconciler, closure resolver
     app/api/           FastAPI routes, schemas, services
-    app/workflows/     workflow implementations (deviations_z02 today)
+    app/workflows/     workflow implementations (deviations_z02, lms2_approval)
     app/devtools/      dev-only read-only DB explorer service
     app/utils/         shared async DOM helpers and JsonValue
     app/updater.py     GitHub-release self-update (check, verify, install, restart)
@@ -144,6 +144,10 @@ for the safety rules.
     POST   /api/deviations/{key}/decisions       accept/reject a review decision
     DELETE /api/deviations/{key}/decisions       undo the latest decision
     POST   /api/deviations/{key}/jobs            enqueue one SUBMIT job (202)
+    GET    /api/deviations/history               durable accepted-deviation snapshots
+    GET    /api/lms2-approvals                   LMS2 contract approval queue
+    POST   /api/lms2-approvals                   paste links, queue approvals (202)
+    GET    /api/lms2-approvals/history           durable approval audit snapshots
     GET    /api/jobs                             filtered, sorted job page
     GET    /api/jobs/{id}                        one job with logs
     GET    /api/jobs/{id}/logs                   job logs

@@ -6,15 +6,10 @@ import {
   FlexItem,
   FlexLayout,
   SaltProviderNext,
-  Tab,
-  TabBar,
-  TabList,
-  TabTrigger,
-  Tabs,
   Text,
 } from '@salt-ds/core'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { BrowserRouter, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { BrowserRouter, NavLink, Outlet, Route, Routes } from 'react-router-dom'
 
 import { AppFooter } from './components/AppFooter'
 import { SettingsMenu } from './components/SettingsMenu'
@@ -25,6 +20,7 @@ import { DevStates } from './pages/DevStates'
 import { DeviationsPage } from './pages/DeviationsPage'
 import { HomePage } from './pages/HomePage'
 import { JobsPage } from './pages/JobsPage'
+import { Lms2ApprovalsPage } from './pages/Lms2ApprovalsPage'
 import {
   useLogin,
   useRequestSync,
@@ -42,17 +38,13 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: true } },
 })
 
-const TAB_PATHS: Record<string, string> = {
-  home: '/',
-  deviations: '/deviations-z02',
-  jobs: '/jobs',
-}
-
-function tabFor(pathname: string): string {
-  if (pathname.startsWith('/jobs')) return 'jobs'
-  if (pathname.startsWith('/deviations-z02')) return 'deviations'
-  return 'home'
-}
+/** Fixed top-nav order; links never move when one is selected or overflowed. */
+const NAV_ITEMS: { path: string; label: string; end?: boolean }[] = [
+  { path: '/', label: 'Home', end: true },
+  { path: '/deviations-z02', label: 'Deviations Z02' },
+  { path: '/lms2-approvals', label: 'LMS2 Approvals' },
+  { path: '/jobs', label: 'Jobs' },
+]
 
 interface ShellProps {
   mode: ThemeMode
@@ -60,8 +52,6 @@ interface ShellProps {
 }
 
 function Shell({ mode, onToggleTheme }: ShellProps): JSX.Element {
-  const navigate = useNavigate()
-  const location = useLocation()
   const workflows = useWorkflows()
   const workflow = workflows.data?.[0]
   const session = useSession()
@@ -79,25 +69,20 @@ function Shell({ mode, onToggleTheme }: ShellProps): JSX.Element {
           <FlexLayout gap={3} align="center" wrap>
             <Text styleAs="h4">bottled-lightning</Text>
             <FlexItem grow={1}>
-            <Tabs
-              className="app-tabs"
-              value={tabFor(location.pathname)}
-              onChange={(_event, value) => navigate(TAB_PATHS[value] ?? '/')}
-            >
-              <TabBar>
-                <TabList>
-                  <Tab value="home">
-                    <TabTrigger>Home</TabTrigger>
-                  </Tab>
-                  <Tab value="deviations">
-                    <TabTrigger>Deviations Z02</TabTrigger>
-                  </Tab>
-                  <Tab value="jobs">
-                    <TabTrigger>Jobs</TabTrigger>
-                  </Tab>
-                </TabList>
-              </TabBar>
-            </Tabs>
+              <nav className="app-nav" aria-label="Main">
+                {NAV_ITEMS.map((item) => (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    end={item.end}
+                    className={({ isActive }) =>
+                      `app-nav-link${isActive ? ' app-nav-link-active' : ''}`
+                    }
+                  >
+                    {item.label}
+                  </NavLink>
+                ))}
+              </nav>
             </FlexItem>
           </FlexLayout>
           <FlexLayout gap={2} align="center">
@@ -154,6 +139,7 @@ export default function App(): JSX.Element {
               <Route index element={<HomePage />} />
               <Route path="deviations-z02" element={<DeviationsPage />} />
               <Route path="deviations-z02/:key" element={<DeviationsPage />} />
+              <Route path="lms2-approvals" element={<Lms2ApprovalsPage />} />
               <Route path="jobs" element={<JobsPage />} />
               <Route path="dev/states" element={<DevStates />} />
               <Route path="dev/db" element={<DevDbPage />} />

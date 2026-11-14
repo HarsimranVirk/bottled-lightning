@@ -130,6 +130,7 @@ class RegistryTests(unittest.TestCase):
             workflow = build_workflow(settings_for(Path(tmp)), deps)
             database.close()
         self.assertEqual(workflow.name, WORKFLOW_NAME)
+        assert workflow.list_view is not None
         self.assertEqual(workflow.list_view.pattern, r"Deviation-\d+-\d+")
         self.assertEqual(
             [f.key for f in workflow.catalog],
