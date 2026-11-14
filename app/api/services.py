@@ -76,9 +76,11 @@ from .schemas import (
     JobLogsView,
     JobsPageView,
     JobView,
+    LinkBatchView,
     NetworkView,
     PageRefView,
     QueueView,
+    RejectedLinkView,
     SessionEventView,
     SessionView,
     SettingsView,
@@ -96,6 +98,16 @@ _SUBMITTABLE = _EDITABLE
 _TERMINAL = frozenset(
     {WorkItemStatus.COMPLETED, WorkItemStatus.CLOSED, WorkItemStatus.SKIPPED}
 )
+#: Statuses whose item already has (or should have) a submission job, so a repeated
+#: paste leaves it alone instead of resetting its phases.
+_SUBMIT_PHASES = frozenset(
+    {
+        WorkItemStatus.SUBMITTING,
+        WorkItemStatus.APPLYING,
+        WorkItemStatus.VALIDATING,
+        WorkItemStatus.EXECUTING,
+    }
+)
 logger = logging.getLogger(__name__)
 
 
@@ -104,8 +116,8 @@ def workflow_view(workflow: Workflow) -> WorkflowView:
     return WorkflowView(
         name=workflow.name,
         route=workflow.route,
-        label=workflow.name.replace("_", " ").title(),
-        list_url=workflow.list_view.url,
+        label=workflow.label or workflow.name.replace("_", " ").title(),
+        list_url=workflow.list_view.url if workflow.list_view is not None else None,
         ref_kinds=[ref.kind for ref in workflow.ref_kinds],
         fields=[
             WorkflowFieldView(
@@ -293,6 +305,119 @@ class WorkItemService:
             ],
         )
 
+    def queue_links(
+        self, workflow_name: str, links: Sequence[str]
+    ) -> LinkBatchView:
+        """
+        Turn manually pasted links into items and immediate submission jobs.
+
+        Called by ``POST /api/<route>`` for a workflow that declares ``intake``. Each
+        non-blank line is parsed by the workflow; a bad line is reported and nothing is
+        stored for it. A valid line creates or reuses the item, replaces its stored
+        link, moves it to ``SUBMITTING`` and queues one ``SUBMIT`` job. A terminal item
+        or one with an active job is skipped, so re-pasting is idempotent. A retry of a
+        ``needs_review`` item clears the failure reason and re-queues it.
+
+        The first time an item is queued, a history snapshot is written so the audit
+        survives the current-data purge; later re-queues refresh that same snapshot
+        without moving its original request time.
+
+        Raises ``ApiError`` 404 for a non-manual workflow and 409 when a manual login
+        is required; parse failures are returned per line, not raised.
+        """
+        workflow = self._workflow(workflow_name)
+        intake = workflow.intake
+        if intake is None:
+            raise ApiError(
+                404,
+                f"{workflow_name} does not accept manual links",
+                "unknown_workflow",
+            )
+        lines = [line.strip() for line in links if line.strip()]
+        if not lines:
+            raise ApiError(422, "no links to queue", "nothing_to_queue")
+        if self._is_paused():
+            raise ApiError(409, "manual login required", "login_required")
+
+        queued = 0
+        skipped = 0
+        rejected: list[RejectedLinkView] = []
+        for line in lines:
+            try:
+                row = intake.parse(line)
+            except ValueError as exc:
+                rejected.append(RejectedLinkView(link=line, reason=str(exc)))
+                continue
+
+            existing = self._items.get(workflow.name, row.key)
+            if existing is not None and (
+                existing.status in _TERMINAL
+                or self._jobs.active_for(workflow.name, row.key) is not None
+            ):
+                skipped += 1
+                continue
+
+            now = utcnow()
+            self._items.create_present(workflow.name, row, now)
+            self._refs.replace(
+                workflow.name,
+                row.key,
+                [
+                    PageRef(
+                        workflow.name,
+                        row.key,
+                        intake.kind,
+                        row.key,
+                        row.href,
+                    )
+                ],
+            )
+            fresh = self._items.require(workflow.name, row.key)
+            if fresh.status not in _SUBMIT_PHASES:
+                self._items.transition(
+                    workflow.name,
+                    row.key,
+                    WorkItemStatus.READY,
+                    clear_reason=True,
+                    extracted_at=now,
+                )
+            # Write the audit row before the job exists: a failure here must not leave
+            # an approval that nobody can see in History. A re-created current item (the
+            # previous row was purged) starts a new request time; a live item keeps the
+            # request time from its first queueing.
+            if self._history is not None:
+                if (
+                    existing is None
+                    or self._history.get(workflow.name, row.key) is None
+                ):
+                    self._history.record_accept(
+                        workflow.name, row.key, "queued for approval", now
+                    )
+                else:
+                    self._history.refresh(workflow.name, row.key)
+
+            job = self._jobs.enqueue(workflow.name, JobKind.SUBMIT, row.key)
+            if fresh.status not in _SUBMIT_PHASES:
+                self._items.transition(
+                    workflow.name, row.key, WorkItemStatus.SUBMITTING
+                )
+            if self._history is not None:
+                self._history.refresh(workflow.name, row.key)
+            self._events.emit(
+                "approval_queued",
+                workflow=workflow.name,
+                item=row.key,
+                job_id=job.id,
+            )
+            queued += 1
+
+        return LinkBatchView(
+            workflow=workflow.name,
+            queued=queued,
+            skipped=skipped,
+            rejected=rejected,
+        )
+
     def get_item(self, workflow_name: str, key: str) -> ItemDetailView:
         """One item with read-only attributes, object links and edit history."""
         workflow = self._workflow(workflow_name)
@@ -468,6 +593,12 @@ class WorkItemService:
         cleared, otherwise the pipeline's one-shot check would skip the work.
         """
         workflow = self._workflow(workflow_name)
+        if workflow.extraction is None:
+            raise ApiError(
+                409,
+                f"{workflow_name} has no extraction to retry",
+                "extraction_not_retryable",
+            )
         item = self._item(workflow, key)
         if item.status is not WorkItemStatus.NEEDS_REVIEW:
             raise ApiError(

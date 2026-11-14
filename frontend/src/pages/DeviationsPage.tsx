@@ -267,7 +267,7 @@ export function DeviationsPage(): JSX.Element {
           tally={tally}
           error={actionError ?? (deck.error ? deck.error.message : null)}
           announcement={announcement}
-          listUrl={workflow.listUrl}
+          listUrl={workflow.listUrl ?? ''}
           onDecide={handleDecide}
           onReplay={() => void replaySkipped()}
           replaying={replaying}
@@ -282,7 +282,7 @@ export function DeviationsPage(): JSX.Element {
           rows={history.data?.rows ?? []}
           fields={workflow.fields}
           terminalLabels={workflow.terminalLabels}
-          listUrl={workflow.listUrl}
+          listUrl={workflow.listUrl ?? ''}
           filters={historyFilters}
           onFilters={(next) => {
             setHistoryFilters(next)

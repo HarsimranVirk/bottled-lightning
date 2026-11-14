@@ -76,6 +76,12 @@ _CONFIRM_BUTTON_NAMES = ("Confirm", "Approve", "Yes", "OK")
 _APPROVED_MARKER = "approved"
 _REJECTED_MARKER = "rejected"
 _PENDING_MARKER = "pending approval"
+#: How long to wait for the custom contract header to render after navigation.
+#:
+#: ``TabGroup.new_page`` returns at ``domcontentloaded``; the ``c-cl-contract-detail``
+#: LWC and its shadow root appear a few seconds later. 20 s covers a slow org without
+#: making a genuinely unsupported page look like a hung job.
+_APPROVAL_READY_MS = 20_000
 
 
 class ApprovalAction(StrEnum):
@@ -355,7 +361,7 @@ class Lms2ClContractAdapter(_Lms2Adapter):
     ) -> dict[FieldTarget, WriteOutcome]:
         """Approve the contract when pending, then fill the cards and Save Changes."""
         log("apply: lms2_cl_contract: checking approval")
-        if not await self._ensure_approved(page, log):
+        if not await self.ensure_approved(page, log):
             return {target: WriteOutcome.UNKNOWN for target in values}
         outcomes: dict[FieldTarget, WriteOutcome] = {}
         log("apply: lms2_cl_contract: opening Contract Modification")
@@ -406,6 +412,18 @@ class Lms2ClContractAdapter(_Lms2Adapter):
         finally:
             await self._cancel_modification(page)
 
+    async def ensure_approved(self, page: Page, log: JobLogger) -> bool:
+        """
+        Public approval seam for workflows that only approve the contract.
+
+        ``deviations_z02`` calls this from ``write()`` before Contract Modification;
+        the separate ``lms2_approval`` workflow calls it directly with the contract page
+        already open. Delegating here keeps one implementation of the approval bar,
+        modal confirmation and post-click polling. Returns ``True`` when the page is
+        approved, including when it was already approved before the call.
+        """
+        return await self._ensure_approved(page, log)
+
     async def _ensure_approved(self, page: Page, log: JobLogger) -> bool:
         """
         Make sure the LMS 2.0 contract accepts a Contract Modification.
@@ -415,7 +433,13 @@ class Lms2ClContractAdapter(_Lms2Adapter):
         state polled up to the request timeout. A rejected, unreadable or unconfirmed
         contract returns ``False`` so the caller writes nothing (FR-6.17). The approval
         is a one-way SF side effect and is never rolled back (D-05).
+
+        The custom header renders after ``domcontentloaded``, so this waits for its
+        approval bar before reading the state; without that wait a pending contract
+        looks unreadable and is refused on the first job after navigation.
         """
+        log("apply: lms2_cl_contract: waiting for approval bar")
+        await self._await_approval_bar(page, log)
         status, can_approve = await self._approval_state(page)
         action = approval_action(status, can_approve)
         log(f"apply: lms2_cl_contract: approval status={status!r} action={action.value}")
@@ -444,6 +468,31 @@ class Lms2ClContractAdapter(_Lms2Adapter):
         else:
             log("apply: lms2_cl_contract: approval confirmed")
         return approved
+
+    async def _await_approval_bar(self, page: Page, log: JobLogger) -> None:
+        """
+        Wait for the custom contract header and its approval signal to render.
+
+        Called at the start of ``ensure_approved``. The Lightning page reaches
+        ``domcontentloaded`` before the ``c-cl-contract-detail`` LWC mounts, so an
+        immediate read returns no pill and no Approve control. This polls for the host
+        first, then for a readable approval pill or the Approve button, bounded by
+        ``_APPROVAL_READY_MS``. A page that never renders a signal returns after the
+        wait and the normal gate refuses it as before.
+        """
+        host = page.locator(_CONTRACT_HOST)
+        if not await poll(lambda: _is_visible(host), _APPROVAL_READY_MS):
+            log("apply: lms2_cl_contract: contract header did not render")
+            return
+        if not await poll(
+            lambda: self._has_approval_signal(page), _APPROVAL_READY_MS
+        ):
+            log("apply: lms2_cl_contract: approval bar did not render")
+
+    async def _has_approval_signal(self, page: Page) -> bool:
+        """Whether the page currently exposes an approval pill or Approve control."""
+        status, can_approve = await self._approval_state(page)
+        return status is not None or can_approve
 
     async def _approval_state(self, page: Page) -> tuple[str | None, bool]:
         """

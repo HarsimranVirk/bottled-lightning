@@ -116,10 +116,10 @@ export interface paths {
         };
         /**
          * List History
-         * @description Accepted-deviation snapshots with the standard server-side filter row.
+         * @description Stored item snapshots with the standard server-side filter row.
          *
          *     This is a separate read model from the live item list; it survives the current
-         *     work-item purge. ``ref``/``ref_text`` filter the five object links by name.
+         *     work-item purge. ``ref``/``ref_text`` filter the workflow's object links by name.
          */
         get: operations["list_history_api_deviations_history_get"];
         put?: never;
@@ -139,7 +139,7 @@ export interface paths {
         };
         /**
          * Get History Item
-         * @description One approved snapshot with its attributes, refs, edits and accept decision.
+         * @description One stored snapshot with its attributes, refs, edits and decision record.
          */
         get: operations["get_history_item_api_deviations_history__key__get"];
         put?: never;
@@ -316,6 +316,184 @@ export interface paths {
         get: operations["get_job_logs_api_jobs__job_id__logs_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lms2-approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Items
+         * @description Unified view: one row per item with its values and current decision.
+         *
+         *     ``status`` is repeatable (``?status=ready&status=needs_review``); ``decision``
+         *     is ``accept``, ``reject`` or ``undecided``.
+         */
+        get: operations["list_items_api_lms2_approvals_get"];
+        put?: never;
+        /**
+         * Queue Links
+         * @description Parse pasted links, create their items and queue one submission each.
+         */
+        post: operations["queue_links_api_lms2_approvals_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lms2-approvals/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List History
+         * @description Stored item snapshots with the standard server-side filter row.
+         *
+         *     This is a separate read model from the live item list; it survives the current
+         *     work-item purge. ``ref``/``ref_text`` filter the workflow's object links by name.
+         */
+        get: operations["list_history_api_lms2_approvals_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lms2-approvals/history/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get History Item
+         * @description One stored snapshot with its attributes, refs, edits and decision record.
+         */
+        get: operations["get_history_item_api_lms2_approvals_history__key__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lms2-approvals/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Item
+         * @description One item with attributes, object links and edit history.
+         */
+        get: operations["get_item_api_lms2_approvals__key__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lms2-approvals/{key}/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decide
+         * @description Record an accept/reject review decision (local, reversible).
+         */
+        post: operations["decide_api_lms2_approvals__key__decisions_post"];
+        /**
+         * Undo Decision
+         * @description Undo the current decision and return the item to the deck.
+         */
+        delete: operations["undo_decision_api_lms2_approvals__key__decisions_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lms2-approvals/{key}/extractions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Extraction
+         * @description Queue one more extraction for an item that needs review.
+         */
+        post: operations["retry_extraction_api_lms2_approvals__key__extractions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lms2-approvals/{key}/field-values": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Discard Field Values
+         * @description Discard every proposal and return the item to ``ready``.
+         */
+        delete: operations["discard_field_values_api_lms2_approvals__key__field_values_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Patch Field Values
+         * @description Propose editable values; ``null`` discards a proposal.
+         */
+        patch: operations["patch_field_values_api_lms2_approvals__key__field_values_patch"];
+        trace?: never;
+    };
+    "/api/lms2-approvals/{key}/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit Item
+         * @description Enqueue the single ``SUBMIT`` job for this item.
+         */
+        post: operations["submit_item_api_lms2_approvals__key__jobs_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -887,6 +1065,28 @@ export interface components {
             total: number;
         };
         /**
+         * LinkBatchBody
+         * @description One paste of manually supplied item links.
+         */
+        LinkBatchBody: {
+            /** Links */
+            links: string[];
+        };
+        /**
+         * LinkBatchView
+         * @description The result of one manual-link paste.
+         */
+        LinkBatchView: {
+            /** Queued */
+            queued: number;
+            /** Rejected */
+            rejected: components["schemas"]["RejectedLinkView"][];
+            /** Skipped */
+            skipped: number;
+            /** Workflow */
+            workflow: string;
+        };
+        /**
          * NetworkProfile
          * @description How patient the browser is with this machine's connection.
          *
@@ -990,6 +1190,16 @@ export interface components {
             inFlight: number;
             /** Paused */
             paused: boolean;
+        };
+        /**
+         * RejectedLinkView
+         * @description One pasted line the workflow could not turn into an item.
+         */
+        RejectedLinkView: {
+            /** Link */
+            link: string;
+            /** Reason */
+            reason: string;
         };
         /**
          * SessionEventView
@@ -1144,7 +1354,7 @@ export interface components {
             /** Label */
             label: string;
             /** Listurl */
-            listUrl: string;
+            listUrl: string | null;
             /** Name */
             name: string;
             /** Refkinds */
@@ -1751,6 +1961,377 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobLogsView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_items_api_lms2_approvals_get: {
+        parameters: {
+            query?: {
+                status?: string[] | null;
+                decision?: string | null;
+                q?: string | null;
+                sort?: string;
+                order?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemsPageView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    queue_links_api_lms2_approvals_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkBatchBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkBatchView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_history_api_lms2_approvals_history_get: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                key?: string | null;
+                key_in?: string[] | null;
+                status_text?: string | null;
+                status?: string[] | null;
+                approved_at?: string | null;
+                approved_at_in?: string[] | null;
+                decided_after?: string | null;
+                decided_before?: string | null;
+                field?: string[] | null;
+                field_text?: string[] | null;
+                ref?: string[] | null;
+                ref_text?: string[] | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryPageView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_history_item_api_lms2_approvals_history__key__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetailView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_item_api_lms2_approvals__key__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetailView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_api_lms2_approvals__key__decisions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecisionBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetailView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_decision_api_lms2_approvals__key__decisions_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetailView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_extraction_api_lms2_approvals__key__extractions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    discard_field_values_api_lms2_approvals__key__field_values_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetailView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_field_values_api_lms2_approvals__key__field_values_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FieldValuesBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetailView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_item_api_lms2_approvals__key__jobs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobView"];
                 };
             };
             /** @description Validation Error */

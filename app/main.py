@@ -44,17 +44,25 @@ from .pipeline.watcher import ListWatcher, WorkflowListSource
 from .salesforce.runtime import BrowserRuntime
 from .salesforce.session import SessionProvider
 from .utils.network import lan_ip
-from .workflows.deviations_z02 import build_workflow
+from .workflows import lms2_approval
+from .workflows.deviations_z02 import build_workflow as build_deviations_z02
 
 #: Every workflow the process serves, in registration order.
 #:
 #: Adding a workflow is one import plus one tuple entry — no discovery, no entry
 #: points, no plugin loading (docs/class-design-deviations.md §3.3). Each builder
 #: constructs its own adapters and returns a registered-able ``Workflow``.
-BUILDERS: tuple[WorkflowBuilder, ...] = (build_workflow,)
+BUILDERS: tuple[WorkflowBuilder, ...] = (
+    build_deviations_z02,
+    lms2_approval.build_workflow,
+)
 
 PACKAGED_WEB_DIR = Path(__file__).resolve().parent / "web"
 DEV_WEB_DIR = config.BASE_DIR / "frontend" / "dist"
+
+#: The SPA shell must revalidate on every normal reload. Its hashed asset URLs change
+#: with each build, but a cached index.html can keep pointing at a previous bundle.
+_NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}
 
 
 def _web_dir() -> Path | None:
@@ -119,6 +127,12 @@ class Stack:
         self.closure = ClosureResolver(
             self.items, self.jobs, self.events, self.history
         )
+        # Only list-driven workflows have a refresh cycle. A list-less workflow
+        # (manual link intake) supplies complete items through its API and must not
+        # be sampled, reconciled or closed by absence.
+        list_workflows = tuple(
+            workflow for workflow in self.workflows if workflow.list_view is not None
+        )
         self.reconcilers: dict[str, Reconciler] = {
             workflow.name: Reconciler(
                 workflow,
@@ -129,9 +143,10 @@ class Stack:
                 self.sync_runs,
                 self.closure,
             )
-            for workflow in self.workflows
+            for workflow in list_workflows
         }
-        # One persistent list page per workflow on the single serial browser runtime.
+        # One persistent list page per list-driven workflow on the single serial
+        # browser runtime.
         self.watchers: dict[str, ListWatcher] = {
             workflow.name: ListWatcher(
                 workflow,
@@ -143,7 +158,7 @@ class Stack:
                 self.auth,
                 settings.refresh_interval_s,
             )
-            for workflow in self.workflows
+            for workflow in list_workflows
         }
 
         self.worker = Worker(
@@ -232,8 +247,9 @@ class Stack:
                 raise HTTPException(status_code=404)
             candidate = (root / path).resolve() if path else root
             if path and root in candidate.parents and candidate.is_file():
-                return FileResponse(candidate)
-            return FileResponse(root / "index.html")
+                headers = _NO_CACHE if candidate.name == "index.html" else None
+                return FileResponse(candidate, headers=headers)
+            return FileResponse(root / "index.html", headers=_NO_CACHE)
 
         return app
 

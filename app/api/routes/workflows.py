@@ -14,6 +14,8 @@ from app.api.schemas import (
     ItemDetailView,
     ItemsPageView,
     JobView,
+    LinkBatchBody,
+    LinkBatchView,
 )
 from app.api.services import WorkItemService
 from app.core.repo.approved_history import HistoryQuery
@@ -58,6 +60,13 @@ def make_router(workflow: Workflow, service: WorkItemService) -> APIRouter:
             workflow.name, status, q, limit, offset, decision, sort, order
         )
 
+    if workflow.intake is not None:
+
+        @router.post("", status_code=202, response_model=LinkBatchView)
+        def queue_links(body: LinkBatchBody) -> LinkBatchView:
+            """Parse pasted links, create their items and queue one submission each."""
+            return service.queue_links(workflow.name, body.links)
+
     @router.get("/history", response_model=HistoryPageView)
     def list_history(
         q: str | None = None,
@@ -76,10 +85,10 @@ def make_router(workflow: Workflow, service: WorkItemService) -> APIRouter:
         limit: int = Query(default=25, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
     ) -> HistoryPageView:
-        """Accepted-deviation snapshots with the standard server-side filter row.
+        """Stored item snapshots with the standard server-side filter row.
 
         This is a separate read model from the live item list; it survives the current
-        work-item purge. ``ref``/``ref_text`` filter the five object links by name.
+        work-item purge. ``ref``/``ref_text`` filter the workflow's object links by name.
         """
         return service.list_history(
             workflow.name,
@@ -106,7 +115,7 @@ def make_router(workflow: Workflow, service: WorkItemService) -> APIRouter:
 
     @router.get("/history/{key}", response_model=ItemDetailView)
     def get_history_item(key: str) -> ItemDetailView:
-        """One approved snapshot with its attributes, refs, edits and accept decision."""
+        """One stored snapshot with its attributes, refs, edits and decision record."""
         return service.get_history_item(workflow.name, key)
 
     @router.get("/{key}", response_model=ItemDetailView)

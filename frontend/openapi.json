@@ -900,6 +900,55 @@
         "title": "JobsPageView",
         "type": "object"
       },
+      "LinkBatchBody": {
+        "description": "One paste of manually supplied item links.",
+        "properties": {
+          "links": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Links",
+            "type": "array"
+          }
+        },
+        "required": [
+          "links"
+        ],
+        "title": "LinkBatchBody",
+        "type": "object"
+      },
+      "LinkBatchView": {
+        "description": "The result of one manual-link paste.",
+        "properties": {
+          "queued": {
+            "title": "Queued",
+            "type": "integer"
+          },
+          "rejected": {
+            "items": {
+              "$ref": "#/components/schemas/RejectedLinkView"
+            },
+            "title": "Rejected",
+            "type": "array"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "workflow": {
+            "title": "Workflow",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow",
+          "queued",
+          "skipped",
+          "rejected"
+        ],
+        "title": "LinkBatchView",
+        "type": "object"
+      },
       "NetworkProfile": {
         "description": "How patient the browser is with this machine's connection.\n\nA closed set rather than a raw number, so the operator picks an outcome (\"how long\nmay a submit take\") and nothing downstream has to validate a range.\n\nExample:\n    profile = NetworkProfile(os.environ.get(\"SF_NETWORK_PROFILE\", \"default\"))",
         "enum": [
@@ -1096,6 +1145,25 @@
           "counts"
         ],
         "title": "QueueView",
+        "type": "object"
+      },
+      "RejectedLinkView": {
+        "description": "One pasted line the workflow could not turn into an item.",
+        "properties": {
+          "link": {
+            "title": "Link",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "link",
+          "reason"
+        ],
+        "title": "RejectedLinkView",
         "type": "object"
       },
       "SessionEventView": {
@@ -1484,8 +1552,15 @@
             "type": "string"
           },
           "listUrl": {
-            "title": "Listurl",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listurl"
           },
           "name": {
             "title": "Name",
@@ -1526,7 +1601,7 @@
   },
   "info": {
     "title": "bottled-lightning",
-    "version": "0.5.4"
+    "version": "0.5.5"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -1811,7 +1886,7 @@
     },
     "/api/deviations/history": {
       "get": {
-        "description": "Accepted-deviation snapshots with the standard server-side filter row.\n\nThis is a separate read model from the live item list; it survives the current\nwork-item purge. ``ref``/``ref_text`` filter the five object links by name.",
+        "description": "Stored item snapshots with the standard server-side filter row.\n\nThis is a separate read model from the live item list; it survives the current\nwork-item purge. ``ref``/``ref_text`` filter the workflow's object links by name.",
         "operationId": "list_history_api_deviations_history_get",
         "parameters": [
           {
@@ -2098,7 +2173,7 @@
     },
     "/api/deviations/history/{key}": {
       "get": {
-        "description": "One approved snapshot with its attributes, refs, edits and accept decision.",
+        "description": "One stored snapshot with its attributes, refs, edits and decision record.",
         "operationId": "get_history_item_api_deviations_history__key__get",
         "parameters": [
           {
@@ -2950,6 +3025,831 @@
         "summary": "Get Job Logs",
         "tags": [
           "admin"
+        ]
+      }
+    },
+    "/api/lms2-approvals": {
+      "get": {
+        "description": "Unified view: one row per item with its values and current decision.\n\n``status`` is repeatable (``?status=ready&status=needs_review``); ``decision``\nis ``accept``, ``reject`` or ``undecided``.",
+        "operationId": "list_items_api_lms2_approvals_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "decision",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Decision"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "last_seen",
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "title": "Order",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsPageView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Items",
+        "tags": [
+          "admin",
+          "lms2-approvals"
+        ]
+      },
+      "post": {
+        "description": "Parse pasted links, create their items and queue one submission each.",
+        "operationId": "queue_links_api_lms2_approvals_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkBatchBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkBatchView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Queue Links",
+        "tags": [
+          "admin",
+          "lms2-approvals"
+        ]
+      }
+    },
+    "/api/lms2-approvals/history": {
+      "get": {
+        "description": "Stored item snapshots with the standard server-side filter row.\n\nThis is a separate read model from the live item list; it survives the current\nwork-item purge. ``ref``/``ref_text`` filter the workflow's object links by name.",
+        "operationId": "list_history_api_lms2_approvals_history_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Key"
+            }
+          },
+          {
+            "in": "query",
+            "name": "key_in",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Key In"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status_text",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status Text"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "approved_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Approved At"
+            }
+          },
+          {
+            "in": "query",
+            "name": "approved_at_in",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Approved At In"
+            }
+          },
+          {
+            "in": "query",
+            "name": "decided_after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Decided After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "decided_before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Decided Before"
+            }
+          },
+          {
+            "in": "query",
+            "name": "field",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Field"
+            }
+          },
+          {
+            "in": "query",
+            "name": "field_text",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Field Text"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ref",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ref"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ref_text",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ref Text"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryPageView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List History",
+        "tags": [
+          "admin",
+          "lms2-approvals"
+        ]
+      }
+    },
+    "/api/lms2-approvals/history/{key}": {
+      "get": {
+        "description": "One stored snapshot with its attributes, refs, edits and decision record.",
+        "operationId": "get_history_item_api_lms2_approvals_history__key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemDetailView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get History Item",
+        "tags": [
+          "admin",
+          "lms2-approvals"
+        ]
+      }
+    },
+    "/api/lms2-approvals/{key}": {
+      "get": {
+        "description": "One item with attributes, object links and edit history.",
+        "operationId": "get_item_api_lms2_approvals__key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemDetailView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Item",
+        "tags": [
+          "admin",
+          "lms2-approvals"
+        ]
+      }
+    },
+    "/api/lms2-approvals/{key}/decisions": {
+      "delete": {
+        "description": "Undo the current decision and return the item to the deck.",
+        "operationId": "undo_decision_api_lms2_approvals__key__decisions_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemDetailView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Undo Decision",
+        "tags": [
+          "admin",
+          "lms2-approvals"
+        ]
+      },
+      "post": {
+        "description": "Record an accept/reject review decision (local, reversible).",
+        "operationId": "decide_api_lms2_approvals__key__decisions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemDetailView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decide",
+        "tags": [
+          "admin",
+          "lms2-approvals"
+        ]
+      }
+    },
+    "/api/lms2-approvals/{key}/extractions": {
+      "post": {
+        "description": "Queue one more extraction for an item that needs review.",
+        "operationId": "retry_extraction_api_lms2_approvals__key__extractions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retry Extraction",
+        "tags": [
+          "admin",
+          "lms2-approvals"
+        ]
+      }
+    },
+    "/api/lms2-approvals/{key}/field-values": {
+      "delete": {
+        "description": "Discard every proposal and return the item to ``ready``.",
+        "operationId": "discard_field_values_api_lms2_approvals__key__field_values_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemDetailView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Discard Field Values",
+        "tags": [
+          "admin",
+          "lms2-approvals"
+        ]
+      },
+      "patch": {
+        "description": "Propose editable values; ``null`` discards a proposal.",
+        "operationId": "patch_field_values_api_lms2_approvals__key__field_values_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FieldValuesBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemDetailView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Field Values",
+        "tags": [
+          "admin",
+          "lms2-approvals"
+        ]
+      }
+    },
+    "/api/lms2-approvals/{key}/jobs": {
+      "post": {
+        "description": "Enqueue the single ``SUBMIT`` job for this item.",
+        "operationId": "submit_item_api_lms2_approvals__key__jobs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Item",
+        "tags": [
+          "admin",
+          "lms2-approvals"
         ]
       }
     },

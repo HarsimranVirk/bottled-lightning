@@ -170,9 +170,10 @@ refresh; the watcher also refreshes every `SF_RESYNC_INTERVAL_SECONDS`.
     app/jobs/          persisted queue: dispatcher, worker, auth gate, logger
     app/pipeline/      list watcher, reconciler, closure resolver
     app/api/           FastAPI app, plural-noun routes, schemas, services
-    app/workflows/     workflow implementations; deviations_z02 is the only one
-                       today (catalog, description, product map, adapters,
-                       extraction, submission)
+    app/workflows/     workflow implementations: deviations_z02 (catalog,
+                       description, product map, adapters, extraction,
+                       submission) and lms2_approval (manual links, automatic
+                       approval, no list view or extraction)
     app/devtools/      dev-only read-only DB explorer service and exports
     app/maintenance.py manual retention policy (current 24 h incl. terminal jobs/logs,
                        history 90 d; sync_runs ring in SyncRunRepository)

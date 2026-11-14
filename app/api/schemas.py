@@ -56,8 +56,9 @@ class WorkflowView(ApiModel):
     label: str
     """Human-readable workflow name for the UI."""
 
-    list_url: str
-    """Lightning list URL this workflow refreshes (``filterName`` + ``fcf``)."""
+    list_url: str | None
+    """Lightning list URL this workflow refreshes (``filterName`` + ``fcf``); ``None``
+    for a list-less workflow whose items are supplied manually."""
 
     ref_kinds: list[str]
     """Object kinds whose links every item carries, in display order."""
@@ -67,6 +68,41 @@ class WorkflowView(ApiModel):
 
     terminal_labels: dict[str, str]
     """Status value → operator label override, e.g. ``{"completed": "Implemented"}``."""
+
+
+class LinkBatchBody(ApiModel):
+    """One paste of manually supplied item links."""
+
+    links: list[str]
+    """Lines exactly as the operator pasted them; blank lines are ignored and each
+    remaining line is parsed by the workflow's intake."""
+
+
+class RejectedLinkView(ApiModel):
+    """One pasted line the workflow could not turn into an item."""
+
+    link: str
+    """The line as pasted, trimmed."""
+
+    reason: str
+    """Operator-facing sentence explaining why it was rejected."""
+
+
+class LinkBatchView(ApiModel):
+    """The result of one manual-link paste."""
+
+    workflow: str
+    """Workflow that accepted the links."""
+
+    queued: int
+    """Items that now have a queued submission job."""
+
+    skipped: int
+    """Valid links left alone because the item is terminal or already has an active
+    job."""
+
+    rejected: list[RejectedLinkView]
+    """Lines that could not be parsed; nothing was stored for them."""
 
 
 class FieldView(ApiModel):

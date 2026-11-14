@@ -13,7 +13,7 @@ from typing import Protocol
 
 from app.core.errors import SessionExpired, TransientBrowserError
 from app.core.job_logger import JobLogger
-from app.core.models import Job
+from app.core.models import Job, utcnow
 from app.core.registry import WorkflowRegistry
 from app.core.repo.approved_history import ApprovedHistoryRepository
 from app.core.repo.events import EventRepository
@@ -21,6 +21,8 @@ from app.core.repo.jobs import JobRepository
 from app.core.repo.work_items import WorkItemRepository
 from app.core.status import (
     MAX_JOB_ATTEMPTS,
+    TERMINAL_STATUSES,
+    ClosureSource,
     ExtractOutcome,
     JobKind,
     Phase,
@@ -87,6 +89,8 @@ class Worker:
         * extraction ``EXTRACTED``/``SKIPPED`` -> job ``SUCCEEDED``
         * extraction ``FAILED`` -> requeued once, then ``FAILED``
         * submission ``COMPLETED``/``VALIDATED``/``ALREADY_CLOSED`` -> job ``SUCCEEDED``
+        * a successful ``COMPLETED`` on a list-less workflow also moves its item to
+          ``COMPLETED`` once the lease is gone, because no watcher can observe closure
         * submission ``FAILED`` -> ``FAILED`` (never retried automatically)
         * ``SessionExpired`` -> ``BLOCKED_AUTH`` and the dispatcher pauses
         * anything else -> ``FAILED`` with the exception recorded
@@ -106,12 +110,22 @@ class Worker:
         log(f"{job.kind.value} start: {job.workflow}/{job.item}")
         try:
             if job.kind is JobKind.EXTRACT:
+                extraction = workflow.extraction
+                if extraction is None:
+                    raise RuntimeError(
+                        f"{workflow.name} has no extraction pipeline"
+                    )
                 self._jobs.set_phase(job.id, Phase.EXTRACT)
-                extraction = await workflow.extraction.run(item, tabs, log)
-                self._finish_extract(job, extraction, log)
+                outcome = await extraction.run(item, tabs, log)
+                self._finish_extract(job, outcome, log)
             else:
                 submission = await workflow.submission.run(item, tabs, log)
                 self._finish_submit(job, submission, log)
+                if (
+                    workflow.list_view is None
+                    and submission is SubmitOutcome.COMPLETED
+                ):
+                    self._complete_listless(job)
         except SessionExpired as exc:
             self._auth.on_session_expired(job)
             log(f"session expired — parked for manual login: {exc}")
@@ -211,6 +225,47 @@ class Worker:
         # automatically would re-write against a state we no longer trust.
         self._jobs.fail(job.id, f"submission {outcome.value}", retryable=False)
         log(f"submission {outcome.value}")
+
+    def _complete_listless(self, job: Job) -> None:
+        """
+        Finish a list-less workflow's item after its submission job succeeds.
+
+        A workflow with no list view has no watcher to observe the item leaving
+        Salesforce, so the usual absence-driven closure never runs. Its pipeline ends in
+        ``EXECUTING`` when the final SF action succeeded; this moves that item to
+        ``COMPLETED`` now that the job's lease is no longer active. Any other status is
+        left alone (and logged) rather than forcing an illegal transition.
+        """
+        item = self._items.get(job.workflow, job.item)
+        if item is None or item.status in TERMINAL_STATUSES:
+            return
+        if item.status is not WorkItemStatus.EXECUTING:
+            logger.warning(
+                "%s/%s: submission succeeded from %s; not auto-closing",
+                job.workflow,
+                job.item,
+                item.status.value,
+            )
+            return
+        try:
+            self._items.transition(
+                job.workflow,
+                job.item,
+                WorkItemStatus.COMPLETED,
+                source=ClosureSource.SYSTEM,
+                closed_at=utcnow(),
+            )
+            self._events.emit(
+                "closed",
+                workflow=job.workflow,
+                item=job.item,
+                job_id=job.id,
+                detail=f"{WorkItemStatus.COMPLETED.value}/{ClosureSource.SYSTEM.value}",
+            )
+        except Exception:
+            logger.exception(
+                "could not auto-close %s/%s", job.workflow, job.item
+            )
 
     def _park_submission(self, job: Job) -> None:
         """After a failed submission, make sure the item is not stuck mid-phase.

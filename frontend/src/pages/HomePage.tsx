@@ -56,6 +56,7 @@ export function HomePage(): JSX.Element {
               {queue.data?.counts.queued ?? 0} queued.
             </Text>
             <Link to="/deviations-z02">Open Deviations Z02</Link>
+            <Link to="/lms2-approvals">LMS2 Contract Approval</Link>
             <Link to="/jobs">Jobs</Link>
           </FlexLayout>
         </Card>
